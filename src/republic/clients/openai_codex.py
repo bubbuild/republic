@@ -197,6 +197,46 @@ class OpenAICodexClient:
                 return text
         return str(content)
 
+    @staticmethod
+    def _stringify_arguments(value: Any) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (dict, list, int, float, bool)) or value is None:
+            try:
+                return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            except TypeError:
+                return None
+        return None
+
+    @classmethod
+    def _extract_assistant_function_calls(cls, message: dict[str, Any]) -> list[dict[str, Any]]:
+        raw_calls = message.get("tool_calls")
+        if not isinstance(raw_calls, list):
+            return []
+
+        calls: list[dict[str, Any]] = []
+        for raw in raw_calls:
+            if not isinstance(raw, dict):
+                continue
+            function = raw.get("function")
+            if not isinstance(function, dict):
+                continue
+            name = function.get("name")
+            arguments = cls._stringify_arguments(function.get("arguments"))
+            if not isinstance(name, str) or not name or arguments is None:
+                continue
+
+            call: dict[str, Any] = {
+                "type": "function_call",
+                "name": name,
+                "arguments": arguments,
+            }
+            call_id = raw.get("id")
+            if isinstance(call_id, str) and call_id:
+                call["call_id"] = call_id
+            calls.append(call)
+        return calls
+
     @classmethod
     def _convert_messages(cls, messages: list[dict[str, Any]]) -> tuple[str | None, list[dict[str, Any]]]:
         instructions: list[str] = []
@@ -216,6 +256,7 @@ class OpenAICodexClient:
                             "content": [{"type": "output_text", "text": content}],
                         }
                     )
+                items.extend(cls._extract_assistant_function_calls(message))
                 continue
             if role == "tool":
                 call_id = message.get("tool_call_id")
