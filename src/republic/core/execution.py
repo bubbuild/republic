@@ -26,6 +26,11 @@ from any_llm.exceptions import (
     UnsupportedProviderError,
 )
 
+from republic.clients.openai_codex import (
+    OpenAICodexBackendConfig,
+    OpenAICodexClient,
+    should_use_openai_codex_backend,
+)
 from republic.core.errors import ErrorKind, RepublicError
 
 logger = logging.getLogger(__name__)
@@ -77,7 +82,7 @@ class LLMCore:
         self._use_responses = use_responses
         self._verbose = verbose
         self._error_classifier = error_classifier
-        self._client_cache: dict[str, AnyLLM] = {}
+        self._client_cache: dict[str, Any] = {}
 
     @property
     def provider(self) -> str:
@@ -180,17 +185,25 @@ class LLMCore:
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
-    def get_client(self, provider: str) -> AnyLLM:
+    def get_client(self, provider: str) -> Any:
         api_key = self._resolve_api_key(provider)
         api_base = self._resolve_api_base(provider)
         cache_key = self._freeze_cache_key(provider, api_key, api_base)
         if cache_key not in self._client_cache:
-            self._client_cache[cache_key] = AnyLLM.create(
-                provider,
-                api_key=api_key,
-                api_base=api_base,
-                **self._client_args,
-            )
+            if should_use_openai_codex_backend(provider, api_key):
+                self._client_cache[cache_key] = OpenAICodexClient(
+                    OpenAICodexBackendConfig(
+                        api_key=api_key or "",
+                        api_base=api_base,
+                    )
+                )
+            else:
+                self._client_cache[cache_key] = AnyLLM.create(
+                    provider,
+                    api_key=api_key,
+                    api_base=api_base,
+                    **self._client_args,
+                )
         return self._client_cache[cache_key]
 
     def log_error(self, error: RepublicError, provider: str, model: str, attempt: int) -> None:

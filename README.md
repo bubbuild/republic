@@ -46,6 +46,29 @@ else:
 - **Tape-first memory**: Use anchor/handoff to bound context windows and replay full evidence.
 - **Event streaming**: Subscribe to text deltas, tool calls, tool results, usage, and final state.
 
+## Provider Auth Resolver
+
+Republic can resolve provider keys dynamically via `api_key_resolver`.
+
+```python
+from republic import LLM, login_openai_codex_oauth, openai_codex_oauth_resolver
+
+# First-time login (paste redirect URL when prompted by your app/CLI wrapper).
+# You can wire `prompt_for_redirect` to your own input UI.
+login_openai_codex_oauth(
+    prompt_for_redirect=lambda authorize_url: input(f"Open this URL and paste callback URL:\n{authorize_url}\n> "),
+)
+
+llm = LLM(
+    model="openai:gpt-5.3-codex",
+    api_key_resolver=openai_codex_oauth_resolver(),
+)
+print(llm.chat("Say hello in one sentence."))
+```
+
+`openai_codex_oauth_resolver()` reads `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) and returns
+the current access token for `openai`, refreshing it automatically when it is near expiry.
+If you omit `prompt_for_redirect`, login will try to capture the callback from `redirect_uri` automatically.
 ## Development
 
 ```bash
