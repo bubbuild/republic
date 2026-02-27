@@ -66,7 +66,15 @@ class OpenAICodexClient:
         return self._perform_request(payload, stream=stream)
 
     async def acompletion(self, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self.completion, **kwargs)
+        response = await asyncio.to_thread(self.completion, **kwargs)
+        if not kwargs.get("stream"):
+            return response
+
+        async def _iterator() -> Any:
+            for chunk in response:
+                yield chunk
+
+        return _iterator()
 
     def embedding(self, **_: Any) -> Any:
         raise OpenAICodexTransportError(None, "OpenAI Codex backend does not support embeddings")
@@ -91,10 +99,9 @@ class OpenAICodexClient:
             raise OpenAICodexTransportError(None, str(exc.reason)) from exc
 
         parsed = self._parse_sse(body)
-        response = self._build_response(parsed)
         if stream:
-            return response
-        return response
+            return parsed["chunks"]
+        return self._build_response(parsed)
 
     def _build_payload(
         self,
@@ -267,6 +274,66 @@ class OpenAICodexClient:
         return call
 
     @staticmethod
+    def _make_text_chunk(text: str) -> Any:
+        delta = SimpleNamespace(content=text, tool_calls=[])
+        choice = SimpleNamespace(delta=delta)
+        return SimpleNamespace(choices=[choice], usage=None)
+
+    @staticmethod
+    def _make_tool_chunk(tool_call: dict[str, Any]) -> Any:
+        function = tool_call.get("function", {})
+        delta_tool_call = SimpleNamespace(
+            id=tool_call.get("id"),
+            type=tool_call.get("type"),
+            function=SimpleNamespace(
+                name=function.get("name"),
+                arguments=function.get("arguments"),
+            ),
+        )
+        delta = SimpleNamespace(content="", tool_calls=[delta_tool_call])
+        choice = SimpleNamespace(delta=delta)
+        return SimpleNamespace(choices=[choice], usage=None)
+
+    @staticmethod
+    def _make_usage_chunk(usage: dict[str, Any]) -> Any:
+        delta = SimpleNamespace(content="", tool_calls=[])
+        choice = SimpleNamespace(delta=delta)
+        return SimpleNamespace(choices=[choice], usage=usage)
+
+    @classmethod
+    def _handle_stream_event(
+        cls,
+        event: dict[str, Any],
+        *,
+        parts: list[str],
+        tool_calls: list[dict[str, Any]],
+        chunks: list[Any],
+        fallback_text: str | None,
+        usage: dict[str, Any] | None,
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        event_type = event.get("type")
+        if event_type == "response.output_text.delta":
+            delta = event.get("delta")
+            if isinstance(delta, str):
+                parts.append(delta)
+                chunks.append(cls._make_text_chunk(delta))
+            return fallback_text, usage
+        if event_type == "response.output_item.done":
+            item = event.get("item")
+            tool_call = cls._extract_tool_call(item)
+            if tool_call is not None:
+                tool_calls.append(tool_call)
+                chunks.append(cls._make_tool_chunk(tool_call))
+                return fallback_text, usage
+            return cls._extract_fallback_text(item) or fallback_text, usage
+        if event_type in {"response.completed", "response.done"}:
+            next_usage = cls._update_usage_from_event(event) or usage
+            if next_usage is not None:
+                chunks.append(cls._make_usage_chunk(next_usage))
+            return fallback_text, next_usage
+        return fallback_text, usage
+
+    @staticmethod
     def _update_usage_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
         response = event.get("response")
         if not isinstance(response, dict):
@@ -302,6 +369,7 @@ class OpenAICodexClient:
         usage: dict[str, Any] | None = None
         fallback_text: str | None = None
         tool_calls: list[dict[str, Any]] = []
+        chunks: list[Any] = []
         for chunk in raw.split("\n\n"):
             lines = [line[5:].strip() for line in chunk.splitlines() if line.startswith("data:")]
             if not lines:
@@ -314,26 +382,19 @@ class OpenAICodexClient:
             except json.JSONDecodeError:
                 continue
             cls._raise_event_error(event)
-            event_type = event.get("type")
-            if event_type == "response.output_text.delta":
-                delta = event.get("delta")
-                if isinstance(delta, str):
-                    parts.append(delta)
-                continue
-            if event_type == "response.output_item.done":
-                item = event.get("item")
-                tool_call = cls._extract_tool_call(item)
-                if tool_call is not None:
-                    tool_calls.append(tool_call)
-                    continue
-                fallback_text = cls._extract_fallback_text(item) or fallback_text
-                continue
-            if event_type in {"response.completed", "response.done"}:
-                usage = cls._update_usage_from_event(event) or usage
+            fallback_text, usage = cls._handle_stream_event(
+                event,
+                parts=parts,
+                tool_calls=tool_calls,
+                chunks=chunks,
+                fallback_text=fallback_text,
+                usage=usage,
+            )
         return {
             "text": "".join(parts) or fallback_text or "",
             "usage": usage,
             "tool_calls": tool_calls,
+            "chunks": chunks,
         }
 
     @staticmethod

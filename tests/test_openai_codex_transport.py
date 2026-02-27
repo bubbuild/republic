@@ -4,6 +4,8 @@ import base64
 import json
 from types import SimpleNamespace
 
+import pytest
+
 import republic.core.execution as execution
 from republic import LLM, tool
 from republic.auth.openai_codex import extract_openai_codex_account_id
@@ -204,3 +206,145 @@ def test_regular_openai_key_still_uses_anyllm(monkeypatch) -> None:
     assert llm.chat("Say hello") == "ok"
     assert created[0][0] == "openai"
     assert created[0][1]["api_key"] == "sk-test"
+
+
+
+def test_openai_oauth_stream_yields_text_and_usage(monkeypatch) -> None:
+    def _unexpected_create(*args, **kwargs):
+        raise AssertionError
+
+    def _urlopen(request, timeout=0):
+        sse = "\n\n".join(
+            [
+                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
+                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "tools"}),
+                'data: ' + json.dumps(
+                    {
+                        "type": "response.completed",
+                        "response": {"usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
+                    }
+                ),
+            ]
+        ) + "\n\n"
+        return FakeHTTPResponse(sse)
+
+    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
+    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+
+    llm = LLM(
+        model="openai:gpt-5-codex",
+        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+    )
+
+    stream = llm.stream("Check tools")
+    assert list(stream) == ["Checking ", "tools"]
+    assert stream.error is None
+    assert stream.usage == {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}
+
+
+def test_openai_oauth_stream_events_carries_tools_usage_and_final(monkeypatch) -> None:
+    def _unexpected_create(*args, **kwargs):
+        raise AssertionError
+
+    def _urlopen(request, timeout=0):
+        sse = "\n\n".join(
+            [
+                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
+                'data: '
+                + json.dumps(
+                    {
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_1",
+                            "call_id": "call_1",
+                            "name": "echo",
+                            "arguments": json.dumps({"message": "tokyo"}),
+                            "status": "completed",
+                        },
+                    }
+                ),
+                'data: ' + json.dumps(
+                    {
+                        "type": "response.completed",
+                        "response": {"usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8}},
+                    }
+                ),
+            ]
+        ) + "\n\n"
+        return FakeHTTPResponse(sse)
+
+    @tool
+    def echo(message: str) -> str:
+        return message.upper()
+
+    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
+    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+
+    llm = LLM(
+        model="openai:gpt-5-codex",
+        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+    )
+
+    stream = llm.stream_events("Call echo for tokyo", tools=[echo])
+    events = list(stream)
+    kinds = [event.kind for event in events]
+
+    assert "text" in kinds
+    assert "tool_call" in kinds
+    assert "tool_result" in kinds
+    assert "usage" in kinds
+    assert kinds[-1] == "final"
+
+    tool_result = next(event for event in events if event.kind == "tool_result")
+    assert tool_result.data["result"] == "TOKYO"
+    assert stream.error is None
+    assert stream.usage == {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8}
+
+
+@pytest.mark.asyncio
+async def test_openai_oauth_stream_events_async_executes_tool_handler(monkeypatch) -> None:
+    def _unexpected_create(*args, **kwargs):
+        raise AssertionError
+
+    def _urlopen(request, timeout=0):
+        sse = "\n\n".join(
+            [
+                'data: '
+                + json.dumps(
+                    {
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_1",
+                            "call_id": "call_1",
+                            "name": "echo",
+                            "arguments": json.dumps({"message": "tokyo"}),
+                            "status": "completed",
+                        },
+                    }
+                ),
+                'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+            ]
+        ) + "\n\n"
+        return FakeHTTPResponse(sse)
+
+    @tool
+    async def echo(message: str) -> str:
+        return message.upper()
+
+    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
+    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+
+    llm = LLM(
+        model="openai:gpt-5-codex",
+        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+    )
+
+    stream = await llm.stream_events_async("Call echo for tokyo", tools=[echo])
+    events = [event async for event in stream]
+    tool_results = [event for event in events if event.kind == "tool_result"]
+
+    assert len(tool_results) == 1
+    assert tool_results[0].data["result"] == "TOKYO"
+    assert stream.error is None
