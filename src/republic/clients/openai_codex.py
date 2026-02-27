@@ -115,8 +115,9 @@ class OpenAICodexClient:
             "include": ["reasoning.encrypted_content"],
             "text": {"verbosity": "medium"},
         }
-        if tools:
-            payload["tools"] = tools
+        responses_tools = self._convert_tools(tools)
+        if responses_tools:
+            payload["tools"] = responses_tools
             payload["tool_choice"] = "auto"
             payload["parallel_tool_calls"] = True
         if reasoning_effort is not None:
@@ -142,6 +143,32 @@ class OpenAICodexClient:
         if raw.endswith("/codex"):
             return f"{raw}/responses"
         return f"{raw}/codex/responses"
+
+    @staticmethod
+    def _convert_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        if not tools:
+            return None
+        converted: list[dict[str, Any]] = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            function = tool.get("function")
+            if isinstance(function, dict):
+                name = function.get("name")
+                parameters = function.get("parameters")
+                if isinstance(name, str) and isinstance(parameters, dict):
+                    converted.append(
+                        {
+                            "type": "function",
+                            "name": name,
+                            "description": function.get("description", "") or "",
+                            "parameters": parameters,
+                        }
+                    )
+                    continue
+            if tool.get("type") == "function" and isinstance(tool.get("name"), str):
+                converted.append(dict(tool))
+        return converted or None
 
     @staticmethod
     def _stringify_content(content: Any) -> str:
@@ -170,22 +197,22 @@ class OpenAICodexClient:
         for message in messages:
             role = str(message.get("role", "user"))
             content = cls._stringify_content(message.get("content", ""))
-            if not content:
-                continue
             if role == "system":
-                instructions.append(content)
+                if content:
+                    instructions.append(content)
                 continue
             if role == "assistant":
-                items.append(
-                    {
-                        "role": "assistant",
-                        "content": [{"type": "output_text", "text": content}],
-                    }
-                )
+                if content:
+                    items.append(
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": content}],
+                        }
+                    )
                 continue
             if role == "tool":
                 call_id = message.get("tool_call_id")
-                if isinstance(call_id, str) and call_id:
+                if isinstance(call_id, str) and call_id and content:
                     items.append(
                         {
                             "type": "function_call_output",
@@ -194,12 +221,13 @@ class OpenAICodexClient:
                         }
                     )
                 continue
-            items.append(
-                {
-                    "role": role,
-                    "content": [{"type": "input_text", "text": content}],
-                }
-            )
+            if content:
+                items.append(
+                    {
+                        "role": role,
+                        "content": [{"type": "input_text", "text": content}],
+                    }
+                )
         return ("\n\n".join(instructions) or None), items
 
     @staticmethod
@@ -217,6 +245,26 @@ class OpenAICodexClient:
             if isinstance(text, str) and text:
                 collected.append(text)
         return "".join(collected) or None
+
+    @staticmethod
+    def _extract_tool_call(item: Any) -> dict[str, Any] | None:
+        if not isinstance(item, dict) or item.get("type") != "function_call":
+            return None
+        name = item.get("name")
+        arguments = item.get("arguments")
+        if not isinstance(name, str) or not isinstance(arguments, str):
+            return None
+        call: dict[str, Any] = {
+            "type": "function",
+            "function": {
+                "name": name,
+                "arguments": arguments,
+            },
+        }
+        call_id = item.get("call_id")
+        if isinstance(call_id, str) and call_id:
+            call["id"] = call_id
+        return call
 
     @staticmethod
     def _update_usage_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
@@ -253,6 +301,7 @@ class OpenAICodexClient:
         parts: list[str] = []
         usage: dict[str, Any] | None = None
         fallback_text: str | None = None
+        tool_calls: list[dict[str, Any]] = []
         for chunk in raw.split("\n\n"):
             lines = [line[5:].strip() for line in chunk.splitlines() if line.startswith("data:")]
             if not lines:
@@ -271,16 +320,38 @@ class OpenAICodexClient:
                 if isinstance(delta, str):
                     parts.append(delta)
                 continue
-            if event_type == "response.output_item.done" and not parts:
-                fallback_text = cls._extract_fallback_text(event.get("item")) or fallback_text
+            if event_type == "response.output_item.done":
+                item = event.get("item")
+                tool_call = cls._extract_tool_call(item)
+                if tool_call is not None:
+                    tool_calls.append(tool_call)
+                    continue
+                fallback_text = cls._extract_fallback_text(item) or fallback_text
                 continue
             if event_type in {"response.completed", "response.done"}:
                 usage = cls._update_usage_from_event(event) or usage
-        return {"text": "".join(parts) or fallback_text or "", "usage": usage}
+        return {
+            "text": "".join(parts) or fallback_text or "",
+            "usage": usage,
+            "tool_calls": tool_calls,
+        }
 
     @staticmethod
     def _build_response(parsed: dict[str, Any]) -> Any:
-        message = SimpleNamespace(content=parsed.get("text", ""), tool_calls=[])
+        tool_calls_raw = parsed.get("tool_calls") or []
+        tool_calls = [
+            SimpleNamespace(
+                id=item.get("id"),
+                type=item.get("type"),
+                function=SimpleNamespace(
+                    name=item.get("function", {}).get("name"),
+                    arguments=item.get("function", {}).get("arguments"),
+                ),
+            )
+            for item in tool_calls_raw
+            if isinstance(item, dict)
+        ]
+        message = SimpleNamespace(content=parsed.get("text", ""), tool_calls=tool_calls)
         choice = SimpleNamespace(message=message)
         usage = parsed.get("usage")
         return SimpleNamespace(choices=[choice], usage=usage)

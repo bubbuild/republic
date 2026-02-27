@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 
 import republic.core.execution as execution
-from republic import LLM
+from republic import LLM, tool
 from republic.auth.openai_codex import extract_openai_codex_account_id
 
 JWT_PAYLOAD = json.dumps({"https://api.openai.com/auth": {"chatgpt_account_id": "acct-test"}}).encode("utf-8")
@@ -73,6 +73,111 @@ def test_openai_oauth_token_uses_codex_backend(monkeypatch) -> None:
     assert body["model"] == "gpt-5.3-codex"
     assert body["stream"] is True
     assert body["input"][0]["role"] == "user"
+
+
+def test_openai_oauth_tool_calls_are_parsed_and_tools_are_converted(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _unexpected_create(*args, **kwargs):
+        raise AssertionError
+
+    def _urlopen(request, timeout=0):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        sse = "\n\n".join(
+            [
+                'data: '
+                + json.dumps(
+                    {
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_1",
+                            "call_id": "call_1",
+                            "name": "echo",
+                            "arguments": json.dumps({"message": "hello"}),
+                            "status": "completed",
+                        },
+                    }
+                ),
+                'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+            ]
+        ) + "\n\n"
+        return FakeHTTPResponse(sse)
+
+    @tool
+    def echo(message: str) -> str:
+        return message
+
+    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
+    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+
+    llm = LLM(
+        model="openai:gpt-5-codex",
+        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+    )
+
+    calls = llm.tool_calls("Use echo", tools=[echo])
+    assert calls == [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+                "name": "echo",
+                "arguments": json.dumps({"message": "hello"}),
+            },
+        }
+    ]
+    body = captured["body"]
+    assert body["tools"][0]["type"] == "function"
+    assert body["tools"][0]["name"] == "echo"
+    assert body["tools"][0]["description"] == ""
+    assert body["tools"][0]["parameters"]["type"] == "object"
+    assert body["tools"][0]["parameters"]["properties"]["message"]["type"] == "string"
+    assert body["tools"][0]["parameters"]["required"] == ["message"]
+
+
+def test_openai_oauth_run_tools_executes_tool(monkeypatch) -> None:
+    def _unexpected_create(*args, **kwargs):
+        raise AssertionError
+
+    def _urlopen(request, timeout=0):
+        sse = "\n\n".join(
+            [
+                'data: '
+                + json.dumps(
+                    {
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_1",
+                            "call_id": "call_1",
+                            "name": "echo",
+                            "arguments": json.dumps({"message": "hello"}),
+                            "status": "completed",
+                        },
+                    }
+                ),
+                'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+            ]
+        ) + "\n\n"
+        return FakeHTTPResponse(sse)
+
+    @tool
+    def echo(message: str) -> str:
+        return f"echo:{message}"
+
+    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
+    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+
+    llm = LLM(
+        model="openai:gpt-5-codex",
+        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+    )
+
+    result = llm.run_tools("Use echo", tools=[echo])
+    assert result.kind == "tools"
+    assert result.tool_calls[0]["function"]["name"] == "echo"
+    assert result.tool_results == ["echo:hello"]
 
 
 def test_regular_openai_key_still_uses_anyllm(monkeypatch) -> None:
