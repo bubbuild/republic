@@ -433,9 +433,18 @@ class LLMCore:
             converted_tools.append(dict(tool))
         return converted_tools
 
-    def _should_use_responses(self, client: AnyLLM, *, provider_name: str) -> bool:
+    def _should_use_responses(
+        self,
+        client: AnyLLM,
+        *,
+        provider_name: str,
+        model_id: str,
+        tools_payload: list[dict[str, Any]] | None,
+    ) -> bool:
         return provider_policies.should_use_responses(
             provider_name=provider_name,
+            model_id=model_id,
+            has_tools=bool(tools_payload),
             use_responses=self._use_responses,
             supports_responses=bool(getattr(client, "SUPPORTS_RESPONSES", False)),
         )
@@ -453,7 +462,12 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(client, provider_name=provider_name):
+        if self._should_use_responses(
+            client,
+            provider_name=provider_name,
+            model_id=model_id,
+            tools_payload=tools_payload,
+        ):
             instructions, input_items = self._split_messages_for_responses(messages_payload)
             responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
             return client.responses(
@@ -488,7 +502,12 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(client, provider_name=provider_name):
+        if self._should_use_responses(
+            client,
+            provider_name=provider_name,
+            model_id=model_id,
+            tools_payload=tools_payload,
+        ):
             instructions, input_items = self._split_messages_for_responses(messages_payload)
             responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
             return await client.aresponses(
