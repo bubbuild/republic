@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from any_llm.exceptions import InvalidRequestError
 
 from republic import LLM, tool
 from republic.clients.chat import ChatClient
@@ -178,6 +179,35 @@ def test_openrouter_anthropic_with_tools_falls_back_to_completion(fake_anyllm) -
     assert len(calls) == 1
     assert calls[0]["function"]["name"] == "echo"
     assert client.calls[-1].get("responses") is None
+
+
+def test_tool_calls_fallback_to_completion_when_responses_rejects_request(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.SUPPORTS_RESPONSES = True
+    client.queue_responses(InvalidRequestError("responses rejected this tool request"))
+    client.queue_completion(make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]))
+
+    llm = LLM(model="openrouter:openai/gpt-4o-mini", api_key="dummy", use_responses=True)
+    calls = llm.tool_calls("Call echo for tokyo", tools=[echo])
+
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "echo"
+    assert client.calls[-2].get("responses") is True
+    assert client.calls[-1].get("responses") is None
+
+
+def test_chat_fallback_to_responses_when_completion_rejects_request(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.SUPPORTS_RESPONSES = True
+    client.queue_completion(InvalidRequestError("completion rejected request"))
+    client.queue_responses(make_responses_response(text="hello"))
+
+    llm = LLM(model="openrouter:openai/gpt-4o-mini", api_key="dummy", use_responses=False)
+    result = llm.chat("hi")
+
+    assert result == "hello"
+    assert client.calls[-2].get("responses") is None
+    assert client.calls[-1].get("responses") is True
 
 
 def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) -> None:

@@ -31,9 +31,9 @@ from republic.clients.openai_codex import (
     OpenAICodexClient,
     should_use_openai_codex_backend,
 )
-from republic.clients.parsing import responses as responses_parser
 from republic.core import provider_policies
 from republic.core.errors import ErrorKind, RepublicError
+from republic.core.request_adapters import normalize_responses_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -373,7 +373,7 @@ class LLMCore:
 
     def _decide_responses_kwargs(self, max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
         clean_kwargs = self._sanitize_request_kwargs(kwargs)
-        clean_kwargs = responses_parser.normalize_request_kwargs(clean_kwargs)
+        clean_kwargs = normalize_responses_kwargs(clean_kwargs)
         if "max_output_tokens" in clean_kwargs:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
@@ -433,20 +433,118 @@ class LLMCore:
             converted_tools.append(dict(tool))
         return converted_tools
 
-    def _should_use_responses(
+    def _transport_order(
         self,
         client: AnyLLM,
         *,
         provider_name: str,
         model_id: str,
         tools_payload: list[dict[str, Any]] | None,
-    ) -> bool:
-        return provider_policies.should_use_responses(
+    ) -> tuple[str, ...]:
+        return provider_policies.transport_order(
             provider_name=provider_name,
             model_id=model_id,
             has_tools=bool(tools_payload),
             use_responses=self._use_responses,
             supports_responses=bool(getattr(client, "SUPPORTS_RESPONSES", False)),
+        )
+
+    def _should_fallback_transport(self, exc: Exception) -> bool:
+        kind = self.classify_exception(exc)
+        return kind in {ErrorKind.INVALID_INPUT, ErrorKind.PROVIDER}
+
+    def _call_responses_sync(
+        self,
+        *,
+        client: AnyLLM,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        instructions, input_items = self._split_messages_for_responses(messages_payload)
+        responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
+        return client.responses(
+            model=model_id,
+            input_data=input_items,
+            tools=self._convert_tools_for_responses(tools_payload),
+            stream=stream,
+            instructions=instructions,
+            **self._decide_responses_kwargs(max_tokens, responses_kwargs),
+        )
+
+    def _call_completion_sync(
+        self,
+        *,
+        client: AnyLLM,
+        provider_name: str,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
+        completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
+        return client.completion(
+            model=model_id,
+            messages=messages_payload,
+            tools=tools_payload,
+            stream=stream,
+            reasoning_effort=reasoning_effort,
+            **completion_kwargs,
+        )
+
+    async def _call_responses_async(
+        self,
+        *,
+        client: AnyLLM,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        instructions, input_items = self._split_messages_for_responses(messages_payload)
+        responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
+        return await client.aresponses(
+            model=model_id,
+            input_data=input_items,
+            tools=self._convert_tools_for_responses(tools_payload),
+            stream=stream,
+            instructions=instructions,
+            **self._decide_responses_kwargs(max_tokens, responses_kwargs),
+        )
+
+    async def _call_completion_async(
+        self,
+        *,
+        client: AnyLLM,
+        provider_name: str,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
+        completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
+        return await client.acompletion(
+            model=model_id,
+            messages=messages_payload,
+            tools=tools_payload,
+            stream=stream,
+            reasoning_effort=reasoning_effort,
+            **completion_kwargs,
         )
 
     def _call_client_sync(
@@ -462,32 +560,41 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(
+        transports = self._transport_order(
             client,
             provider_name=provider_name,
             model_id=model_id,
             tools_payload=tools_payload,
-        ):
-            instructions, input_items = self._split_messages_for_responses(messages_payload)
-            responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
-            return client.responses(
-                model=model_id,
-                input_data=input_items,
-                tools=self._convert_tools_for_responses(tools_payload),
-                stream=stream,
-                instructions=instructions,
-                **self._decide_responses_kwargs(max_tokens, responses_kwargs),
-            )
-        completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
-        completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
-        return client.completion(
-            model=model_id,
-            messages=messages_payload,
-            tools=tools_payload,
-            stream=stream,
-            reasoning_effort=reasoning_effort,
-            **completion_kwargs,
         )
+        for index, transport in enumerate(transports):
+            try:
+                if transport == "responses":
+                    return self._call_responses_sync(
+                        client=client,
+                        model_id=model_id,
+                        messages_payload=messages_payload,
+                        tools_payload=tools_payload,
+                        max_tokens=max_tokens,
+                        stream=stream,
+                        reasoning_effort=reasoning_effort,
+                        kwargs=kwargs,
+                    )
+                return self._call_completion_sync(
+                    client=client,
+                    provider_name=provider_name,
+                    model_id=model_id,
+                    messages_payload=messages_payload,
+                    tools_payload=tools_payload,
+                    max_tokens=max_tokens,
+                    stream=stream,
+                    reasoning_effort=reasoning_effort,
+                    kwargs=kwargs,
+                )
+            except Exception as exc:
+                has_next_transport = index + 1 < len(transports)
+                if has_next_transport and self._should_fallback_transport(exc):
+                    continue
+                raise
 
     async def _call_client_async(
         self,
@@ -502,32 +609,41 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(
+        transports = self._transport_order(
             client,
             provider_name=provider_name,
             model_id=model_id,
             tools_payload=tools_payload,
-        ):
-            instructions, input_items = self._split_messages_for_responses(messages_payload)
-            responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
-            return await client.aresponses(
-                model=model_id,
-                input_data=input_items,
-                tools=self._convert_tools_for_responses(tools_payload),
-                stream=stream,
-                instructions=instructions,
-                **self._decide_responses_kwargs(max_tokens, responses_kwargs),
-            )
-        completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
-        completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
-        return await client.acompletion(
-            model=model_id,
-            messages=messages_payload,
-            tools=tools_payload,
-            stream=stream,
-            reasoning_effort=reasoning_effort,
-            **completion_kwargs,
         )
+        for index, transport in enumerate(transports):
+            try:
+                if transport == "responses":
+                    return await self._call_responses_async(
+                        client=client,
+                        model_id=model_id,
+                        messages_payload=messages_payload,
+                        tools_payload=tools_payload,
+                        max_tokens=max_tokens,
+                        stream=stream,
+                        reasoning_effort=reasoning_effort,
+                        kwargs=kwargs,
+                    )
+                return await self._call_completion_async(
+                    client=client,
+                    provider_name=provider_name,
+                    model_id=model_id,
+                    messages_payload=messages_payload,
+                    tools_payload=tools_payload,
+                    max_tokens=max_tokens,
+                    stream=stream,
+                    reasoning_effort=reasoning_effort,
+                    kwargs=kwargs,
+                )
+            except Exception as exc:
+                has_next_transport = index + 1 < len(transports)
+                if has_next_transport and self._should_fallback_transport(exc):
+                    continue
+                raise
 
     @staticmethod
     def _split_messages_for_responses(

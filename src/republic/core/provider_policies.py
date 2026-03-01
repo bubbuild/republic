@@ -42,21 +42,39 @@ def _responses_tools_blocked_for_model(provider_name: str, model_id: str) -> boo
     return any(lowered_model.startswith(prefix) for prefix in policy.responses_tools_blocked_model_prefixes)
 
 
-def should_use_responses(
+def should_attempt_responses(
+    *,
+    provider_name: str,
+    model_id: str,
+    has_tools: bool,
+    supports_responses: bool,
+) -> bool:
+    if has_tools and _responses_tools_blocked_for_model(provider_name, model_id):
+        return False
+    if supports_responses:
+        return True
+    return provider_policy(provider_name).enable_responses_without_capability
+
+
+def transport_order(
     *,
     provider_name: str,
     model_id: str,
     has_tools: bool,
     use_responses: bool,
     supports_responses: bool,
-) -> bool:
-    if not use_responses:
-        return False
-    if has_tools and _responses_tools_blocked_for_model(provider_name, model_id):
-        return False
-    if supports_responses:
-        return True
-    return provider_policy(provider_name).enable_responses_without_capability
+) -> tuple[str, ...]:
+    attempt_responses = should_attempt_responses(
+        provider_name=provider_name,
+        model_id=model_id,
+        has_tools=has_tools,
+        supports_responses=supports_responses,
+    )
+    if not attempt_responses:
+        return ("completion",)
+    if use_responses:
+        return ("responses", "completion")
+    return ("completion", "responses")
 
 
 def should_include_completion_stream_usage(provider_name: str) -> bool:

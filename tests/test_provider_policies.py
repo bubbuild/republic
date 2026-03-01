@@ -1,82 +1,98 @@
 from republic.core import provider_policies
 
 
-def test_should_use_responses_respects_global_flag() -> None:
+def test_should_attempt_responses_accepts_provider_capability() -> None:
     assert (
-        provider_policies.should_use_responses(
-            provider_name="openai",
-            model_id="gpt-4o-mini",
-            has_tools=False,
-            use_responses=False,
-            supports_responses=True,
-        )
-        is False
-    )
-
-
-def test_should_use_responses_accepts_provider_capability() -> None:
-    assert (
-        provider_policies.should_use_responses(
+        provider_policies.should_attempt_responses(
             provider_name="anthropic",
             model_id="claude-3-5-haiku-latest",
             has_tools=False,
-            use_responses=True,
             supports_responses=True,
         )
         is True
     )
 
 
-def test_should_use_responses_openrouter_policy_fallback() -> None:
+def test_should_attempt_responses_openrouter_policy_fallback() -> None:
     assert (
-        provider_policies.should_use_responses(
+        provider_policies.should_attempt_responses(
             provider_name="openrouter",
             model_id="openai/gpt-4o-mini",
             has_tools=False,
-            use_responses=True,
             supports_responses=False,
         )
         is True
     )
 
 
-def test_should_use_responses_requires_explicit_policy_or_capability() -> None:
+def test_should_attempt_responses_requires_explicit_policy_or_capability() -> None:
     assert (
-        provider_policies.should_use_responses(
+        provider_policies.should_attempt_responses(
             provider_name="anthropic",
             model_id="claude-3-5-haiku-latest",
             has_tools=False,
-            use_responses=True,
             supports_responses=False,
         )
         is False
     )
 
 
-def test_should_use_responses_openrouter_anthropic_tools_fallbacks_to_completion() -> None:
+def test_should_attempt_responses_openrouter_anthropic_tools_disabled() -> None:
     assert (
-        provider_policies.should_use_responses(
+        provider_policies.should_attempt_responses(
             provider_name="openrouter",
             model_id="anthropic/claude-3.5-haiku",
             has_tools=True,
-            use_responses=True,
             supports_responses=False,
         )
         is False
     )
 
 
-def test_should_use_responses_openrouter_anthropic_without_tools_still_uses_responses() -> None:
+def test_should_attempt_responses_openrouter_anthropic_without_tools_enabled() -> None:
     assert (
-        provider_policies.should_use_responses(
+        provider_policies.should_attempt_responses(
             provider_name="openrouter",
             model_id="anthropic/claude-3.5-haiku",
             has_tools=False,
-            use_responses=True,
             supports_responses=False,
         )
         is True
     )
+
+
+def test_transport_order_respects_user_preference() -> None:
+    assert provider_policies.transport_order(
+        provider_name="openrouter",
+        model_id="openai/gpt-4o-mini",
+        has_tools=False,
+        use_responses=True,
+        supports_responses=False,
+    ) == ("responses", "completion")
+    assert provider_policies.transport_order(
+        provider_name="openrouter",
+        model_id="openai/gpt-4o-mini",
+        has_tools=False,
+        use_responses=False,
+        supports_responses=False,
+    ) == ("completion", "responses")
+
+
+def test_transport_order_uses_completion_only_when_responses_unavailable() -> None:
+    assert provider_policies.transport_order(
+        provider_name="anthropic",
+        model_id="claude-3-5-haiku-latest",
+        has_tools=False,
+        use_responses=True,
+        supports_responses=False,
+    ) == ("completion",)
+    assert provider_policies.transport_order(
+        provider_name="openrouter",
+        model_id="anthropic/claude-3.5-haiku",
+        has_tools=True,
+        use_responses=True,
+        supports_responses=False,
+    ) == ("completion",)
 
 
 def test_completion_stream_usage_policy() -> None:
