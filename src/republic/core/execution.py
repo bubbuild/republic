@@ -376,8 +376,30 @@ class LLMCore:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
 
+    @staticmethod
+    def _convert_tools_for_responses(tools_payload: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        if not tools_payload:
+            return tools_payload
+
+        converted_tools: list[dict[str, Any]] = []
+        for tool in tools_payload:
+            function = tool.get("function")
+            if isinstance(function, dict):
+                converted: dict[str, Any] = {
+                    "type": tool.get("type", "function"),
+                    "name": function.get("name"),
+                    "description": function.get("description", ""),
+                    "parameters": function.get("parameters", {}),
+                }
+                if "strict" in function:
+                    converted["strict"] = function["strict"]
+                converted_tools.append(converted)
+                continue
+            converted_tools.append(dict(tool))
+        return converted_tools
+
     def _should_use_responses(self, client: AnyLLM, *, stream: bool) -> bool:
-        return not stream and self._use_responses and bool(getattr(client, "SUPPORTS_RESPONSES", False))
+        return self._use_responses and bool(getattr(client, "SUPPORTS_RESPONSES", False))
 
     def _call_client_sync(
         self,
@@ -397,7 +419,7 @@ class LLMCore:
             return client.responses(
                 model=model_id,
                 input_data=input_items,
-                tools=tools_payload,
+                tools=self._convert_tools_for_responses(tools_payload),
                 stream=stream,
                 instructions=instructions,
                 **self._decide_responses_kwargs(max_tokens, kwargs),
@@ -429,7 +451,7 @@ class LLMCore:
             return await client.aresponses(
                 model=model_id,
                 input_data=input_items,
-                tools=tools_payload,
+                tools=self._convert_tools_for_responses(tools_payload),
                 stream=stream,
                 instructions=instructions,
                 **self._decide_responses_kwargs(max_tokens, kwargs),
