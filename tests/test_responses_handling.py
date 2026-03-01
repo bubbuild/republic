@@ -392,6 +392,76 @@ def test_non_stream_responses_run_tools_uses_converted_tools(fake_anyllm) -> Non
     assert "function" not in sent_tools[0]
 
 
+def test_chat_reasoning_effort_for_completion_is_forwarded(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(text="ready"))
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    assert llm.chat("Reply with ready", reasoning_effort="high") == "ready"
+
+    call = client.calls[-1]
+    assert call.get("reasoning_effort") == "high"
+
+
+def test_chat_reasoning_effort_for_responses_is_mapped(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_responses(make_responses_response(text="ready"))
+
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    assert llm.chat("Reply with ready", reasoning_effort="low") == "ready"
+
+    call = client.calls[-1]
+    assert call["responses"] is True
+    assert call.get("reasoning") == {"effort": "low"}
+    assert "reasoning_effort" not in call
+
+
+def test_chat_reasoning_kwarg_has_priority_over_reasoning_effort(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_responses(make_responses_response(text="ready"))
+
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    assert llm.chat("Reply with ready", reasoning_effort="low", reasoning={"effort": "high"}) == "ready"
+
+    call = client.calls[-1]
+    assert call["responses"] is True
+    assert call.get("reasoning") == {"effort": "high"}
+
+
+def test_stream_completion_defaults_include_usage(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(
+        iter([
+            make_chunk(text="hello"),
+            make_chunk(text=" world", usage={"total_tokens": 7}),
+        ])
+    )
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    stream = llm.stream("Say hello")
+    assert "".join(list(stream)) == "hello world"
+    assert stream.usage == {"total_tokens": 7}
+
+    assert client.calls[-1].get("stream_options") == {"include_usage": True}
+
+
+def test_stream_completion_preserves_user_stream_options(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(
+        iter([
+            make_chunk(text="hello"),
+            make_chunk(text=" world", usage={"total_tokens": 7}),
+        ])
+    )
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    stream = llm.stream("Say hello", stream_options={"include_usage": False, "custom": True})
+    assert "".join(list(stream)) == "hello world"
+    assert stream.usage == {"total_tokens": 7}
+
+    assert client.calls[-1].get("stream_options") == {"include_usage": False, "custom": True}
+
+
 def test_non_stream_chat_parity_between_completion_and_responses(fake_anyllm) -> None:
     completion_client = fake_anyllm.ensure("openai")
     completion_client.queue_completion(make_response(text="ready"))

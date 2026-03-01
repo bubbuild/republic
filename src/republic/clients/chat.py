@@ -411,6 +411,14 @@ class ChatClient:
             context=context,
         )
 
+    @staticmethod
+    def _split_reasoning_effort(kwargs: dict[str, Any]) -> tuple[Any | None, dict[str, Any]]:
+        if "reasoning_effort" not in kwargs:
+            return None, kwargs
+        request_kwargs = dict(kwargs)
+        reasoning_effort = request_kwargs.pop("reasoning_effort", None)
+        return reasoning_effort, request_kwargs
+
     def _execute_sync(
         self,
         prepared: PreparedChat,
@@ -425,6 +433,7 @@ class ChatClient:
     ) -> Any:
         if prepared.context_error is not None:
             raise prepared.context_error
+        reasoning_effort, request_kwargs = self._split_reasoning_effort(kwargs)
         try:
             return self._core.run_chat_sync(
                 messages_payload=prepared.payload,
@@ -433,8 +442,8 @@ class ChatClient:
                 provider=provider,
                 max_tokens=max_tokens,
                 stream=stream,
-                reasoning_effort=None,
-                kwargs=kwargs,
+                reasoning_effort=reasoning_effort,
+                kwargs=request_kwargs,
                 on_response=on_response,
             )
         except RepublicError as exc:
@@ -454,6 +463,7 @@ class ChatClient:
     ) -> Any:
         if prepared.context_error is not None:
             raise prepared.context_error
+        reasoning_effort, request_kwargs = self._split_reasoning_effort(kwargs)
         try:
             return await self._core.run_chat_async(
                 messages_payload=prepared.payload,
@@ -462,8 +472,8 @@ class ChatClient:
                 provider=provider,
                 max_tokens=max_tokens,
                 stream=stream,
-                reasoning_effort=None,
-                kwargs=kwargs,
+                reasoning_effort=reasoning_effort,
+                kwargs=request_kwargs,
                 on_response=on_response,
             )
         except RepublicError as exc:

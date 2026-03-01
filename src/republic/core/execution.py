@@ -363,18 +363,53 @@ class LLMCore:
     def _decide_kwargs_for_provider(
         self, provider: str, max_tokens: int | None, kwargs: dict[str, Any]
     ) -> dict[str, Any]:
+        clean_kwargs = self._sanitize_request_kwargs(kwargs)
         use_completion_tokens = "openai" in provider.lower()
         if not use_completion_tokens:
-            return {**kwargs, "max_tokens": max_tokens}
-        if "max_completion_tokens" in kwargs:
-            return kwargs
-        return {**kwargs, "max_completion_tokens": max_tokens}
+            return {**clean_kwargs, "max_tokens": max_tokens}
+        if "max_completion_tokens" in clean_kwargs:
+            return clean_kwargs
+        return {**clean_kwargs, "max_completion_tokens": max_tokens}
 
     def _decide_responses_kwargs(self, max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
-        clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
+        clean_kwargs = self._sanitize_request_kwargs(kwargs)
         if "max_output_tokens" in clean_kwargs:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
+
+    @staticmethod
+    def _sanitize_request_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in kwargs.items() if k != "extra_headers"}
+
+    @staticmethod
+    def _should_default_completion_stream_usage(provider_name: str) -> bool:
+        lowered_provider = provider_name.lower()
+        return "openai" in lowered_provider or "openrouter" in lowered_provider
+
+    def _with_default_completion_stream_options(
+        self,
+        provider_name: str,
+        stream: bool,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not stream:
+            return kwargs
+        if not self._should_default_completion_stream_usage(provider_name):
+            return kwargs
+        if "stream_options" in kwargs:
+            return kwargs
+        return {**kwargs, "stream_options": {"include_usage": True}}
+
+    @staticmethod
+    def _with_responses_reasoning(
+        kwargs: dict[str, Any],
+        reasoning_effort: Any | None,
+    ) -> dict[str, Any]:
+        if reasoning_effort is None:
+            return kwargs
+        if "reasoning" in kwargs:
+            return kwargs
+        return {**kwargs, "reasoning": {"effort": reasoning_effort}}
 
     @staticmethod
     def _convert_tools_for_responses(tools_payload: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
@@ -416,21 +451,24 @@ class LLMCore:
     ) -> Any:
         if self._should_use_responses(client, stream=stream):
             instructions, input_items = self._split_messages_for_responses(messages_payload)
+            responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
             return client.responses(
                 model=model_id,
                 input_data=input_items,
                 tools=self._convert_tools_for_responses(tools_payload),
                 stream=stream,
                 instructions=instructions,
-                **self._decide_responses_kwargs(max_tokens, kwargs),
+                **self._decide_responses_kwargs(max_tokens, responses_kwargs),
             )
+        completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
+        completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
         return client.completion(
             model=model_id,
             messages=messages_payload,
             tools=tools_payload,
             stream=stream,
             reasoning_effort=reasoning_effort,
-            **self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs),
+            **completion_kwargs,
         )
 
     async def _call_client_async(
@@ -448,21 +486,24 @@ class LLMCore:
     ) -> Any:
         if self._should_use_responses(client, stream=stream):
             instructions, input_items = self._split_messages_for_responses(messages_payload)
+            responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
             return await client.aresponses(
                 model=model_id,
                 input_data=input_items,
                 tools=self._convert_tools_for_responses(tools_payload),
                 stream=stream,
                 instructions=instructions,
-                **self._decide_responses_kwargs(max_tokens, kwargs),
+                **self._decide_responses_kwargs(max_tokens, responses_kwargs),
             )
+        completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
+        completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
         return await client.acompletion(
             model=model_id,
             messages=messages_payload,
             tools=tools_payload,
             stream=stream,
             reasoning_effort=reasoning_effort,
-            **self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs),
+            **completion_kwargs,
         )
 
     @staticmethod
