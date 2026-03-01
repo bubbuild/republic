@@ -1,4 +1,4 @@
-"""OpenAI chat-completions shape parsing."""
+"""Anthropic messages shape parsing."""
 
 from __future__ import annotations
 

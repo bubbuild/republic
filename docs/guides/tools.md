@@ -5,6 +5,8 @@ Tool workflows have two paths:
 - Automatic execution: `llm.run_tools(...)`
 - Manual execution: `llm.tool_calls(...)` + `llm.tools.execute(...)`
 
+The tool API is transport-agnostic: you can use the same calls under `api_format="completion"`, `"responses"`, or `"messages"`.
+
 ## Define a Tool
 
 ```python
@@ -23,7 +25,7 @@ from republic import LLM
 llm = LLM(model="openrouter:openai/gpt-4o-mini", api_key="<API_KEY>")
 out = llm.run_tools("What is weather in Tokyo?", tools=[get_weather])
 
-print(out.kind)         # text | tools | error
+print(out.kind)  # text | tools | error
 print(out.tool_results)
 print(out.error)
 ```
@@ -32,10 +34,7 @@ print(out.error)
 
 ```python
 calls = llm.tool_calls("Use get_weather for Berlin.", tools=[get_weather])
-if calls.error:
-    raise RuntimeError(calls.error.message)
-
-execution = llm.tools.execute(calls.value, tools=[get_weather])
+execution = llm.tools.execute(calls, tools=[get_weather])
 print(execution.tool_results)
 print(execution.error)
 ```

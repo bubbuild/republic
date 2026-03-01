@@ -189,11 +189,11 @@ def test_openrouter_anthropic_tools_work_with_completion_format(fake_anyllm) -> 
     assert client.calls[-1].get("responses") is None
 
 
-def test_anthropic_messages_format_maps_to_completion(fake_anyllm) -> None:
+def test_messages_format_maps_to_completion(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
     client.queue_completion(make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]))
 
-    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="anthropic_messages")
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
     calls = llm.tool_calls("Call echo for tokyo", tools=[echo])
 
     assert len(calls) == 1
@@ -201,8 +201,52 @@ def test_anthropic_messages_format_maps_to_completion(fake_anyllm) -> None:
     assert client.calls[-1].get("responses") is None
 
 
-def test_anthropic_messages_format_rejects_non_anthropic_model(fake_anyllm) -> None:
-    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="anthropic_messages")
+def test_messages_chat_uses_completion(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_completion(make_response(text="ready"))
+
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
+    result = llm.chat("Reply with ready")
+
+    assert result == "ready"
+    assert client.calls[-1].get("responses") is None
+
+
+def test_messages_stream_uses_completion_and_collects_usage(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_completion(iter(_completion_stream_text_items()))
+
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
+    stream = llm.stream("Say hello")
+    text = "".join(list(stream))
+
+    assert text == "hello world"
+    assert stream.error is None
+    assert stream.usage == {"total_tokens": 7}
+    assert client.calls[-1].get("responses") is None
+    assert client.calls[-1]["stream"] is True
+
+
+def test_stream_events_parity_between_completion_and_messages(fake_anyllm) -> None:
+    completion_client = fake_anyllm.ensure("openai")
+    completion_client.queue_completion(iter(_completion_stream_event_items()))
+
+    messages_client = fake_anyllm.ensure("openrouter")
+    messages_client.queue_completion(iter(_completion_stream_event_items()))
+
+    completion_llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    messages_llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
+
+    completion_events = list(completion_llm.stream_events("Call echo for tokyo", tools=[echo]))
+    messages_events = list(messages_llm.stream_events("Call echo for tokyo", tools=[echo]))
+
+    assert completion_client.calls[-1].get("responses") is None
+    assert messages_client.calls[-1].get("responses") is None
+    assert _compact_stream_events(completion_events) == _compact_stream_events(messages_events)
+
+
+def test_messages_format_rejects_non_anthropic_model(fake_anyllm) -> None:
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="messages")
     with pytest.raises(ErrorPayload) as exc_info:
         llm.chat("hi")
     assert exc_info.value.kind == "invalid_input"

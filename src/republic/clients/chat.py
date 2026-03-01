@@ -9,6 +9,7 @@ from functools import partial
 from typing import Any, Literal
 
 from republic.clients.parsing import completion as completion_parser
+from republic.clients.parsing import messages as messages_parser
 from republic.clients.parsing import responses as responses_parser
 from republic.clients.parsing.common import expand_tool_calls
 from republic.clients.parsing.common import field as _field
@@ -31,6 +32,7 @@ from republic.tools.executor import ToolExecutor
 from republic.tools.schema import ToolInput, ToolSet, normalize_tools
 
 MessageInput = dict[str, Any]
+TransportKind = Literal["completion", "responses", "messages"]
 
 
 @dataclass(frozen=True)
@@ -213,22 +215,42 @@ class ChatClient:
         return self._tape.default_context
 
     @staticmethod
-    def _unwrap_response(response: Any) -> tuple[Any, Literal["completion", "responses"] | None]:
+    def _unwrap_response(response: Any) -> tuple[Any, TransportKind | None]:
         if isinstance(response, TransportResponse):
             return response.payload, response.transport
         return response, None
 
     @staticmethod
+    def _resolve_transport(
+        payload: Any,
+        transport: TransportKind | None = None,
+    ) -> TransportKind:
+        if transport is not None:
+            return transport
+        if _field(payload, "output") is not None:
+            return "responses"
+        event_type = _field(payload, "type")
+        if isinstance(event_type, str) and event_type.startswith("response."):
+            return "responses"
+        return "completion"
+
+    @staticmethod
+    def _parser_for_transport(transport: TransportKind):
+        if transport == "responses":
+            return responses_parser
+        if transport == "messages":
+            return messages_parser
+        return completion_parser
+
+    @staticmethod
     def _is_non_stream_response(
         response: Any,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> bool:
-        if transport == "responses":
-            return responses_parser.is_non_stream_response(response)
-        if transport == "completion":
-            return completion_parser.is_non_stream_response(response)
-        return responses_parser.is_non_stream_response(response)
+        effective_transport = ChatClient._resolve_transport(response, transport)
+        parser = ChatClient._parser_for_transport(effective_transport)
+        return parser.is_non_stream_response(response)
 
     def _validate_chat_input(
         self,
@@ -1566,7 +1588,7 @@ class ChatClient:
     def _chunk_has_tool_calls(
         chunk: Any,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> bool:
         return bool(ChatClient._extract_chunk_tool_call_deltas(chunk, transport=transport))
 
@@ -1574,31 +1596,21 @@ class ChatClient:
     def _extract_chunk_tool_call_deltas(
         chunk: Any,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> list[Any]:
-        if transport == "responses":
-            return responses_parser.extract_chunk_tool_call_deltas(chunk)
-        if transport == "completion":
-            return completion_parser.extract_chunk_tool_call_deltas(chunk)
-        responses_deltas = responses_parser.extract_chunk_tool_call_deltas(chunk)
-        if responses_deltas:
-            return responses_deltas
-        return completion_parser.extract_chunk_tool_call_deltas(chunk)
+        effective_transport = ChatClient._resolve_transport(chunk, transport)
+        parser = ChatClient._parser_for_transport(effective_transport)
+        return parser.extract_chunk_tool_call_deltas(chunk)
 
     @staticmethod
     def _extract_chunk_text(
         chunk: Any,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> str:
-        if transport == "responses":
-            return responses_parser.extract_chunk_text(chunk)
-        if transport == "completion":
-            return completion_parser.extract_chunk_text(chunk)
-        responses_text = responses_parser.extract_chunk_text(chunk)
-        if responses_text:
-            return responses_text
-        return completion_parser.extract_chunk_text(chunk)
+        effective_transport = ChatClient._resolve_transport(chunk, transport)
+        parser = ChatClient._parser_for_transport(effective_transport)
+        return parser.extract_chunk_text(chunk)
 
     def _build_event_stream(
         self,
@@ -1759,7 +1771,7 @@ class ChatClient:
         provider_name: str,
         model_id: str,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> StreamEvents:
         text = self._extract_text(response, transport=transport)
         tool_calls = self._extract_tool_calls(response, transport=transport)
@@ -1817,7 +1829,7 @@ class ChatClient:
         provider_name: str,
         model_id: str,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> AsyncStreamEvents:
         text = self._extract_text(response, transport=transport)
         tool_calls = self._extract_tool_calls(response, transport=transport)
@@ -1917,66 +1929,36 @@ class ChatClient:
         )
 
     @staticmethod
-    def _extract_text_from_responses_output(output: Any) -> str:
-        return responses_parser.extract_text_from_output(output)
-
-    @staticmethod
     def _extract_text(
         response: Any,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> str:
         payload, detected_transport = ChatClient._unwrap_response(response)
-        effective_transport = transport or detected_transport
-        if effective_transport == "responses":
-            return responses_parser.extract_text(payload)
-        if effective_transport == "completion":
-            return completion_parser.extract_text(payload)
-        responses_text = responses_parser.extract_text(payload)
-        if responses_text:
-            return responses_text
-        return completion_parser.extract_text(payload)
+        effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
+        parser = ChatClient._parser_for_transport(effective_transport)
+        return parser.extract_text(payload)
 
     @staticmethod
     def _extract_tool_calls(
         response: Any,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> list[dict[str, Any]]:
         payload, detected_transport = ChatClient._unwrap_response(response)
-        effective_transport = transport or detected_transport
+        effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
         if effective_transport == "responses":
             return responses_parser.extract_tool_calls(_field(payload, "output"))
-        if effective_transport == "completion":
-            return completion_parser.extract_tool_calls(payload)
-        output = _field(payload, "output")
-        if output is not None:
-            return ChatClient._extract_responses_tool_calls(output)
-        return ChatClient._extract_completion_tool_calls(payload)
-
-    @staticmethod
-    def _extract_responses_tool_calls(output: Any) -> list[dict[str, Any]]:
-        return responses_parser.extract_tool_calls(output)
-
-    @staticmethod
-    def _extract_completion_tool_calls(response: Any) -> list[dict[str, Any]]:
-        return completion_parser.extract_tool_calls(response)
+        parser = ChatClient._parser_for_transport(effective_transport)
+        return parser.extract_tool_calls(payload)
 
     @staticmethod
     def _extract_usage(
         response: Any,
         *,
-        transport: Literal["completion", "responses"] | None = None,
+        transport: TransportKind | None = None,
     ) -> dict[str, Any] | None:
         payload, detected_transport = ChatClient._unwrap_response(response)
-        effective_transport = transport or detected_transport
-        if effective_transport == "completion":
-            usage = _field(payload, "usage")
-            if usage is None:
-                return None
-            if isinstance(usage, dict):
-                return dict(usage)
-            if hasattr(usage, "model_dump"):
-                return usage.model_dump()
-            return None
-        return responses_parser.extract_usage(payload)
+        effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
+        parser = ChatClient._parser_for_transport(effective_transport)
+        return parser.extract_usage(payload)

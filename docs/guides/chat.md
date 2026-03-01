@@ -9,7 +9,7 @@ from republic import LLM
 
 llm = LLM(model="openrouter:openrouter/free", api_key="<API_KEY>")
 out = llm.chat("Output exactly one word: ready", max_tokens=8)
-print(out.value, out.error)
+print(out)
 ```
 
 ## Messages Mode
@@ -22,16 +22,21 @@ messages = [
 out = llm.chat(messages=messages, max_tokens=48)
 ```
 
-## Structured Error Handling
+## Transport Format (`api_format`)
+
+Republic exposes one public chat/tool/stream interface, and lets you choose the upstream API format explicitly:
+
+- `api_format="completion"` (default): chat-completions style.
+- `api_format="responses"`: responses style.
+- `api_format="messages"`: Anthropic messages style (only Anthropic models, including `openrouter:anthropic/...`).
 
 ```python
-result = llm.chat("Write one sentence.")
-if result.error:
-    if result.error.kind == "temporary":
-        print("retry later")
-    else:
-        print("fail fast:", result.error.message)
+llm_completion = LLM(model="openai:gpt-4o-mini", api_key="<OPENAI_KEY>", api_format="completion")
+llm_responses = LLM(model="openrouter:openrouter/free", api_key="<OPENROUTER_KEY>", api_format="responses")
+llm_messages = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="<OPENROUTER_KEY>", api_format="messages")
 ```
+
+The same public methods are used in all formats: `chat`, `tool_calls`, `run_tools`, `stream`, and `stream_events`.
 
 ## Retries and Fallback
 

@@ -55,7 +55,7 @@ class AttemptOutcome:
 
 @dataclass(frozen=True)
 class TransportResponse:
-    transport: Literal["completion", "responses"]
+    transport: Literal["completion", "responses", "messages"]
     payload: Any
 
 
@@ -75,7 +75,7 @@ class LLMCore:
         api_key_resolver: Callable[[str], str | None] | None,
         api_base: str | dict[str, str] | None,
         client_args: dict[str, Any],
-        api_format: Literal["completion", "responses", "anthropic_messages"],
+        api_format: Literal["completion", "responses", "messages"],
         verbose: int,
         error_classifier: Callable[[Exception], ErrorKind | None] | None = None,
     ) -> None:
@@ -450,19 +450,19 @@ class LLMCore:
         provider_name: str,
         model_id: str,
         tools_payload: list[dict[str, Any]] | None,
-    ) -> Literal["completion", "responses"]:
+    ) -> Literal["completion", "responses", "messages"]:
         if self._api_format == "completion":
             return "completion"
-        if self._api_format == "anthropic_messages":
-            if not provider_policies.supports_anthropic_messages_format(
+        if self._api_format == "messages":
+            if not provider_policies.supports_messages_format(
                 provider_name=provider_name,
                 model_id=model_id,
             ):
                 raise RepublicError(
                     ErrorKind.INVALID_INPUT,
-                    f"{provider_name}:{model_id}: anthropic_messages format is only valid for Anthropic models",
+                    f"{provider_name}:{model_id}: messages format is only valid for Anthropic models",
                 )
-            return "completion"
+            return "messages"
 
         reason = provider_policies.responses_rejection_reason(
             provider_name=provider_name,
@@ -513,10 +513,63 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
+        return self._call_completion_like_sync(
+            transport="completion",
+            client=client,
+            provider_name=provider_name,
+            model_id=model_id,
+            messages_payload=messages_payload,
+            tools_payload=tools_payload,
+            max_tokens=max_tokens,
+            stream=stream,
+            reasoning_effort=reasoning_effort,
+            kwargs=kwargs,
+        )
+
+    def _call_messages_sync(
+        self,
+        *,
+        client: AnyLLM,
+        provider_name: str,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        return self._call_completion_like_sync(
+            transport="messages",
+            client=client,
+            provider_name=provider_name,
+            model_id=model_id,
+            messages_payload=messages_payload,
+            tools_payload=tools_payload,
+            max_tokens=max_tokens,
+            stream=stream,
+            reasoning_effort=reasoning_effort,
+            kwargs=kwargs,
+        )
+
+    def _call_completion_like_sync(
+        self,
+        *,
+        transport: Literal["completion", "messages"],
+        client: AnyLLM,
+        provider_name: str,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
         completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
         completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
         return TransportResponse(
-            transport="completion",
+            transport=transport,
             payload=client.completion(
                 model=model_id,
                 messages=messages_payload,
@@ -566,10 +619,63 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
+        return await self._call_completion_like_async(
+            transport="completion",
+            client=client,
+            provider_name=provider_name,
+            model_id=model_id,
+            messages_payload=messages_payload,
+            tools_payload=tools_payload,
+            max_tokens=max_tokens,
+            stream=stream,
+            reasoning_effort=reasoning_effort,
+            kwargs=kwargs,
+        )
+
+    async def _call_messages_async(
+        self,
+        *,
+        client: AnyLLM,
+        provider_name: str,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        return await self._call_completion_like_async(
+            transport="messages",
+            client=client,
+            provider_name=provider_name,
+            model_id=model_id,
+            messages_payload=messages_payload,
+            tools_payload=tools_payload,
+            max_tokens=max_tokens,
+            stream=stream,
+            reasoning_effort=reasoning_effort,
+            kwargs=kwargs,
+        )
+
+    async def _call_completion_like_async(
+        self,
+        *,
+        transport: Literal["completion", "messages"],
+        client: AnyLLM,
+        provider_name: str,
+        model_id: str,
+        messages_payload: list[dict[str, Any]],
+        tools_payload: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+        stream: bool,
+        reasoning_effort: Any | None,
+        kwargs: dict[str, Any],
+    ) -> Any:
         completion_kwargs = self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs)
         completion_kwargs = self._with_default_completion_stream_options(provider_name, stream, completion_kwargs)
         return TransportResponse(
-            transport="completion",
+            transport=transport,
             payload=await client.acompletion(
                 model=model_id,
                 messages=messages_payload,
@@ -602,6 +708,18 @@ class LLMCore:
         if transport == "responses":
             return self._call_responses_sync(
                 client=client,
+                model_id=model_id,
+                messages_payload=messages_payload,
+                tools_payload=tools_payload,
+                max_tokens=max_tokens,
+                stream=stream,
+                reasoning_effort=reasoning_effort,
+                kwargs=kwargs,
+            )
+        if transport == "messages":
+            return self._call_messages_sync(
+                client=client,
+                provider_name=provider_name,
                 model_id=model_id,
                 messages_payload=messages_payload,
                 tools_payload=tools_payload,
@@ -644,6 +762,18 @@ class LLMCore:
         if transport == "responses":
             return await self._call_responses_async(
                 client=client,
+                model_id=model_id,
+                messages_payload=messages_payload,
+                tools_payload=tools_payload,
+                max_tokens=max_tokens,
+                stream=stream,
+                reasoning_effort=reasoning_effort,
+                kwargs=kwargs,
+            )
+        if transport == "messages":
+            return await self._call_messages_async(
+                client=client,
+                provider_name=provider_name,
                 model_id=model_id,
                 messages_payload=messages_payload,
                 tools_payload=tools_payload,

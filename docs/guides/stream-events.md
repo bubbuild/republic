@@ -5,6 +5,8 @@ Republic provides two streaming modes:
 - `stream(...)`: text deltas only.
 - `stream_events(...)`: full events including text, tools, usage, and final.
 
+Both modes keep the same public API across `completion`, `responses`, and `messages` transports.
+
 ## Text Stream
 
 ```python

@@ -31,17 +31,13 @@ if not api_key:
 
 llm = LLM(model="openrouter:openrouter/free", api_key=api_key)
 result = llm.chat("Describe Republic in one sentence.", max_tokens=48)
-
-if result.error:
-    print(result.error.kind, result.error.message)
-else:
-    print(result.value)
+print(result)
 ```
 
 ## Why It Feels Natural
 
 - **Plain Python**: The main flow is regular functions and branches, no extra DSL.
-- **Structured Result**: Core interfaces return `StructuredOutput`, with stable `ErrorKind` values.
+- **Unified API surface**: Use the same `chat/tool_calls/run_tools/stream/stream_events` methods across completion, responses, and messages transports.
 - **Tools without magic**: Supports both automatic and manual tool execution with clear debugging and auditing.
 - **Tape-first memory**: Use anchor/handoff to bound context windows and replay full evidence.
 - **Event streaming**: Subscribe to text deltas, tool calls, tool results, usage, and final state.

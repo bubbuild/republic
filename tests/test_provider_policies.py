@@ -95,16 +95,16 @@ def test_responses_rejection_reason_for_openrouter_anthropic_tools() -> None:
     assert "tools" in reason
 
 
-def test_supports_anthropic_messages_format() -> None:
-    assert provider_policies.supports_anthropic_messages_format(
+def test_supports_messages_format() -> None:
+    assert provider_policies.supports_messages_format(
         provider_name="anthropic",
         model_id="claude-3-5-haiku-latest",
     )
-    assert provider_policies.supports_anthropic_messages_format(
+    assert provider_policies.supports_messages_format(
         provider_name="openrouter",
         model_id="anthropic/claude-3.5-haiku",
     )
-    assert not provider_policies.supports_anthropic_messages_format(
+    assert not provider_policies.supports_messages_format(
         provider_name="openai",
         model_id="gpt-4o-mini",
     )
