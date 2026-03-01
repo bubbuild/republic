@@ -6,9 +6,11 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from functools import partial
-from types import SimpleNamespace
 from typing import Any
 
+from republic.clients.parsing import completion as completion_parser
+from republic.clients.parsing import responses as responses_parser
+from republic.clients.parsing.common import field as _field
 from republic.core.errors import ErrorKind, RepublicError
 from republic.core.execution import LLMCore
 from republic.core.results import (
@@ -28,12 +30,6 @@ from republic.tools.executor import ToolExecutor
 from republic.tools.schema import ToolInput, ToolSet, normalize_tools
 
 MessageInput = dict[str, Any]
-
-
-def _field(data: Any, key: str, default: Any = None) -> Any:
-    if isinstance(data, dict):
-        return data.get(key, default)
-    return getattr(data, key, default)
 
 
 @dataclass(frozen=True)
@@ -217,12 +213,7 @@ class ChatClient:
 
     @staticmethod
     def _is_non_stream_response(response: Any) -> bool:
-        return (
-            isinstance(response, str)
-            or _field(response, "choices") is not None
-            or _field(response, "output") is not None
-            or _field(response, "output_text") is not None
-        )
+        return responses_parser.is_non_stream_response(response)
 
     def _validate_chat_input(
         self,
@@ -1543,80 +1534,18 @@ class ChatClient:
         return bool(ChatClient._extract_chunk_tool_call_deltas(chunk))
 
     @staticmethod
-    def _responses_tool_delta_from_args_event(chunk: Any, event_type: str) -> list[Any]:
-        item_id = _field(chunk, "item_id")
-        if not item_id:
-            return []
-        arguments = _field(chunk, "delta")
-        if event_type == "response.function_call_arguments.done":
-            arguments = _field(chunk, "arguments")
-        if not isinstance(arguments, str):
-            return []
-        call_id = _field(chunk, "call_id")
-        payload: dict[str, Any] = {
-            "index": item_id,
-            "type": "function",
-            "function": SimpleNamespace(name=_field(chunk, "name") or "", arguments=arguments),
-            "arguments_complete": event_type == "response.function_call_arguments.done",
-        }
-        if call_id:
-            payload["id"] = call_id
-        return [SimpleNamespace(**payload)]
-
-    @staticmethod
-    def _responses_tool_delta_from_output_item_event(chunk: Any, event_type: str) -> list[Any]:
-        item = _field(chunk, "item")
-        if _field(item, "type") != "function_call":
-            return []
-        item_id = _field(item, "id")
-        call_id = _field(item, "call_id") or item_id
-        if not call_id:
-            return []
-        arguments = _field(item, "arguments")
-        if not isinstance(arguments, str):
-            arguments = ""
-        return [
-            SimpleNamespace(
-                id=call_id,
-                index=item_id or call_id,
-                type="function",
-                function=SimpleNamespace(name=_field(item, "name") or "", arguments=arguments),
-                arguments_complete=event_type == "response.output_item.done",
-            )
-        ]
-
-    @staticmethod
     def _extract_chunk_tool_call_deltas(chunk: Any) -> list[Any]:
-        event_type = _field(chunk, "type")
-        if event_type in {"response.function_call_arguments.delta", "response.function_call_arguments.done"}:
-            return ChatClient._responses_tool_delta_from_args_event(chunk, event_type)
-        if event_type in {"response.output_item.added", "response.output_item.done"}:
-            return ChatClient._responses_tool_delta_from_output_item_event(chunk, event_type)
-
-        choices = _field(chunk, "choices")
-        if not choices:
-            return []
-        delta = _field(choices[0], "delta")
-        if delta is None:
-            return []
-        return _field(delta, "tool_calls") or []
+        responses_deltas = responses_parser.extract_chunk_tool_call_deltas(chunk)
+        if responses_deltas:
+            return responses_deltas
+        return completion_parser.extract_chunk_tool_call_deltas(chunk)
 
     @staticmethod
     def _extract_chunk_text(chunk: Any) -> str:
-        event_type = _field(chunk, "type")
-        if event_type == "response.output_text.delta":
-            delta = _field(chunk, "delta")
-            if isinstance(delta, str):
-                return delta
-            return ""
-
-        choices = _field(chunk, "choices")
-        if not choices:
-            return ""
-        delta = _field(choices[0], "delta")
-        if delta is None:
-            return ""
-        return _field(delta, "content", "") or ""
+        responses_text = responses_parser.extract_chunk_text(chunk)
+        if responses_text:
+            return responses_text
+        return completion_parser.extract_chunk_text(chunk)
 
     def _build_event_stream(
         self,
@@ -1928,38 +1857,14 @@ class ChatClient:
 
     @staticmethod
     def _extract_text_from_responses_output(output: Any) -> str:
-        if not isinstance(output, list):
-            return ""
-        parts: list[str] = []
-        for item in output:
-            if _field(item, "type") != "message":
-                continue
-            content = _field(item, "content") or []
-            for entry in content:
-                if _field(entry, "type") == "output_text":
-                    text = _field(entry, "text")
-                    if text:
-                        parts.append(text)
-        return "".join(parts)
+        return responses_parser.extract_text_from_output(output)
 
     @staticmethod
     def _extract_text(response: Any) -> str:
-        if isinstance(response, str):
-            return response
-        output_text = _field(response, "output_text")
-        if isinstance(output_text, str):
-            return output_text
-        output = _field(response, "output")
-        text_from_output = ChatClient._extract_text_from_responses_output(output)
-        if text_from_output:
-            return text_from_output
-        choices = _field(response, "choices")
-        if not choices:
-            return ""
-        message = _field(choices[0], "message")
-        if message is None:
-            return ""
-        return _field(message, "content", "") or ""
+        responses_text = responses_parser.extract_text(response)
+        if responses_text:
+            return responses_text
+        return completion_parser.extract_text(response)
 
     @staticmethod
     def _extract_tool_calls(response: Any) -> list[dict[str, Any]]:
@@ -1970,69 +1875,12 @@ class ChatClient:
 
     @staticmethod
     def _extract_responses_tool_calls(output: Any) -> list[dict[str, Any]]:
-        if not isinstance(output, list):
-            return []
-        calls: list[dict[str, Any]] = []
-        for item in output:
-            if _field(item, "type") != "function_call":
-                continue
-            name = _field(item, "name")
-            arguments = _field(item, "arguments")
-            if not name:
-                continue
-            entry: dict[str, Any] = {"function": {"name": name, "arguments": arguments or ""}}
-            call_id = _field(item, "call_id") or _field(item, "id")
-            if call_id:
-                entry["id"] = call_id
-            entry["type"] = "function"
-            calls.append(entry)
-        return calls
+        return responses_parser.extract_tool_calls(output)
 
     @staticmethod
     def _extract_completion_tool_calls(response: Any) -> list[dict[str, Any]]:
-        choices = _field(response, "choices")
-        if not choices:
-            return []
-        message = _field(choices[0], "message")
-        if message is None:
-            return []
-        tool_calls = _field(message, "tool_calls") or []
-        calls: list[dict[str, Any]] = []
-        for tool_call in tool_calls:
-            function = _field(tool_call, "function")
-            if function is None:
-                continue
-            entry: dict[str, Any] = {
-                "function": {
-                    "name": _field(function, "name"),
-                    "arguments": _field(function, "arguments"),
-                }
-            }
-            call_id = _field(tool_call, "id")
-            if call_id:
-                entry["id"] = call_id
-            call_type = _field(tool_call, "type")
-            if call_type:
-                entry["type"] = call_type
-            calls.append(entry)
-        return calls
+        return completion_parser.extract_tool_calls(response)
 
     @staticmethod
     def _extract_usage(response: Any) -> dict[str, Any] | None:
-        event_type = _field(response, "type")
-        if event_type in {"response.completed", "response.in_progress", "response.failed", "response.incomplete"}:
-            usage = _field(_field(response, "response"), "usage")
-        else:
-            usage = _field(response, "usage")
-        if usage is None:
-            return None
-        if hasattr(usage, "model_dump"):
-            return usage.model_dump()
-        if isinstance(usage, dict):
-            return dict(usage)
-        data: dict[str, Any] = {}
-        for field in ("input_tokens", "output_tokens", "total_tokens", "requests"):
-            value = _field(usage, field)
-            if value is not None:
-                data[field] = value
-        return data or None
+        return responses_parser.extract_usage(response)
