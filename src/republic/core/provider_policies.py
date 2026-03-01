@@ -56,25 +56,26 @@ def should_attempt_responses(
     return provider_policy(provider_name).enable_responses_without_capability
 
 
-def transport_order(
+def responses_rejection_reason(
     *,
     provider_name: str,
     model_id: str,
     has_tools: bool,
-    use_responses: bool,
     supports_responses: bool,
-) -> tuple[str, ...]:
-    attempt_responses = should_attempt_responses(
-        provider_name=provider_name,
-        model_id=model_id,
-        has_tools=has_tools,
-        supports_responses=supports_responses,
-    )
-    if not attempt_responses:
-        return ("completion",)
-    if use_responses:
-        return ("responses", "completion")
-    return ("completion", "responses")
+) -> str | None:
+    if has_tools and _responses_tools_blocked_for_model(provider_name, model_id):
+        return "responses format is not supported for this model when tools are enabled"
+    if supports_responses:
+        return None
+    if provider_policy(provider_name).enable_responses_without_capability:
+        return None
+    return "responses format is not supported by this provider"
+
+
+def supports_anthropic_messages_format(*, provider_name: str, model_id: str) -> bool:
+    normalized_provider = _normalize_provider_name(provider_name)
+    normalized_model = model_id.strip().lower()
+    return normalized_provider == "anthropic" or normalized_model.startswith("anthropic/")
 
 
 def should_include_completion_stream_usage(provider_name: str) -> bool:

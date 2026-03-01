@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from any_llm.exceptions import InvalidRequestError
 
 from republic import LLM, tool
 from republic.clients.chat import ChatClient
 from republic.core.execution import LLMCore
+from republic.core.results import ErrorPayload
 
 from .fakes import (
     make_chunk,
@@ -111,17 +111,8 @@ def _completion_stream_event_items() -> list[Any]:
     ]
 
 
-def _main_path_payloads(*, use_responses: bool, async_mode: bool) -> list[Any]:
+def _main_path_payloads(*, async_mode: bool) -> list[Any]:
     wrap_stream = _as_async_iter if async_mode else iter
-    if use_responses:
-        return [
-            make_responses_response(text="ready"),
-            make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')]),
-            make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')]),
-            wrap_stream(_responses_stream_text_items()),
-            wrap_stream(_responses_stream_event_items()),
-        ]
-
     return [
         make_response(text="ready"),
         make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]),
@@ -131,20 +122,28 @@ def _main_path_payloads(*, use_responses: bool, async_mode: bool) -> list[Any]:
     ]
 
 
-def _queue_main_path_fixtures(client: Any, *, use_responses: bool, async_mode: bool) -> None:
-    payloads = _main_path_payloads(use_responses=use_responses, async_mode=async_mode)
-    if use_responses:
-        queue = client.queue_aresponses if async_mode else client.queue_responses
-    else:
-        queue = client.queue_acompletion if async_mode else client.queue_completion
+def _queue_main_path_fixtures(client: Any, *, async_mode: bool) -> None:
+    payloads = _main_path_payloads(async_mode=async_mode)
+    queue = client.queue_acompletion if async_mode else client.queue_completion
     queue(*payloads)
 
 
-def test_llm_use_responses_calls_responses(fake_anyllm) -> None:
+def test_default_api_format_uses_completion(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(text="hello"))
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    result = llm.chat("hi")
+
+    assert result == "hello"
+    assert client.calls[-1].get("responses") is None
+
+
+def test_responses_api_format_uses_responses(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openai")
     client.queue_responses(make_responses_response(text="hello"))
 
-    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", use_responses=True)
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="responses")
     result = llm.chat("hi")
 
     assert result == "hello"
@@ -152,62 +151,61 @@ def test_llm_use_responses_calls_responses(fake_anyllm) -> None:
     assert client.calls[-1]["input_data"][0]["role"] == "user"
 
 
-def test_openrouter_uses_responses_when_enabled_even_if_provider_flag_is_false(fake_anyllm) -> None:
+def test_openrouter_responses_works_even_if_provider_flag_is_false(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
     client.SUPPORTS_RESPONSES = False
     client.queue_responses(make_responses_response(text="hello"))
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     result = llm.chat("hi")
 
     assert result == "hello"
     assert client.calls[-1].get("responses") is True
 
 
-def test_openrouter_anthropic_with_tools_falls_back_to_completion(fake_anyllm) -> None:
+def test_openrouter_anthropic_tools_rejects_responses_format(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
     client.SUPPORTS_RESPONSES = False
-    client.queue_completion(make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]))
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="responses")
 
-    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", use_responses=True)
-    calls = llm.tool_calls(
-        "Call echo for tokyo",
-        tools=[echo],
-        tool_choice={"type": "function", "function": {"name": "echo"}},
-    )
-
-    assert len(calls) == 1
-    assert calls[0]["function"]["name"] == "echo"
-    assert client.calls[-1].get("responses") is None
+    with pytest.raises(ErrorPayload) as exc_info:
+        llm.tool_calls(
+            "Call echo for tokyo",
+            tools=[echo],
+            tool_choice={"type": "function", "function": {"name": "echo"}},
+        )
+    assert exc_info.value.kind == "invalid_input"
 
 
-def test_tool_calls_fallback_to_completion_when_responses_rejects_request(fake_anyllm) -> None:
+def test_openrouter_anthropic_tools_work_with_completion_format(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.SUPPORTS_RESPONSES = True
-    client.queue_responses(InvalidRequestError("responses rejected this tool request"))
     client.queue_completion(make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]))
 
-    llm = LLM(model="openrouter:openai/gpt-4o-mini", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy")
     calls = llm.tool_calls("Call echo for tokyo", tools=[echo])
 
     assert len(calls) == 1
     assert calls[0]["function"]["name"] == "echo"
-    assert client.calls[-2].get("responses") is True
     assert client.calls[-1].get("responses") is None
 
 
-def test_chat_fallback_to_responses_when_completion_rejects_request(fake_anyllm) -> None:
+def test_anthropic_messages_format_maps_to_completion(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.SUPPORTS_RESPONSES = True
-    client.queue_completion(InvalidRequestError("completion rejected request"))
-    client.queue_responses(make_responses_response(text="hello"))
+    client.queue_completion(make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]))
 
-    llm = LLM(model="openrouter:openai/gpt-4o-mini", api_key="dummy", use_responses=False)
-    result = llm.chat("hi")
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="anthropic_messages")
+    calls = llm.tool_calls("Call echo for tokyo", tools=[echo])
 
-    assert result == "hello"
-    assert client.calls[-2].get("responses") is None
-    assert client.calls[-1].get("responses") is True
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "echo"
+    assert client.calls[-1].get("responses") is None
+
+
+def test_anthropic_messages_format_rejects_non_anthropic_model(fake_anyllm) -> None:
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="anthropic_messages")
+    with pytest.raises(ErrorPayload) as exc_info:
+        llm.chat("hi")
+    assert exc_info.value.kind == "invalid_input"
 
 
 def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) -> None:
@@ -216,7 +214,7 @@ def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) ->
         make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')])
     )
 
-    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", use_responses=True)
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="responses")
     calls = llm.tool_calls(
         "Call echo for tokyo",
         tools=[echo],
@@ -329,7 +327,7 @@ def test_stream_uses_responses_and_collects_usage(fake_anyllm) -> None:
         ])
     )
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     stream = llm.stream("Say hello")
     text = "".join(list(stream))
 
@@ -352,7 +350,7 @@ def test_stream_events_supports_responses_tool_events(fake_anyllm) -> None:
         ])
     )
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     stream = llm.stream_events("Call echo for tokyo", tools=[echo])
     events = list(stream)
 
@@ -392,7 +390,7 @@ def test_stream_and_events_support_responses_dict_events(fake_anyllm) -> None:
     )
     client.queue_responses(make_responses_response(text="ready", usage={"total_tokens": 3}))
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     events_stream = llm.stream_events("Call echo for tokyo", tools=[echo])
     events = list(events_stream)
     tool_call = next(event for event in events if event.kind == "tool_call")
@@ -431,7 +429,7 @@ def test_stream_events_parity_between_completion_and_responses(fake_anyllm) -> N
     )
 
     completion_llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
-    responses_llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    responses_llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
 
     completion_events = list(completion_llm.stream_events("Call echo for tokyo", tools=[echo]))
     responses_events = list(responses_llm.stream_events("Call echo for tokyo", tools=[echo]))
@@ -458,7 +456,7 @@ def test_stream_events_responses_output_item_events_keep_call_id(fake_anyllm) ->
         ])
     )
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     events = list(llm.stream_events("Call echo for tokyo", tools=[echo]))
 
     tool_call = next(event for event in events if event.kind == "tool_call").data["call"]
@@ -476,7 +474,7 @@ def test_stream_usage_accepts_responses_in_progress_usage(fake_anyllm) -> None:
         ])
     )
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     stream = llm.stream("Reply with ok")
     assert "".join(list(stream)) == "ok"
     assert stream.usage == {"total_tokens": 2}
@@ -488,7 +486,7 @@ def test_non_stream_responses_tool_calls_converts_tools_payload(fake_anyllm) -> 
         make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')])
     )
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     calls = llm.tool_calls("Call echo for tokyo", tools=[echo])
 
     assert len(calls) == 1
@@ -507,7 +505,7 @@ def test_non_stream_responses_run_tools_uses_converted_tools(fake_anyllm) -> Non
         make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')])
     )
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     result = llm.run_tools("Call echo for tokyo", tools=[echo])
 
     assert result.kind == "tools"
@@ -533,7 +531,7 @@ def test_chat_reasoning_effort_for_responses_is_mapped(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
     client.queue_responses(make_responses_response(text="ready"))
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     assert llm.chat("Reply with ready", reasoning_effort="low") == "ready"
 
     call = client.calls[-1]
@@ -546,7 +544,7 @@ def test_chat_reasoning_kwarg_has_priority_over_reasoning_effort(fake_anyllm) ->
     client = fake_anyllm.ensure("openrouter")
     client.queue_responses(make_responses_response(text="ready"))
 
-    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
     assert llm.chat("Reply with ready", reasoning_effort="low", reasoning={"effort": "high"}) == "ready"
 
     call = client.calls[-1]
@@ -620,7 +618,7 @@ def test_non_stream_chat_parity_between_completion_and_responses(fake_anyllm) ->
     responses_client.queue_responses(make_responses_response(text="ready"))
 
     completion_llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
-    responses_llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    responses_llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
 
     assert completion_llm.chat("Reply with ready") == "ready"
     assert responses_llm.chat("Reply with ready") == "ready"
@@ -636,7 +634,7 @@ def test_non_stream_run_tools_parity_between_completion_and_responses(fake_anyll
     )
 
     completion_llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
-    responses_llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    responses_llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
 
     completion_result = completion_llm.run_tools("Call echo for tokyo", tools=[echo])
     responses_result = responses_llm.run_tools("Call echo for tokyo", tools=[echo])
@@ -645,11 +643,10 @@ def test_non_stream_run_tools_parity_between_completion_and_responses(fake_anyll
     assert completion_result.tool_results == responses_result.tool_results == ["TOKYO"]
 
 
-@pytest.mark.parametrize("use_responses", [False, True])
-def test_sync_main_paths_with_mode_switch(fake_anyllm, use_responses: bool) -> None:
+def test_sync_main_paths(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openai")
-    _queue_main_path_fixtures(client, use_responses=use_responses, async_mode=False)
-    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", use_responses=use_responses)
+    _queue_main_path_fixtures(client, async_mode=False)
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
 
     assert llm.chat("Reply with ready") == "ready"
 
@@ -675,18 +672,14 @@ def test_sync_main_paths_with_mode_switch(fake_anyllm, use_responses: bool) -> N
     assert compact[-1][0] == "final"
     assert event_stream.usage == {"total_tokens": 12}
 
-    if use_responses:
-        assert all(call.get("responses") is True for call in client.calls)
-    else:
-        assert all(call.get("responses") is None for call in client.calls)
+    assert all(call.get("responses") is None for call in client.calls)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("use_responses", [False, True])
-async def test_async_main_paths_with_mode_switch(fake_anyllm, use_responses: bool) -> None:
+async def test_async_main_paths(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openai")
-    _queue_main_path_fixtures(client, use_responses=use_responses, async_mode=True)
-    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", use_responses=use_responses)
+    _queue_main_path_fixtures(client, async_mode=True)
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
 
     assert await llm.chat_async("Reply with ready") == "ready"
 
@@ -712,7 +705,4 @@ async def test_async_main_paths_with_mode_switch(fake_anyllm, use_responses: boo
     assert compact[-1][0] == "final"
     assert event_stream.usage == {"total_tokens": 12}
 
-    if use_responses:
-        assert all(call.get("responses") is True for call in client.calls)
-    else:
-        assert all(call.get("responses") is None for call in client.calls)
+    assert all(call.get("responses") is None for call in client.calls)

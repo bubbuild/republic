@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from republic.__about__ import DEFAULT_MODEL
 from republic.clients._internal import InternalOps
@@ -49,7 +49,7 @@ class LLM:
         api_key_resolver: Callable[[str], str | None] | None = None,
         api_base: str | dict[str, str] | None = None,
         client_args: dict[str, Any] | None = None,
-        use_responses: bool = False,
+        api_format: Literal["completion", "responses", "anthropic_messages"] = "completion",
         verbose: int = 0,
         tape_store: TapeStore | AsyncTapeStore | None = None,
         context: TapeContext | None = None,
@@ -59,6 +59,11 @@ class LLM:
             raise RepublicError(ErrorKind.INVALID_INPUT, "verbose must be 0, 1, or 2")
         if max_retries < 0:
             raise RepublicError(ErrorKind.INVALID_INPUT, "max_retries must be >= 0")
+        if api_format not in {"completion", "responses", "anthropic_messages"}:
+            raise RepublicError(
+                ErrorKind.INVALID_INPUT,
+                "api_format must be 'completion', 'responses', or 'anthropic_messages'",
+            )
 
         if not model:
             model = DEFAULT_MODEL
@@ -75,7 +80,7 @@ class LLM:
             api_key_resolver=api_key_resolver,
             api_base=api_base,
             client_args=client_args or {},
-            use_responses=use_responses,
+            api_format=api_format,
             verbose=verbose,
             error_classifier=error_classifier,
         )

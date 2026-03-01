@@ -61,38 +61,53 @@ def test_should_attempt_responses_openrouter_anthropic_without_tools_enabled() -
     )
 
 
-def test_transport_order_respects_user_preference() -> None:
-    assert provider_policies.transport_order(
-        provider_name="openrouter",
-        model_id="openai/gpt-4o-mini",
-        has_tools=False,
-        use_responses=True,
-        supports_responses=False,
-    ) == ("responses", "completion")
-    assert provider_policies.transport_order(
-        provider_name="openrouter",
-        model_id="openai/gpt-4o-mini",
-        has_tools=False,
-        use_responses=False,
-        supports_responses=False,
-    ) == ("completion", "responses")
+def test_responses_rejection_reason_none_when_openrouter_responses_available() -> None:
+    assert (
+        provider_policies.responses_rejection_reason(
+            provider_name="openrouter",
+            model_id="openai/gpt-4o-mini",
+            has_tools=False,
+            supports_responses=False,
+        )
+        is None
+    )
 
 
-def test_transport_order_uses_completion_only_when_responses_unavailable() -> None:
-    assert provider_policies.transport_order(
+def test_responses_rejection_reason_for_provider_without_responses() -> None:
+    reason = provider_policies.responses_rejection_reason(
         provider_name="anthropic",
         model_id="claude-3-5-haiku-latest",
         has_tools=False,
-        use_responses=True,
         supports_responses=False,
-    ) == ("completion",)
-    assert provider_policies.transport_order(
+    )
+    assert reason is not None
+    assert "not supported" in reason
+
+
+def test_responses_rejection_reason_for_openrouter_anthropic_tools() -> None:
+    reason = provider_policies.responses_rejection_reason(
         provider_name="openrouter",
         model_id="anthropic/claude-3.5-haiku",
         has_tools=True,
-        use_responses=True,
         supports_responses=False,
-    ) == ("completion",)
+    )
+    assert reason is not None
+    assert "tools" in reason
+
+
+def test_supports_anthropic_messages_format() -> None:
+    assert provider_policies.supports_anthropic_messages_format(
+        provider_name="anthropic",
+        model_id="claude-3-5-haiku-latest",
+    )
+    assert provider_policies.supports_anthropic_messages_format(
+        provider_name="openrouter",
+        model_id="anthropic/claude-3.5-haiku",
+    )
+    assert not provider_policies.supports_anthropic_messages_format(
+        provider_name="openai",
+        model_id="gpt-4o-mini",
+    )
 
 
 def test_completion_stream_usage_policy() -> None:

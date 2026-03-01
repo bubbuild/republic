@@ -7,6 +7,10 @@ from typing import Any
 from republic.clients.parsing.common import expand_tool_calls, field
 
 
+def is_non_stream_response(response: Any) -> bool:
+    return isinstance(response, str) or field(response, "choices") is not None
+
+
 def extract_chunk_tool_call_deltas(chunk: Any) -> list[Any]:
     choices = field(chunk, "choices")
     if not choices:
