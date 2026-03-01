@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from republic.clients.parsing.common import field
+from republic.clients.parsing.common import expand_tool_calls, field
 
 
 def is_non_stream_response(response: Any) -> bool:
@@ -15,6 +15,27 @@ def is_non_stream_response(response: Any) -> bool:
         or field(response, "output") is not None
         or field(response, "output_text") is not None
     )
+
+
+def normalize_request_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Normalize completion-style kwargs into responses-compatible shapes."""
+    tool_choice = kwargs.get("tool_choice")
+    if not isinstance(tool_choice, dict):
+        return kwargs
+
+    function = tool_choice.get("function")
+    if not isinstance(function, dict):
+        return kwargs
+
+    function_name = function.get("name")
+    if not isinstance(function_name, str) or not function_name:
+        return kwargs
+
+    normalized_tool_choice = dict(tool_choice)
+    normalized_tool_choice.pop("function", None)
+    normalized_tool_choice["type"] = normalized_tool_choice.get("type", "function")
+    normalized_tool_choice["name"] = function_name
+    return {**kwargs, "tool_choice": normalized_tool_choice}
 
 
 def _tool_delta_from_args_event(chunk: Any, event_type: str) -> list[Any]:
@@ -120,7 +141,7 @@ def extract_tool_calls(output: Any) -> list[dict[str, Any]]:
             entry["id"] = call_id
         entry["type"] = "function"
         calls.append(entry)
-    return calls
+    return expand_tool_calls(calls)
 
 
 def extract_usage(response: Any) -> dict[str, Any] | None:

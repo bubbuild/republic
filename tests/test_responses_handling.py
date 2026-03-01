@@ -151,6 +151,36 @@ def test_llm_use_responses_calls_responses(fake_anyllm) -> None:
     assert client.calls[-1]["input_data"][0]["role"] == "user"
 
 
+def test_openrouter_uses_responses_when_enabled_even_if_provider_flag_is_false(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.SUPPORTS_RESPONSES = False
+    client.queue_responses(make_responses_response(text="hello"))
+
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", use_responses=True)
+    result = llm.chat("hi")
+
+    assert result == "hello"
+    assert client.calls[-1].get("responses") is True
+
+
+def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_responses(
+        make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')])
+    )
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", use_responses=True)
+    calls = llm.tool_calls(
+        "Call echo for tokyo",
+        tools=[echo],
+        tool_choice={"type": "function", "function": {"name": "echo"}},
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "echo"
+    assert client.calls[-1]["tool_choice"] == {"type": "function", "name": "echo"}
+
+
 def test_extract_tool_calls_from_responses() -> None:
     response = make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"hi"}')])
 
@@ -163,6 +193,55 @@ def test_extract_tool_calls_from_responses() -> None:
             "type": "function",
         }
     ]
+
+
+def test_non_stream_completion_splits_concatenated_tool_arguments(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(
+        make_response(
+            tool_calls=[
+                make_tool_call(
+                    "echo",
+                    '{"text":"tokyo"}{"text":"osaka"}',
+                    call_id="call_1",
+                )
+            ]
+        )
+    )
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    result = llm.run_tools("Call echo twice", tools=[echo])
+
+    assert result.kind == "tools"
+    assert [call["id"] for call in result.tool_calls] == ["call_1", "call_1__2"]
+    assert result.tool_results == ["TOKYO", "OSAKA"]
+
+
+def test_stream_events_splits_concatenated_tool_arguments(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(
+        iter([
+            make_chunk(
+                tool_calls=[
+                    make_tool_call(
+                        "echo",
+                        '{"text":"tokyo"}{"text":"osaka"}',
+                        call_id="call_1",
+                    )
+                ],
+                usage={"total_tokens": 8},
+            )
+        ])
+    )
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    events = list(llm.stream_events("Call echo twice", tools=[echo]))
+
+    tool_calls = [event.data["call"] for event in events if event.kind == "tool_call"]
+    assert [call["id"] for call in tool_calls] == ["call_1", "call_1__2"]
+    assert [call["function"]["arguments"] for call in tool_calls] == ['{"text":"tokyo"}', '{"text":"osaka"}']
+    tool_results = [event.data["result"] for event in events if event.kind == "tool_result"]
+    assert tool_results == ["TOKYO", "OSAKA"]
 
 
 def test_split_messages_for_responses() -> None:
@@ -460,6 +539,30 @@ def test_stream_completion_preserves_user_stream_options(fake_anyllm) -> None:
     assert stream.usage == {"total_tokens": 7}
 
     assert client.calls[-1].get("stream_options") == {"include_usage": False, "custom": True}
+
+
+def test_openai_completion_uses_max_completion_tokens(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(text="hello"))
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    assert llm.chat("Say hello", max_tokens=11) == "hello"
+
+    call = client.calls[-1]
+    assert call.get("max_completion_tokens") == 11
+    assert "max_tokens" not in call
+
+
+def test_non_openai_completion_uses_max_tokens(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("anthropic")
+    client.queue_completion(make_response(text="hello"))
+
+    llm = LLM(model="anthropic:claude-3-5-haiku-latest", api_key="dummy")
+    assert llm.chat("Say hello", max_tokens=11) == "hello"
+
+    call = client.calls[-1]
+    assert call.get("max_tokens") == 11
+    assert "max_completion_tokens" not in call
 
 
 def test_non_stream_chat_parity_between_completion_and_responses(fake_anyllm) -> None:

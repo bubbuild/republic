@@ -31,6 +31,8 @@ from republic.clients.openai_codex import (
     OpenAICodexClient,
     should_use_openai_codex_backend,
 )
+from republic.clients.parsing import responses as responses_parser
+from republic.core import provider_policies
 from republic.core.errors import ErrorKind, RepublicError
 
 logger = logging.getLogger(__name__)
@@ -364,15 +366,14 @@ class LLMCore:
         self, provider: str, max_tokens: int | None, kwargs: dict[str, Any]
     ) -> dict[str, Any]:
         clean_kwargs = self._sanitize_request_kwargs(kwargs)
-        use_completion_tokens = "openai" in provider.lower()
-        if not use_completion_tokens:
-            return {**clean_kwargs, "max_tokens": max_tokens}
-        if "max_completion_tokens" in clean_kwargs:
+        max_tokens_arg = provider_policies.completion_max_tokens_arg(provider)
+        if max_tokens_arg in clean_kwargs:
             return clean_kwargs
-        return {**clean_kwargs, "max_completion_tokens": max_tokens}
+        return {**clean_kwargs, max_tokens_arg: max_tokens}
 
     def _decide_responses_kwargs(self, max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
         clean_kwargs = self._sanitize_request_kwargs(kwargs)
+        clean_kwargs = responses_parser.normalize_request_kwargs(clean_kwargs)
         if "max_output_tokens" in clean_kwargs:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
@@ -383,8 +384,7 @@ class LLMCore:
 
     @staticmethod
     def _should_default_completion_stream_usage(provider_name: str) -> bool:
-        lowered_provider = provider_name.lower()
-        return "openai" in lowered_provider or "openrouter" in lowered_provider
+        return provider_policies.should_include_completion_stream_usage(provider_name)
 
     def _with_default_completion_stream_options(
         self,
@@ -433,8 +433,12 @@ class LLMCore:
             converted_tools.append(dict(tool))
         return converted_tools
 
-    def _should_use_responses(self, client: AnyLLM, *, stream: bool) -> bool:
-        return self._use_responses and bool(getattr(client, "SUPPORTS_RESPONSES", False))
+    def _should_use_responses(self, client: AnyLLM, *, provider_name: str) -> bool:
+        return provider_policies.should_use_responses(
+            provider_name=provider_name,
+            use_responses=self._use_responses,
+            supports_responses=bool(getattr(client, "SUPPORTS_RESPONSES", False)),
+        )
 
     def _call_client_sync(
         self,
@@ -449,7 +453,7 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(client, stream=stream):
+        if self._should_use_responses(client, provider_name=provider_name):
             instructions, input_items = self._split_messages_for_responses(messages_payload)
             responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
             return client.responses(
@@ -484,7 +488,7 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(client, stream=stream):
+        if self._should_use_responses(client, provider_name=provider_name):
             instructions, input_items = self._split_messages_for_responses(messages_payload)
             responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
             return await client.aresponses(

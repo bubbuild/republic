@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from republic.clients.parsing.common import field
+from republic.clients.parsing.common import expand_tool_calls, field
 
 
 def extract_chunk_tool_call_deltas(chunk: Any) -> list[Any]:
@@ -66,4 +66,4 @@ def extract_tool_calls(response: Any) -> list[dict[str, Any]]:
         if call_type:
             entry["type"] = call_type
         calls.append(entry)
-    return calls
+    return expand_tool_calls(calls)

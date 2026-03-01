@@ -10,6 +10,7 @@ from typing import Any
 
 from republic.clients.parsing import completion as completion_parser
 from republic.clients.parsing import responses as responses_parser
+from republic.clients.parsing.common import expand_tool_calls
 from republic.clients.parsing.common import field as _field
 from republic.core.errors import ErrorKind, RepublicError
 from republic.core.execution import LLMCore
@@ -189,7 +190,7 @@ class ToolCallAssembler:
             )
 
     def finalize(self) -> list[dict[str, Any]]:
-        return [self._calls[key] for key in self._order]
+        return expand_tool_calls([self._calls[key] for key in self._order])
 
 
 class ChatClient:
