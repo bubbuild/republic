@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from republic.clients.parsing.common import expand_tool_calls, field
+from republic.clients.parsing.types import FunctionTransportParser
 
 
 def is_non_stream_response(response: Any) -> bool:
@@ -144,3 +145,13 @@ def extract_usage(response: Any) -> dict[str, Any] | None:
         if value is not None:
             data[usage_field] = value
     return data or None
+
+
+PARSER = FunctionTransportParser(
+    is_non_stream_response_fn=is_non_stream_response,
+    extract_chunk_tool_call_deltas_fn=extract_chunk_tool_call_deltas,
+    extract_chunk_text_fn=extract_chunk_text,
+    extract_text_fn=extract_text,
+    extract_tool_calls_fn=extract_tool_calls,
+    extract_usage_fn=extract_usage,
+)

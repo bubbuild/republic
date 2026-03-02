@@ -224,7 +224,11 @@ class ChatClient:
     ) -> TransportKind:
         if transport is not None:
             return transport
+        if isinstance(payload, list):
+            return "responses"
         if _field(payload, "output") is not None:
+            return "responses"
+        if _field(payload, "output_text") is not None:
             return "responses"
         event_type = _field(payload, "type")
         if isinstance(event_type, str) and event_type.startswith("response."):
