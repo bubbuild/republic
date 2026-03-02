@@ -62,13 +62,3 @@ class FunctionTransportParser(BaseTransportParser):
 
     def extract_usage(self, response: Any) -> dict[str, Any] | None:
         return self.extract_usage_fn(response)
-
-
-class InvalidTransportParserError(TypeError):
-    def __init__(self, parser_name: str) -> None:
-        super().__init__(f"{parser_name} parser must inherit BaseTransportParser")
-
-
-def validate_transport_parser(parser: object, *, name: str) -> None:
-    if not isinstance(parser, BaseTransportParser):
-        raise InvalidTransportParserError(name)

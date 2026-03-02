@@ -55,19 +55,3 @@ out = llm.chat("Give me one deployment checklist item.")
 ```
 
 Recommendation: keep `max_retries` small (for example 2-4), and pick fallback models that are slightly more stable while still meeting quality requirements.
-
-## Transport Format (`api_format`)
-
-If you need explicit upstream wire-format control, choose one transport:
-
-- `api_format="completion"` (default): chat-completions style.
-- `api_format="responses"`: responses style.
-- `api_format="messages"`: Anthropic messages style (only Anthropic models, including `openrouter:anthropic/...`).
-
-```python
-llm_completion = LLM(model="openai:gpt-4o-mini", api_key="<OPENAI_KEY>", api_format="completion")
-llm_responses = LLM(model="openrouter:openrouter/free", api_key="<OPENROUTER_KEY>", api_format="responses")
-llm_messages = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="<OPENROUTER_KEY>", api_format="messages")
-```
-
-The same public methods are used in all transports: `chat`, `tool_calls`, `run_tools`, `stream`, and `stream_events`.
