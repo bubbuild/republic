@@ -2,39 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol
+from republic.clients.parsing.completion import PARSER as completion_parser
+from republic.clients.parsing.messages import PARSER as messages_parser
+from republic.clients.parsing.responses import PARSER as responses_parser
+from republic.clients.parsing.types import BaseTransportParser, TransportKind, validate_transport_parser
 
-from republic.clients.parsing import completion, messages, responses
+_PARSERS: dict[TransportKind, BaseTransportParser] = {
+    "completion": completion_parser,
+    "responses": responses_parser,
+    "messages": messages_parser,
+}
 
-TransportKind = Literal["completion", "responses", "messages"]
-
-
-class TransportParser(Protocol):
-    @staticmethod
-    def is_non_stream_response(response: Any) -> bool: ...
-
-    @staticmethod
-    def extract_chunk_tool_call_deltas(chunk: Any) -> list[Any]: ...
-
-    @staticmethod
-    def extract_chunk_text(chunk: Any) -> str: ...
-
-    @staticmethod
-    def extract_text(response: Any) -> str: ...
-
-    @staticmethod
-    def extract_tool_calls(response: Any) -> list[dict[str, Any]]: ...
-
-    @staticmethod
-    def extract_usage(response: Any) -> dict[str, Any] | None: ...
+for _name, _parser in _PARSERS.items():
+    validate_transport_parser(_parser, name=_name)
 
 
-def parser_for_transport(transport: TransportKind) -> TransportParser:
-    if transport == "responses":
-        return responses
-    if transport == "messages":
-        return messages
-    return completion
+def parser_for_transport(transport: TransportKind) -> BaseTransportParser:
+    return _PARSERS[transport]
 
 
-__all__ = ["TransportKind", "TransportParser", "parser_for_transport"]
+__all__ = ["BaseTransportParser", "TransportKind", "parser_for_transport"]
