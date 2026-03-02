@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
-from republic.clients.parsing import TransportKind, parser_for_transport
+from republic.clients.parsing import BaseTransportParser, TransportKind, parser_for_transport
 from republic.clients.parsing.common import expand_tool_calls
 from republic.clients.parsing.common import field as _field
 from republic.core.errors import ErrorKind, RepublicError
@@ -236,13 +236,31 @@ class ChatClient:
         return "completion"
 
     @staticmethod
+    def _parser_for_payload(
+        payload: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> BaseTransportParser:
+        effective_transport = ChatClient._resolve_transport(payload, transport)
+        return parser_for_transport(effective_transport)
+
+    @staticmethod
+    def _unwrap_response_with_parser(
+        response: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> tuple[Any, BaseTransportParser]:
+        payload, detected_transport = ChatClient._unwrap_response(response)
+        parser = ChatClient._parser_for_payload(payload, transport=transport or detected_transport)
+        return payload, parser
+
+    @staticmethod
     def _is_non_stream_response(
         response: Any,
         *,
         transport: TransportKind | None = None,
     ) -> bool:
-        effective_transport = ChatClient._resolve_transport(response, transport)
-        parser = parser_for_transport(effective_transport)
+        parser = ChatClient._parser_for_payload(response, transport=transport)
         return parser.is_non_stream_response(response)
 
     def _validate_chat_input(
@@ -1583,8 +1601,7 @@ class ChatClient:
         *,
         transport: TransportKind | None = None,
     ) -> list[Any]:
-        effective_transport = ChatClient._resolve_transport(chunk, transport)
-        parser = parser_for_transport(effective_transport)
+        parser = ChatClient._parser_for_payload(chunk, transport=transport)
         return parser.extract_chunk_tool_call_deltas(chunk)
 
     @staticmethod
@@ -1593,8 +1610,7 @@ class ChatClient:
         *,
         transport: TransportKind | None = None,
     ) -> str:
-        effective_transport = ChatClient._resolve_transport(chunk, transport)
-        parser = parser_for_transport(effective_transport)
+        parser = ChatClient._parser_for_payload(chunk, transport=transport)
         return parser.extract_chunk_text(chunk)
 
     def _build_event_stream(
@@ -1919,9 +1935,7 @@ class ChatClient:
         *,
         transport: TransportKind | None = None,
     ) -> str:
-        payload, detected_transport = ChatClient._unwrap_response(response)
-        effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
-        parser = parser_for_transport(effective_transport)
+        payload, parser = ChatClient._unwrap_response_with_parser(response, transport=transport)
         return parser.extract_text(payload)
 
     @staticmethod
@@ -1930,9 +1944,7 @@ class ChatClient:
         *,
         transport: TransportKind | None = None,
     ) -> list[dict[str, Any]]:
-        payload, detected_transport = ChatClient._unwrap_response(response)
-        effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
-        parser = parser_for_transport(effective_transport)
+        payload, parser = ChatClient._unwrap_response_with_parser(response, transport=transport)
         return parser.extract_tool_calls(payload)
 
     @staticmethod
@@ -1941,7 +1953,5 @@ class ChatClient:
         *,
         transport: TransportKind | None = None,
     ) -> dict[str, Any] | None:
-        payload, detected_transport = ChatClient._unwrap_response(response)
-        effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
-        parser = parser_for_transport(effective_transport)
+        payload, parser = ChatClient._unwrap_response_with_parser(response, transport=transport)
         return parser.extract_usage(payload)

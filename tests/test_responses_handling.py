@@ -347,6 +347,39 @@ def test_chat_reasoning_effort_for_responses_is_mapped(fake_anyllm) -> None:
     assert "reasoning_effort" not in call
 
 
+def test_completion_preserves_extra_headers(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(text="hello"))
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    assert llm.chat("Say hello", extra_headers={"X-Title": "Republic"}) == "hello"
+
+    call = client.calls[-1]
+    assert call.get("extra_headers") == {"X-Title": "Republic"}
+
+
+def test_messages_preserves_extra_headers(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_completion(make_response(text="hello"))
+
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
+    assert llm.chat("Say hello", extra_headers={"X-Title": "Republic"}) == "hello"
+
+    call = client.calls[-1]
+    assert call.get("extra_headers") == {"X-Title": "Republic"}
+
+
+def test_responses_drops_extra_headers(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_responses(make_responses_response(text="hello"))
+
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
+    assert llm.chat("Say hello", extra_headers={"X-Title": "Republic"}) == "hello"
+
+    call = client.calls[-1]
+    assert "extra_headers" not in call
+
+
 def test_stream_completion_defaults_include_usage(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openai")
     client.queue_completion(

@@ -364,22 +364,19 @@ class LLMCore:
     def _decide_kwargs_for_provider(
         self, provider: str, max_tokens: int | None, kwargs: dict[str, Any]
     ) -> dict[str, Any]:
-        clean_kwargs = self._sanitize_request_kwargs(kwargs)
+        clean_kwargs = dict(kwargs)
         max_tokens_arg = provider_policies.completion_max_tokens_arg(provider)
         if max_tokens_arg in clean_kwargs:
             return clean_kwargs
         return {**clean_kwargs, max_tokens_arg: max_tokens}
 
     def _decide_responses_kwargs(self, max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
-        clean_kwargs = self._sanitize_request_kwargs(kwargs)
+        # any-llm responses params currently reject extra_headers, so drop it here only.
+        clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
         clean_kwargs = normalize_responses_kwargs(clean_kwargs)
         if "max_output_tokens" in clean_kwargs:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
-
-    @staticmethod
-    def _sanitize_request_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
-        return {k: v for k, v in kwargs.items() if k != "extra_headers"}
 
     @staticmethod
     def _should_default_completion_stream_usage(provider_name: str) -> bool:
