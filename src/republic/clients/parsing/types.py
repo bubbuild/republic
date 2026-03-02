@@ -2,42 +2,30 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 TransportKind = Literal["completion", "responses", "messages"]
 
 
-class BaseTransportParser(ABC):
-    @abstractmethod
-    def is_non_stream_response(self, response: Any) -> bool:
-        raise NotImplementedError
+@runtime_checkable
+class BaseTransportParser(Protocol):
+    def is_non_stream_response(self, response: Any) -> bool: ...
 
-    @abstractmethod
-    def extract_chunk_tool_call_deltas(self, chunk: Any) -> list[Any]:
-        raise NotImplementedError
+    def extract_chunk_tool_call_deltas(self, chunk: Any) -> list[Any]: ...
 
-    @abstractmethod
-    def extract_chunk_text(self, chunk: Any) -> str:
-        raise NotImplementedError
+    def extract_chunk_text(self, chunk: Any) -> str: ...
 
-    @abstractmethod
-    def extract_text(self, response: Any) -> str:
-        raise NotImplementedError
+    def extract_text(self, response: Any) -> str: ...
 
-    @abstractmethod
-    def extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
-        raise NotImplementedError
+    def extract_tool_calls(self, response: Any) -> list[dict[str, Any]]: ...
 
-    @abstractmethod
-    def extract_usage(self, response: Any) -> dict[str, Any] | None:
-        raise NotImplementedError
+    def extract_usage(self, response: Any) -> dict[str, Any] | None: ...
 
 
-@dataclass(frozen=True)
-class FunctionTransportParser(BaseTransportParser):
+@dataclass(frozen=True, slots=True)
+class FunctionTransportParser:
     is_non_stream_response_fn: Callable[[Any], bool]
     extract_chunk_tool_call_deltas_fn: Callable[[Any], list[Any]]
     extract_chunk_text_fn: Callable[[Any], str]
