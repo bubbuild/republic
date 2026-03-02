@@ -1578,14 +1578,6 @@ class ChatClient:
         return AsyncTextStream(_iterator(), state=state)
 
     @staticmethod
-    def _chunk_has_tool_calls(
-        chunk: Any,
-        *,
-        transport: TransportKind | None = None,
-    ) -> bool:
-        return bool(ChatClient._extract_chunk_tool_call_deltas(chunk, transport=transport))
-
-    @staticmethod
     def _extract_chunk_tool_call_deltas(
         chunk: Any,
         *,

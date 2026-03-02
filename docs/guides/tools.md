@@ -5,8 +5,6 @@ Tool workflows have two paths:
 - Automatic execution: `llm.run_tools(...)`
 - Manual execution: `llm.tool_calls(...)` + `llm.tools.execute(...)`
 
-The tool API is transport-agnostic: you can use the same calls under `api_format="completion"`, `"responses"`, or `"messages"`.
-
 ## Define a Tool
 
 ```python
