@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from itertools import chain
 from typing import Any
 
 
@@ -13,10 +14,7 @@ def field(data: Any, key: str, default: Any = None) -> Any:
 
 
 def expand_tool_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    expanded: list[dict[str, Any]] = []
-    for call in calls:
-        expanded.extend(_expand_tool_call(call))
-    return expanded
+    return list(chain.from_iterable(_expand_tool_call(call) for call in calls))
 
 
 def _expand_tool_call(call: dict[str, Any]) -> list[dict[str, Any]]:

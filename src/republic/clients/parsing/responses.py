@@ -103,7 +103,8 @@ def extract_text(response: Any) -> str:
     return extract_text_from_output(field(response, "output"))
 
 
-def extract_tool_calls(output: Any) -> list[dict[str, Any]]:
+def extract_tool_calls(response: Any) -> list[dict[str, Any]]:
+    output = response if isinstance(response, list) else field(response, "output")
     if not isinstance(output, list):
         return []
     calls: list[dict[str, Any]] = []

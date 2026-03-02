@@ -478,6 +478,7 @@ class LLMCore:
         self,
         *,
         client: AnyLLM,
+        provider_name: str,
         model_id: str,
         messages_payload: list[dict[str, Any]],
         tools_payload: list[dict[str, Any]] | None,
@@ -486,6 +487,7 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
+        _ = provider_name
         instructions, input_items = self._split_messages_for_responses(messages_payload)
         responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
         return TransportResponse(
@@ -584,6 +586,7 @@ class LLMCore:
         self,
         *,
         client: AnyLLM,
+        provider_name: str,
         model_id: str,
         messages_payload: list[dict[str, Any]],
         tools_payload: list[dict[str, Any]] | None,
@@ -592,6 +595,7 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
+        _ = provider_name
         instructions, input_items = self._split_messages_for_responses(messages_payload)
         responses_kwargs = self._with_responses_reasoning(kwargs, reasoning_effort)
         return TransportResponse(
@@ -705,30 +709,13 @@ class LLMCore:
             model_id=model_id,
             tools_payload=tools_payload,
         )
-        if transport == "responses":
-            return self._call_responses_sync(
-                client=client,
-                model_id=model_id,
-                messages_payload=messages_payload,
-                tools_payload=tools_payload,
-                max_tokens=max_tokens,
-                stream=stream,
-                reasoning_effort=reasoning_effort,
-                kwargs=kwargs,
-            )
-        if transport == "messages":
-            return self._call_messages_sync(
-                client=client,
-                provider_name=provider_name,
-                model_id=model_id,
-                messages_payload=messages_payload,
-                tools_payload=tools_payload,
-                max_tokens=max_tokens,
-                stream=stream,
-                reasoning_effort=reasoning_effort,
-                kwargs=kwargs,
-            )
-        return self._call_completion_sync(
+        callers: dict[str, Callable[..., Any]] = {
+            "completion": self._call_completion_sync,
+            "responses": self._call_responses_sync,
+            "messages": self._call_messages_sync,
+        }
+        call_transport = callers[transport]
+        return call_transport(
             client=client,
             provider_name=provider_name,
             model_id=model_id,
@@ -759,30 +746,13 @@ class LLMCore:
             model_id=model_id,
             tools_payload=tools_payload,
         )
-        if transport == "responses":
-            return await self._call_responses_async(
-                client=client,
-                model_id=model_id,
-                messages_payload=messages_payload,
-                tools_payload=tools_payload,
-                max_tokens=max_tokens,
-                stream=stream,
-                reasoning_effort=reasoning_effort,
-                kwargs=kwargs,
-            )
-        if transport == "messages":
-            return await self._call_messages_async(
-                client=client,
-                provider_name=provider_name,
-                model_id=model_id,
-                messages_payload=messages_payload,
-                tools_payload=tools_payload,
-                max_tokens=max_tokens,
-                stream=stream,
-                reasoning_effort=reasoning_effort,
-                kwargs=kwargs,
-            )
-        return await self._call_completion_async(
+        callers: dict[str, Callable[..., Any]] = {
+            "completion": self._call_completion_async,
+            "responses": self._call_responses_async,
+            "messages": self._call_messages_async,
+        }
+        call_transport = callers[transport]
+        return await call_transport(
             client=client,
             provider_name=provider_name,
             model_id=model_id,
