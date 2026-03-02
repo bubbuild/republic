@@ -37,6 +37,7 @@ print(result)
 ## Why It Feels Natural
 
 - **Plain Python**: The main flow is regular functions and branches, no extra DSL.
+- **Structured error handling**: Errors are explicit and typed, so retry and fallback logic stays deterministic.
 - **Unified API surface**: Use the same `chat/tool_calls/run_tools/stream/stream_events` methods across completion, responses, and messages transports.
 - **Tools without magic**: Supports both automatic and manual tool execution with clear debugging and auditing.
 - **Tape-first memory**: Use anchor/handoff to bound context windows and replay full evidence.

@@ -40,6 +40,8 @@ print(reply)
 Note: `max_retries` is the number of retries after the first attempt (total attempts per model is `1 + max_retries`).
 
 ```python
+from republic import ErrorPayload, LLM
+
 llm = LLM(
     model="openai:gpt-4o-mini",
     fallback_models=["openrouter:openrouter/free"],
@@ -47,6 +49,9 @@ llm = LLM(
     api_key={"openai": "<OPENAI_KEY>", "openrouter": "<OPENROUTER_KEY>"},
 )
 
-result = llm.chat("say hello", max_tokens=8)
-print(result)
+try:
+    result = llm.chat("say hello", max_tokens=8)
+    print(result)
+except ErrorPayload as error:
+    print(error.kind, error.message)
 ```

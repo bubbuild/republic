@@ -22,21 +22,22 @@ messages = [
 out = llm.chat(messages=messages, max_tokens=48)
 ```
 
-## Transport Format (`api_format`)
-
-Republic exposes one public chat/tool/stream interface, and lets you choose the upstream API format explicitly:
-
-- `api_format="completion"` (default): chat-completions style.
-- `api_format="responses"`: responses style.
-- `api_format="messages"`: Anthropic messages style (only Anthropic models, including `openrouter:anthropic/...`).
+## Structured Error Handling
 
 ```python
-llm_completion = LLM(model="openai:gpt-4o-mini", api_key="<OPENAI_KEY>", api_format="completion")
-llm_responses = LLM(model="openrouter:openrouter/free", api_key="<OPENROUTER_KEY>", api_format="responses")
-llm_messages = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="<OPENROUTER_KEY>", api_format="messages")
-```
+from republic import ErrorPayload, LLM
 
-The same public methods are used in all formats: `chat`, `tool_calls`, `run_tools`, `stream`, and `stream_events`.
+llm = LLM(model="openrouter:openrouter/free", api_key="<API_KEY>")
+
+try:
+    out = llm.chat("Write one sentence.", max_tokens=32)
+    print(out)
+except ErrorPayload as error:
+    if error.kind == "temporary":
+        print("retry later")
+    else:
+        print("fail fast:", error.message)
+```
 
 ## Retries and Fallback
 
@@ -54,3 +55,19 @@ out = llm.chat("Give me one deployment checklist item.")
 ```
 
 Recommendation: keep `max_retries` small (for example 2-4), and pick fallback models that are slightly more stable while still meeting quality requirements.
+
+## Transport Format (`api_format`)
+
+If you need explicit upstream wire-format control, choose one transport:
+
+- `api_format="completion"` (default): chat-completions style.
+- `api_format="responses"`: responses style.
+- `api_format="messages"`: Anthropic messages style (only Anthropic models, including `openrouter:anthropic/...`).
+
+```python
+llm_completion = LLM(model="openai:gpt-4o-mini", api_key="<OPENAI_KEY>", api_format="completion")
+llm_responses = LLM(model="openrouter:openrouter/free", api_key="<OPENROUTER_KEY>", api_format="responses")
+llm_messages = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="<OPENROUTER_KEY>", api_format="messages")
+```
+
+The same public methods are used in all transports: `chat`, `tool_calls`, `run_tools`, `stream`, and `stream_events`.
