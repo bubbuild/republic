@@ -6,11 +6,9 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Literal
+from typing import Any
 
-from republic.clients.parsing import completion as completion_parser
-from republic.clients.parsing import messages as messages_parser
-from republic.clients.parsing import responses as responses_parser
+from republic.clients.parsing import TransportKind, parser_for_transport
 from republic.clients.parsing.common import expand_tool_calls
 from republic.clients.parsing.common import field as _field
 from republic.core.errors import ErrorKind, RepublicError
@@ -32,7 +30,6 @@ from republic.tools.executor import ToolExecutor
 from republic.tools.schema import ToolInput, ToolSet, normalize_tools
 
 MessageInput = dict[str, Any]
-TransportKind = Literal["completion", "responses", "messages"]
 
 
 @dataclass(frozen=True)
@@ -235,21 +232,13 @@ class ChatClient:
         return "completion"
 
     @staticmethod
-    def _parser_for_transport(transport: TransportKind):
-        if transport == "responses":
-            return responses_parser
-        if transport == "messages":
-            return messages_parser
-        return completion_parser
-
-    @staticmethod
     def _is_non_stream_response(
         response: Any,
         *,
         transport: TransportKind | None = None,
     ) -> bool:
         effective_transport = ChatClient._resolve_transport(response, transport)
-        parser = ChatClient._parser_for_transport(effective_transport)
+        parser = parser_for_transport(effective_transport)
         return parser.is_non_stream_response(response)
 
     def _validate_chat_input(
@@ -1599,7 +1588,7 @@ class ChatClient:
         transport: TransportKind | None = None,
     ) -> list[Any]:
         effective_transport = ChatClient._resolve_transport(chunk, transport)
-        parser = ChatClient._parser_for_transport(effective_transport)
+        parser = parser_for_transport(effective_transport)
         return parser.extract_chunk_tool_call_deltas(chunk)
 
     @staticmethod
@@ -1609,7 +1598,7 @@ class ChatClient:
         transport: TransportKind | None = None,
     ) -> str:
         effective_transport = ChatClient._resolve_transport(chunk, transport)
-        parser = ChatClient._parser_for_transport(effective_transport)
+        parser = parser_for_transport(effective_transport)
         return parser.extract_chunk_text(chunk)
 
     def _build_event_stream(
@@ -1936,7 +1925,7 @@ class ChatClient:
     ) -> str:
         payload, detected_transport = ChatClient._unwrap_response(response)
         effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
-        parser = ChatClient._parser_for_transport(effective_transport)
+        parser = parser_for_transport(effective_transport)
         return parser.extract_text(payload)
 
     @staticmethod
@@ -1947,9 +1936,7 @@ class ChatClient:
     ) -> list[dict[str, Any]]:
         payload, detected_transport = ChatClient._unwrap_response(response)
         effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
-        if effective_transport == "responses":
-            return responses_parser.extract_tool_calls(_field(payload, "output"))
-        parser = ChatClient._parser_for_transport(effective_transport)
+        parser = parser_for_transport(effective_transport)
         return parser.extract_tool_calls(payload)
 
     @staticmethod
@@ -1960,5 +1947,5 @@ class ChatClient:
     ) -> dict[str, Any] | None:
         payload, detected_transport = ChatClient._unwrap_response(response)
         effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
-        parser = ChatClient._parser_for_transport(effective_transport)
+        parser = parser_for_transport(effective_transport)
         return parser.extract_usage(payload)
