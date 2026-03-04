@@ -14,18 +14,83 @@ JWT_PAYLOAD = json.dumps({"https://api.openai.com/auth": {"chatgpt_account_id": 
 TOKEN = "aaa." + base64.urlsafe_b64encode(JWT_PAYLOAD).decode("ascii").rstrip("=") + ".bbb"
 
 
-class FakeHTTPResponse:
-    def __init__(self, body: str) -> None:
-        self._body = body.encode("utf-8")
+class FakeHTTPBodyResponse:
+    def __init__(self, *, status_code: int = 200, body: str = "", content_type: str = "text/event-stream") -> None:
+        self.status_code = status_code
+        self._body = body
+        self.headers = {"content-type": content_type}
+        self.encoding = "utf-8"
+        self.text = body
 
     def read(self) -> bytes:
-        return self._body
+        return self._body.encode("utf-8")
 
-    def __enter__(self) -> FakeHTTPResponse:
+
+class FakeHTTPStreamResponse(FakeHTTPBodyResponse):
+    def __enter__(self) -> FakeHTTPStreamResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
+
+    def iter_lines(self):
+        yield from self._body.split("\n")
+
+
+class FakeHTTPClient:
+    def __init__(
+        self,
+        *,
+        sse: str,
+        captured: dict[str, object] | None,
+        status_code: int = 200,
+        content_type: str = "text/event-stream",
+    ) -> None:
+        self._sse = sse
+        self._captured = captured
+        self._status_code = status_code
+        self._content_type = content_type
+
+    def __enter__(self) -> FakeHTTPClient:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def post(self, url, *, headers=None, json=None):
+        if self._captured is not None:
+            self._captured["method"] = "POST"
+            self._captured["url"] = url
+            self._captured["headers"] = headers or {}
+            self._captured["body"] = json
+        return FakeHTTPBodyResponse(status_code=self._status_code, body=self._sse, content_type=self._content_type)
+
+    def stream(self, method, url, *, headers=None, json=None):
+        if self._captured is not None:
+            self._captured["method"] = method
+            self._captured["url"] = url
+            self._captured["headers"] = headers or {}
+            self._captured["body"] = json
+        return FakeHTTPStreamResponse(status_code=self._status_code, body=self._sse, content_type=self._content_type)
+
+
+def _patch_codex_stream(
+    monkeypatch,
+    *,
+    sse: str,
+    captured: dict[str, object] | None = None,
+    status_code: int = 200,
+    content_type: str = "text/event-stream",
+) -> None:
+    monkeypatch.setattr(
+        "republic.clients.openai_codex.httpx.Client",
+        lambda *args, **kwargs: FakeHTTPClient(
+            sse=sse,
+            captured=captured,
+            status_code=status_code,
+            content_type=content_type,
+        ),
+    )
 
 
 def test_extract_openai_codex_account_id_reads_jwt_claim() -> None:
@@ -39,26 +104,21 @@ def test_openai_oauth_token_uses_codex_backend(monkeypatch) -> None:
     def _unexpected_create(*args, **kwargs):
         raise AssertionError
 
-    def _urlopen(request, timeout=0):
-        captured["url"] = request.full_url
-        captured["headers"] = dict(request.header_items())
-        captured["body"] = json.loads(request.data.decode("utf-8"))
-        sse = "\n\n".join(
-            [
-                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "hello"}),
-                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": " world"}),
-                'data: ' + json.dumps(
-                    {
-                        "type": "response.completed",
-                        "response": {"usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}},
-                    }
-                ),
-            ]
-        ) + "\n\n"
-        return FakeHTTPResponse(sse)
+    sse = "\n\n".join(
+        [
+            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "hello"}),
+            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": " world"}),
+            'data: ' + json.dumps(
+                {
+                    "type": "response.completed",
+                    "response": {"usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}},
+                }
+            ),
+        ]
+    ) + "\n\n"
 
     monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+    _patch_codex_stream(monkeypatch, sse=sse, captured=captured)
 
     llm = LLM(
         model="openai:gpt-5.3-codex",
@@ -83,35 +143,32 @@ def test_openai_oauth_tool_calls_are_parsed_and_tools_are_converted(monkeypatch)
     def _unexpected_create(*args, **kwargs):
         raise AssertionError
 
-    def _urlopen(request, timeout=0):
-        captured["body"] = json.loads(request.data.decode("utf-8"))
-        sse = "\n\n".join(
-            [
-                'data: '
-                + json.dumps(
-                    {
-                        "type": "response.output_item.done",
-                        "item": {
-                            "type": "function_call",
-                            "id": "fc_1",
-                            "call_id": "call_1",
-                            "name": "echo",
-                            "arguments": json.dumps({"message": "hello"}),
-                            "status": "completed",
-                        },
-                    }
-                ),
-                'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
-            ]
-        ) + "\n\n"
-        return FakeHTTPResponse(sse)
+    sse = "\n\n".join(
+        [
+            'data: '
+            + json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "echo",
+                        "arguments": json.dumps({"message": "hello"}),
+                        "status": "completed",
+                    },
+                }
+            ),
+            'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+        ]
+    ) + "\n\n"
 
     @tool
     def echo(message: str) -> str:
         return message
 
     monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+    _patch_codex_stream(monkeypatch, sse=sse, captured=captured)
 
     llm = LLM(
         model="openai:gpt-5-codex",
@@ -142,34 +199,32 @@ def test_openai_oauth_run_tools_executes_tool(monkeypatch) -> None:
     def _unexpected_create(*args, **kwargs):
         raise AssertionError
 
-    def _urlopen(request, timeout=0):
-        sse = "\n\n".join(
-            [
-                'data: '
-                + json.dumps(
-                    {
-                        "type": "response.output_item.done",
-                        "item": {
-                            "type": "function_call",
-                            "id": "fc_1",
-                            "call_id": "call_1",
-                            "name": "echo",
-                            "arguments": json.dumps({"message": "hello"}),
-                            "status": "completed",
-                        },
-                    }
-                ),
-                'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
-            ]
-        ) + "\n\n"
-        return FakeHTTPResponse(sse)
+    sse = "\n\n".join(
+        [
+            'data: '
+            + json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "echo",
+                        "arguments": json.dumps({"message": "hello"}),
+                        "status": "completed",
+                    },
+                }
+            ),
+            'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+        ]
+    ) + "\n\n"
 
     @tool
     def echo(message: str) -> str:
         return f"echo:{message}"
 
     monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+    _patch_codex_stream(monkeypatch, sse=sse)
 
     llm = LLM(
         model="openai:gpt-5-codex",
@@ -213,23 +268,21 @@ def test_openai_oauth_stream_yields_text_and_usage(monkeypatch) -> None:
     def _unexpected_create(*args, **kwargs):
         raise AssertionError
 
-    def _urlopen(request, timeout=0):
-        sse = "\n\n".join(
-            [
-                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
-                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "tools"}),
-                'data: ' + json.dumps(
-                    {
-                        "type": "response.completed",
-                        "response": {"usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
-                    }
-                ),
-            ]
-        ) + "\n\n"
-        return FakeHTTPResponse(sse)
+    sse = "\n\n".join(
+        [
+            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
+            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "tools"}),
+            'data: ' + json.dumps(
+                {
+                    "type": "response.completed",
+                    "response": {"usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
+                }
+            ),
+        ]
+    ) + "\n\n"
 
     monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+    _patch_codex_stream(monkeypatch, sse=sse)
 
     llm = LLM(
         model="openai:gpt-5-codex",
@@ -246,40 +299,38 @@ def test_openai_oauth_stream_events_carries_tools_usage_and_final(monkeypatch) -
     def _unexpected_create(*args, **kwargs):
         raise AssertionError
 
-    def _urlopen(request, timeout=0):
-        sse = "\n\n".join(
-            [
-                'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
-                'data: '
-                + json.dumps(
-                    {
-                        "type": "response.output_item.done",
-                        "item": {
-                            "type": "function_call",
-                            "id": "fc_1",
-                            "call_id": "call_1",
-                            "name": "echo",
-                            "arguments": json.dumps({"message": "tokyo"}),
-                            "status": "completed",
-                        },
-                    }
-                ),
-                'data: ' + json.dumps(
-                    {
-                        "type": "response.completed",
-                        "response": {"usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8}},
-                    }
-                ),
-            ]
-        ) + "\n\n"
-        return FakeHTTPResponse(sse)
+    sse = "\n\n".join(
+        [
+            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
+            'data: '
+            + json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "echo",
+                        "arguments": json.dumps({"message": "tokyo"}),
+                        "status": "completed",
+                    },
+                }
+            ),
+            'data: ' + json.dumps(
+                {
+                    "type": "response.completed",
+                    "response": {"usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8}},
+                }
+            ),
+        ]
+    ) + "\n\n"
 
     @tool
     def echo(message: str) -> str:
         return message.upper()
 
     monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+    _patch_codex_stream(monkeypatch, sse=sse)
 
     llm = LLM(
         model="openai:gpt-5-codex",
@@ -307,34 +358,32 @@ async def test_openai_oauth_stream_events_async_executes_tool_handler(monkeypatc
     def _unexpected_create(*args, **kwargs):
         raise AssertionError
 
-    def _urlopen(request, timeout=0):
-        sse = "\n\n".join(
-            [
-                'data: '
-                + json.dumps(
-                    {
-                        "type": "response.output_item.done",
-                        "item": {
-                            "type": "function_call",
-                            "id": "fc_1",
-                            "call_id": "call_1",
-                            "name": "echo",
-                            "arguments": json.dumps({"message": "tokyo"}),
-                            "status": "completed",
-                        },
-                    }
-                ),
-                'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
-            ]
-        ) + "\n\n"
-        return FakeHTTPResponse(sse)
+    sse = "\n\n".join(
+        [
+            'data: '
+            + json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "echo",
+                        "arguments": json.dumps({"message": "tokyo"}),
+                        "status": "completed",
+                    },
+                }
+            ),
+            'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+        ]
+    ) + "\n\n"
 
     @tool
     async def echo(message: str) -> str:
         return message.upper()
 
     monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    monkeypatch.setattr("republic.clients.openai_codex.urllib.request.urlopen", _urlopen)
+    _patch_codex_stream(monkeypatch, sse=sse)
 
     llm = LLM(
         model="openai:gpt-5-codex",

@@ -25,6 +25,7 @@ _DEFAULT_CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 _DEFAULT_CODEX_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"  # noqa: S105
 _DEFAULT_CODEX_OAUTH_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 _DEFAULT_CODEX_OAUTH_SCOPE = "openid profile email offline_access"
+_DEFAULT_CODEX_OAUTH_ORIGINATOR = "codex_cli_rs"
 
 
 class CodexOAuthResponseError(TypeError):
@@ -43,6 +44,16 @@ class CodexOAuthMissingCodeError(CodexOAuthLoginError):
     """Raised when OAuth redirect does not include authorization code."""
 
 
+def _build_oauth_callback_error_message(*, redirect_uri: str, timeout_seconds: float) -> str:
+    return (
+        "Did not receive OAuth callback. "
+        f"redirect_uri={redirect_uri!r}, timeout_seconds={timeout_seconds}. "
+        "Possible causes: callback wait timed out, local callback port is unavailable, "
+        "or redirect_uri is not a loopback HTTP address. "
+        "Try increasing timeout_seconds or use prompt_for_redirect for manual paste."
+    )
+
+
 def codex_cli_api_key_resolver(codex_home: str | Path | None = None) -> Callable[[str], str | None]:
     """Build a provider-scoped resolver that reads Codex CLI OAuth token.
 
@@ -50,9 +61,7 @@ def codex_cli_api_key_resolver(codex_home: str | Path | None = None) -> Callable
     It reads from `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`).
     """
 
-    if codex_home is None:
-        codex_home = os.getenv("CODEX_HOME", "~/.codex")
-    auth_path = Path(codex_home).expanduser() / "auth.json"
+    auth_path = _resolve_codex_auth_path(codex_home)
 
     def _resolver(provider: str) -> str | None:
         if provider not in _CODEX_PROVIDERS:
@@ -182,7 +191,6 @@ def refresh_openai_codex_oauth_tokens(
         payload = oauth.refresh_token(
             url=token_url,
             refresh_token=refresh_token,
-            client_id=client_id,
         )
     return _tokens_from_token_payload(payload, account_id=None)
 
@@ -361,7 +369,6 @@ def _exchange_openai_codex_authorization_code(
             grant_type="authorization_code",
             code=code,
             code_verifier=verifier,
-            client_id=client_id,
         )
     account_id = extract_openai_codex_account_id(str(payload.get("access_token", "")))
     return _tokens_from_token_payload(payload, account_id=account_id)
@@ -373,13 +380,13 @@ def login_openai_codex_oauth(
     prompt_for_redirect: Callable[[str], str] | None = None,
     open_browser: bool = True,
     browser_opener: Callable[[str], Any] | None = None,
-    redirect_uri: str = "http://127.0.0.1:1455/auth/callback",
-    timeout_seconds: float = 30.0,
+    redirect_uri: str = "http://localhost:1455/auth/callback",
+    timeout_seconds: float = 300.0,
     client_id: str = _DEFAULT_CODEX_OAUTH_CLIENT_ID,
     authorize_url: str = _DEFAULT_CODEX_OAUTH_AUTHORIZE_URL,
     token_url: str = _DEFAULT_CODEX_OAUTH_TOKEN_URL,
     scope: str = _DEFAULT_CODEX_OAUTH_SCOPE,
-    originator: str = "republic",
+    originator: str = _DEFAULT_CODEX_OAUTH_ORIGINATOR,
 ) -> OpenAICodexOAuthTokens:
     """Run minimal OpenAI Codex OAuth login flow and persist tokens."""
 
@@ -408,7 +415,11 @@ def login_openai_codex_oauth(
             timeout_seconds=timeout_seconds,
         )
         if callback_values is None:
-            raise CodexOAuthLoginError
+            message = _build_oauth_callback_error_message(
+                redirect_uri=redirect_uri,
+                timeout_seconds=timeout_seconds,
+            )
+            raise CodexOAuthLoginError(message)
         code, returned_state = callback_values
 
     if returned_state and returned_state != state:

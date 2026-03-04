@@ -283,7 +283,7 @@ def test_login_openai_codex_oauth_raises_without_prompt_and_without_callback(mon
     monkeypatch.setattr("republic.auth.openai_codex.secrets.token_hex", lambda _: "state-fixed")
     monkeypatch.setattr("republic.auth.openai_codex._wait_for_local_oauth_callback", lambda **_: None)
 
-    with pytest.raises(CodexOAuthLoginError):
+    with pytest.raises(CodexOAuthLoginError, match="Did not receive OAuth callback"):
         login_openai_codex_oauth(
             codex_home=tmp_path,
             prompt_for_redirect=None,

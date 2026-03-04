@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import urllib.error
-import urllib.request
+from collections.abc import Iterable
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
+
+import httpx
 
 from republic.auth.openai_codex import extract_openai_codex_account_id
 
@@ -83,22 +84,23 @@ class OpenAICodexClient:
         raise OpenAICodexTransportError(None, "OpenAI Codex backend does not support embeddings")
 
     def _perform_request(self, payload: dict[str, Any], *, stream: bool) -> Any:
-        request = urllib.request.Request(  # noqa: S310
-            self._resolve_url(self._config.api_base),
-            data=json.dumps(payload).encode("utf-8"),
-            method="POST",
-            headers=self._build_headers(),
-        )
         try:
-            with urllib.request.urlopen(request, timeout=self._config.timeout_seconds) as response:  # noqa: S310
-                body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:  # pragma: no cover
-            body = exc.read().decode("utf-8", errors="replace")
-            raise OpenAICodexTransportError(exc.code, self._format_http_error(exc.code, body), body) from exc
-        except urllib.error.URLError as exc:
-            raise OpenAICodexTransportError(None, str(exc.reason)) from exc
+            with httpx.Client(timeout=self._config.timeout_seconds, trust_env=False) as client:
+                response = client.post(
+                    self._resolve_url(self._config.api_base),
+                    headers=self._build_headers(),
+                    json=payload,
+                )
+                status_code = response.status_code
+                body = self._read_response_text(response)
+                if status_code >= 400:
+                    raise OpenAICodexTransportError(status_code, self._format_http_error(status_code, body), body)
+                parsed = self._parse_sse_raw(body)
+                if parsed is None:
+                    raise self._sse_parse_error(status_code, response.headers.get("content-type", ""), body)
+        except httpx.HTTPError as exc:
+            raise OpenAICodexTransportError(None, str(exc)) from exc
 
-        parsed = self._parse_sse(body)
         if stream:
             return parsed["chunks"]
         return self._build_response(parsed)
@@ -405,17 +407,17 @@ class OpenAICodexClient:
             raise OpenAICodexTransportError(502, message)
 
     @classmethod
-    def _parse_sse(cls, raw: str) -> dict[str, Any]:
+    def _parse_sse(cls, events: Any) -> dict[str, Any]:
         parts: list[str] = []
         usage: dict[str, Any] | None = None
         fallback_text: str | None = None
         tool_calls: list[dict[str, Any]] = []
         chunks: list[Any] = []
-        for chunk in raw.split("\n\n"):
-            lines = [line[5:].strip() for line in chunk.splitlines() if line.startswith("data:")]
-            if not lines:
+        for message in events:
+            data = getattr(message, "data", None)
+            if not isinstance(data, str):
                 continue
-            data = "\n".join(lines).strip()
+            data = data.strip()
             if not data or data == "[DONE]":
                 continue
             try:
@@ -474,6 +476,62 @@ class OpenAICodexClient:
                 if isinstance(message, str) and message:
                     return f"Error code: {status_code} - {payload}"
         return f"Error code: {status_code} - {body}"
+
+    @staticmethod
+    def _read_response_text(response: httpx.Response) -> str:
+        try:
+            raw = response.read()
+        except Exception:
+            return ""
+        encoding = response.encoding or "utf-8"
+        return raw.decode(encoding, errors="replace")
+
+    @staticmethod
+    def _sse_parse_error(status_code: int, content_type: str, body: str) -> OpenAICodexTransportError:
+        body_preview = body.strip()[:800]
+        if len(body.strip()) > 800:
+            body_preview += "...(truncated)"
+        message = (
+            "Failed to parse SSE response; "
+            f"status={status_code}; content-type={content_type!r}; "
+            f"body={body_preview or '<empty>'}"
+        )
+        return OpenAICodexTransportError(status_code, message, body or None)
+
+    @classmethod
+    def _parse_sse_raw(cls, body: str) -> dict[str, Any] | None:
+        if not cls._looks_like_sse_payload(body):
+            return None
+        messages = cls._extract_sse_data_messages(body.splitlines())
+        if not messages:
+            return None
+        pseudo_events = [SimpleNamespace(data=item) for item in messages]
+        return cls._parse_sse(pseudo_events)
+
+    @staticmethod
+    def _looks_like_sse_payload(body: str) -> bool:
+        stripped = body.lstrip()
+        return stripped.startswith("data:") or "\ndata:" in body or stripped.startswith("event:")
+
+    @staticmethod
+    def _extract_sse_data_messages(lines: Iterable[str]) -> list[str]:
+        messages: list[str] = []
+        current: list[str] = []
+        for raw_line in lines:
+            line = raw_line.rstrip("\r")
+            if line.startswith("data:"):
+                current.append(line[5:].lstrip())
+                continue
+            if not line:
+                if current:
+                    messages.append("\n".join(current))
+                    current = []
+                continue
+            if current and not line.startswith(("event:", "id:", "retry:")):
+                current.append(line)
+        if current:
+            messages.append("\n".join(current))
+        return messages
 
 
 __all__ = [

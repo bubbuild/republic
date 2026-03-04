@@ -39,7 +39,7 @@ def main() -> None:
     args = parse_args()
 
     tokens = login_openai_codex_oauth(
-        prompt_for_redirect=prompt_for_redirect,
+        prompt_for_redirect=None,
     )
     print("login: ok")
     print("account_id:", tokens.account_id or "-")
