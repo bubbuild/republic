@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -71,8 +71,14 @@ class OpenAICodexClient:
         if not kwargs.get("stream"):
             return response
 
+        iterator = iter(response)
+        sentinel = object()
+
         async def _iterator() -> Any:
-            for chunk in response:
+            while True:
+                chunk = await asyncio.to_thread(lambda: next(iterator, sentinel))
+                if chunk is sentinel:
+                    return
                 yield chunk
 
         return _iterator()
@@ -84,6 +90,9 @@ class OpenAICodexClient:
         raise OpenAICodexTransportError(None, "OpenAI Codex backend does not support embeddings")
 
     def _perform_request(self, payload: dict[str, Any], *, stream: bool) -> Any:
+        if stream:
+            return self._stream_request(payload)
+
         try:
             with httpx.Client(timeout=self._config.timeout_seconds, trust_env=False) as client:
                 response = client.post(
@@ -101,9 +110,35 @@ class OpenAICodexClient:
         except httpx.HTTPError as exc:
             raise OpenAICodexTransportError(None, str(exc)) from exc
 
-        if stream:
-            return parsed["chunks"]
         return self._build_response(parsed)
+
+    def _stream_request(self, payload: dict[str, Any]) -> Iterator[Any]:
+        def _iterator() -> Iterator[Any]:
+            try:
+                with httpx.Client(timeout=self._config.timeout_seconds, trust_env=False) as client, client.stream(
+                    "POST",
+                    self._resolve_url(self._config.api_base),
+                    headers=self._build_headers(),
+                    json=payload,
+                ) as response:
+                    status_code = response.status_code
+                    if status_code >= 400:
+                        body = self._read_response_text(response)
+                        raise OpenAICodexTransportError(status_code, self._format_http_error(status_code, body), body)
+                    yielded = False
+                    for chunk in self._iter_stream_chunks_from_lines(response.iter_lines()):
+                        yielded = True
+                        yield chunk
+                    if not yielded:
+                        body = self._read_response_text(response)
+                        parsed = self._parse_sse_raw(body)
+                        if parsed is None:
+                            raise self._sse_parse_error(status_code, response.headers.get("content-type", ""), body)
+                        yield from parsed["chunks"]
+            except httpx.HTTPError as exc:
+                raise OpenAICodexTransportError(None, str(exc)) from exc
+
+        return _iterator()
 
     def _build_payload(
         self,
@@ -376,6 +411,30 @@ class OpenAICodexClient:
             return fallback_text, next_usage
         return fallback_text, usage
 
+    @classmethod
+    def _iter_stream_chunks(cls, events: Any) -> Iterator[Any]:
+        for event in cls._iter_sse_events(events):
+            event_type = event.get("type")
+            if event_type == "response.output_text.delta":
+                delta = event.get("delta")
+                if isinstance(delta, str):
+                    yield cls._make_text_chunk(delta)
+                continue
+            if event_type == "response.output_item.done":
+                tool_call = cls._extract_tool_call(event.get("item"))
+                if tool_call is not None:
+                    yield cls._make_tool_chunk(tool_call)
+                continue
+            if event_type in {"response.completed", "response.done"}:
+                usage = cls._update_usage_from_event(event)
+                if usage is not None:
+                    yield cls._make_usage_chunk(usage)
+
+    @classmethod
+    def _iter_stream_chunks_from_lines(cls, lines: Iterator[str]) -> Iterator[Any]:
+        pseudo_events = (SimpleNamespace(data=data) for data in cls._extract_sse_data_messages(lines))
+        yield from cls._iter_stream_chunks(pseudo_events)
+
     @staticmethod
     def _update_usage_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
         response = event.get("response")
@@ -407,12 +466,7 @@ class OpenAICodexClient:
             raise OpenAICodexTransportError(502, message)
 
     @classmethod
-    def _parse_sse(cls, events: Any) -> dict[str, Any]:
-        parts: list[str] = []
-        usage: dict[str, Any] | None = None
-        fallback_text: str | None = None
-        tool_calls: list[dict[str, Any]] = []
-        chunks: list[Any] = []
+    def _iter_sse_events(cls, events: Any) -> Iterator[dict[str, Any]]:
         for message in events:
             data = getattr(message, "data", None)
             if not isinstance(data, str):
@@ -425,6 +479,17 @@ class OpenAICodexClient:
             except json.JSONDecodeError:
                 continue
             cls._raise_event_error(event)
+            if isinstance(event, dict):
+                yield event
+
+    @classmethod
+    def _parse_sse(cls, events: Any) -> dict[str, Any]:
+        parts: list[str] = []
+        usage: dict[str, Any] | None = None
+        fallback_text: str | None = None
+        tool_calls: list[dict[str, Any]] = []
+        chunks: list[Any] = []
+        for event in cls._iter_sse_events(events):
             fallback_text, usage = cls._handle_stream_event(
                 event,
                 parts=parts,
