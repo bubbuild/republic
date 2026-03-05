@@ -81,7 +81,7 @@ def _patch_codex_stream(
     captured: dict[str, object] | None = None,
     status_code: int = 200,
     content_type: str = "text/event-stream",
-) -> None:
+    ) -> None:
     monkeypatch.setattr(
         "republic.clients.openai_codex.httpx.Client",
         lambda *args, **kwargs: FakeHTTPClient(
@@ -93,39 +93,53 @@ def _patch_codex_stream(
     )
 
 
+def _unexpected_create(*args, **kwargs):
+    raise AssertionError
+
+
+def _sse(*events: dict[str, object]) -> str:
+    return "\n\n".join("data: " + json.dumps(event) for event in events) + "\n\n"
+
+
+def _build_codex_oauth_llm(
+    monkeypatch,
+    *,
+    sse: str,
+    model: str = "openai:gpt-5-codex",
+    capture_request: bool = False,
+) -> tuple[LLM, dict[str, object] | None]:
+    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
+    captured: dict[str, object] | None = {} if capture_request else None
+    _patch_codex_stream(monkeypatch, sse=sse, captured=captured)
+    llm = LLM(
+        model=model,
+        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+    )
+    return llm, captured
+
+
 def test_extract_openai_codex_account_id_reads_jwt_claim() -> None:
     assert extract_openai_codex_account_id(TOKEN) == "acct-test"
     assert extract_openai_codex_account_id("sk-test") is None
 
 
 def test_openai_oauth_token_uses_codex_backend(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-
-    def _unexpected_create(*args, **kwargs):
-        raise AssertionError
-
-    sse = "\n\n".join(
-        [
-            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "hello"}),
-            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": " world"}),
-            'data: ' + json.dumps(
-                {
-                    "type": "response.completed",
-                    "response": {"usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}},
-                }
-            ),
-        ]
-    ) + "\n\n"
-
-    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    _patch_codex_stream(monkeypatch, sse=sse, captured=captured)
-
-    llm = LLM(
+    llm, captured = _build_codex_oauth_llm(
+        monkeypatch,
+        sse=_sse(
+            {"type": "response.output_text.delta", "delta": "hello"},
+            {"type": "response.output_text.delta", "delta": " world"},
+            {
+                "type": "response.completed",
+                "response": {"usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}},
+            },
+        ),
         model="openai:gpt-5.3-codex",
-        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+        capture_request=True,
     )
 
     assert llm.chat("Say hello") == "hello world"
+    assert isinstance(captured, dict)
     assert captured["url"] == "https://chatgpt.com/backend-api/codex/responses"
     headers = {str(k).lower(): str(v) for k, v in dict(captured["headers"]).items()}
     assert headers["authorization"] == f"Bearer {TOKEN}"
@@ -138,42 +152,26 @@ def test_openai_oauth_token_uses_codex_backend(monkeypatch) -> None:
 
 
 def test_openai_oauth_tool_calls_are_parsed_and_tools_are_converted(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-
-    def _unexpected_create(*args, **kwargs):
-        raise AssertionError
-
-    sse = "\n\n".join(
-        [
-            'data: '
-            + json.dumps(
-                {
-                    "type": "response.output_item.done",
-                    "item": {
-                        "type": "function_call",
-                        "id": "fc_1",
-                        "call_id": "call_1",
-                        "name": "echo",
-                        "arguments": json.dumps({"message": "hello"}),
-                        "status": "completed",
-                    },
-                }
-            ),
-            'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
-        ]
-    ) + "\n\n"
+    sse = _sse(
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "echo",
+                "arguments": json.dumps({"message": "hello"}),
+                "status": "completed",
+            },
+        },
+        {"type": "response.completed", "response": {"status": "completed"}},
+    )
 
     @tool
     def echo(message: str) -> str:
         return message
 
-    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    _patch_codex_stream(monkeypatch, sse=sse, captured=captured)
-
-    llm = LLM(
-        model="openai:gpt-5-codex",
-        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
-    )
+    llm, captured = _build_codex_oauth_llm(monkeypatch, sse=sse, capture_request=True)
 
     calls = llm.tool_calls("Use echo", tools=[echo])
     assert calls == [
@@ -186,6 +184,7 @@ def test_openai_oauth_tool_calls_are_parsed_and_tools_are_converted(monkeypatch)
             },
         }
     ]
+    assert isinstance(captured, dict)
     body = captured["body"]
     assert body["tools"][0]["type"] == "function"
     assert body["tools"][0]["name"] == "echo"
@@ -196,40 +195,26 @@ def test_openai_oauth_tool_calls_are_parsed_and_tools_are_converted(monkeypatch)
 
 
 def test_openai_oauth_run_tools_executes_tool(monkeypatch) -> None:
-    def _unexpected_create(*args, **kwargs):
-        raise AssertionError
-
-    sse = "\n\n".join(
-        [
-            'data: '
-            + json.dumps(
-                {
-                    "type": "response.output_item.done",
-                    "item": {
-                        "type": "function_call",
-                        "id": "fc_1",
-                        "call_id": "call_1",
-                        "name": "echo",
-                        "arguments": json.dumps({"message": "hello"}),
-                        "status": "completed",
-                    },
-                }
-            ),
-            'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
-        ]
-    ) + "\n\n"
+    sse = _sse(
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "echo",
+                "arguments": json.dumps({"message": "hello"}),
+                "status": "completed",
+            },
+        },
+        {"type": "response.completed", "response": {"status": "completed"}},
+    )
 
     @tool
     def echo(message: str) -> str:
         return f"echo:{message}"
 
-    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    _patch_codex_stream(monkeypatch, sse=sse)
-
-    llm = LLM(
-        model="openai:gpt-5-codex",
-        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
-    )
+    llm, _ = _build_codex_oauth_llm(monkeypatch, sse=sse)
 
     result = llm.run_tools("Use echo", tools=[echo])
     assert result.kind == "tools"
@@ -265,28 +250,16 @@ def test_regular_openai_key_still_uses_anyllm(monkeypatch) -> None:
 
 
 def test_openai_oauth_stream_yields_text_and_usage(monkeypatch) -> None:
-    def _unexpected_create(*args, **kwargs):
-        raise AssertionError
-
-    sse = "\n\n".join(
-        [
-            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
-            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "tools"}),
-            'data: ' + json.dumps(
-                {
-                    "type": "response.completed",
-                    "response": {"usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
-                }
-            ),
-        ]
-    ) + "\n\n"
-
-    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    _patch_codex_stream(monkeypatch, sse=sse)
-
-    llm = LLM(
-        model="openai:gpt-5-codex",
-        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
+    llm, _ = _build_codex_oauth_llm(
+        monkeypatch,
+        sse=_sse(
+            {"type": "response.output_text.delta", "delta": "Checking "},
+            {"type": "response.output_text.delta", "delta": "tools"},
+            {
+                "type": "response.completed",
+                "response": {"usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
+            },
+        ),
     )
 
     stream = llm.stream("Check tools")
@@ -296,46 +269,30 @@ def test_openai_oauth_stream_yields_text_and_usage(monkeypatch) -> None:
 
 
 def test_openai_oauth_stream_events_carries_tools_usage_and_final(monkeypatch) -> None:
-    def _unexpected_create(*args, **kwargs):
-        raise AssertionError
-
-    sse = "\n\n".join(
-        [
-            'data: ' + json.dumps({"type": "response.output_text.delta", "delta": "Checking "}),
-            'data: '
-            + json.dumps(
-                {
-                    "type": "response.output_item.done",
-                    "item": {
-                        "type": "function_call",
-                        "id": "fc_1",
-                        "call_id": "call_1",
-                        "name": "echo",
-                        "arguments": json.dumps({"message": "tokyo"}),
-                        "status": "completed",
-                    },
-                }
-            ),
-            'data: ' + json.dumps(
-                {
-                    "type": "response.completed",
-                    "response": {"usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8}},
-                }
-            ),
-        ]
-    ) + "\n\n"
+    sse = _sse(
+        {"type": "response.output_text.delta", "delta": "Checking "},
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "echo",
+                "arguments": json.dumps({"message": "tokyo"}),
+                "status": "completed",
+            },
+        },
+        {
+            "type": "response.completed",
+            "response": {"usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8}},
+        },
+    )
 
     @tool
     def echo(message: str) -> str:
         return message.upper()
 
-    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    _patch_codex_stream(monkeypatch, sse=sse)
-
-    llm = LLM(
-        model="openai:gpt-5-codex",
-        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
-    )
+    llm, _ = _build_codex_oauth_llm(monkeypatch, sse=sse)
 
     stream = llm.stream_events("Call echo for tokyo", tools=[echo])
     events = list(stream)
@@ -355,40 +312,26 @@ def test_openai_oauth_stream_events_carries_tools_usage_and_final(monkeypatch) -
 
 @pytest.mark.asyncio
 async def test_openai_oauth_stream_events_async_executes_tool_handler(monkeypatch) -> None:
-    def _unexpected_create(*args, **kwargs):
-        raise AssertionError
-
-    sse = "\n\n".join(
-        [
-            'data: '
-            + json.dumps(
-                {
-                    "type": "response.output_item.done",
-                    "item": {
-                        "type": "function_call",
-                        "id": "fc_1",
-                        "call_id": "call_1",
-                        "name": "echo",
-                        "arguments": json.dumps({"message": "tokyo"}),
-                        "status": "completed",
-                    },
-                }
-            ),
-            'data: ' + json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
-        ]
-    ) + "\n\n"
+    sse = _sse(
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "echo",
+                "arguments": json.dumps({"message": "tokyo"}),
+                "status": "completed",
+            },
+        },
+        {"type": "response.completed", "response": {"status": "completed"}},
+    )
 
     @tool
     async def echo(message: str) -> str:
         return message.upper()
 
-    monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    _patch_codex_stream(monkeypatch, sse=sse)
-
-    llm = LLM(
-        model="openai:gpt-5-codex",
-        api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
-    )
+    llm, _ = _build_codex_oauth_llm(monkeypatch, sse=sse)
 
     stream = await llm.stream_events_async("Call echo for tokyo", tools=[echo])
     events = [event async for event in stream]

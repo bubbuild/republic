@@ -20,7 +20,7 @@ from republic.auth.openai_codex import (
 from .fakes import FakeAnyLLMFactory, make_response
 
 
-def test_llm_uses_api_key_resolver_when_api_key_is_missing(monkeypatch) -> None:
+def _setup_anyllm_create(monkeypatch) -> tuple[FakeAnyLLMFactory, list[tuple[str, dict[str, object]]]]:
     created: list[tuple[str, dict[str, object]]] = []
     factory = FakeAnyLLMFactory()
 
@@ -29,6 +29,41 @@ def test_llm_uses_api_key_resolver_when_api_key_is_missing(monkeypatch) -> None:
         return factory.create(provider, **kwargs)
 
     monkeypatch.setattr(execution.AnyLLM, "create", _create)
+    return factory, created
+
+
+def _set_fixed_oauth_state(monkeypatch) -> None:
+    monkeypatch.setattr("republic.auth.openai_codex.secrets.token_hex", lambda _: "state-fixed")
+
+
+def _oauth_redirect_url(*, state: str, code: str | None = None) -> str:
+    base = "http://127.0.0.1:1455/auth/callback"
+    if code is None:
+        return f"{base}?state={state}"
+    return f"{base}?code={code}&state={state}"
+
+
+def _save_oauth_tokens(
+    tmp_path,
+    *,
+    access_token: str,
+    refresh_token: str,
+    expires_at: int,
+    account_id: str | None = None,
+) -> None:
+    save_openai_codex_oauth_tokens(
+        OpenAICodexOAuthTokens(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
+            account_id=account_id,
+        ),
+        tmp_path,
+    )
+
+
+def test_llm_uses_api_key_resolver_when_api_key_is_missing(monkeypatch) -> None:
+    factory, created = _setup_anyllm_create(monkeypatch)
 
     client = factory.ensure("openai")
     client.queue_completion(make_response(text="ok"))
@@ -43,14 +78,7 @@ def test_llm_uses_api_key_resolver_when_api_key_is_missing(monkeypatch) -> None:
 
 
 def test_explicit_api_key_has_priority_over_resolver(monkeypatch) -> None:
-    created: list[tuple[str, dict[str, object]]] = []
-    factory = FakeAnyLLMFactory()
-
-    def _create(provider: str, **kwargs: object):
-        created.append((provider, dict(kwargs)))
-        return factory.create(provider, **kwargs)
-
-    monkeypatch.setattr(execution.AnyLLM, "create", _create)
+    factory, created = _setup_anyllm_create(monkeypatch)
 
     client = factory.ensure("openai")
     client.queue_completion(make_response(text="ok"))
@@ -65,14 +93,7 @@ def test_explicit_api_key_has_priority_over_resolver(monkeypatch) -> None:
 
 
 def test_provider_map_falls_back_to_resolver_for_missing_provider(monkeypatch) -> None:
-    created: list[tuple[str, dict[str, object]]] = []
-    factory = FakeAnyLLMFactory()
-
-    def _create(provider: str, **kwargs: object):
-        created.append((provider, dict(kwargs)))
-        return factory.create(provider, **kwargs)
-
-    monkeypatch.setattr(execution.AnyLLM, "create", _create)
+    factory, created = _setup_anyllm_create(monkeypatch)
 
     client = factory.ensure("openai")
     client.queue_completion(make_response(text="ok"))
@@ -97,14 +118,12 @@ def test_codex_cli_api_key_resolver_reads_access_token(tmp_path) -> None:
 
 
 def test_openai_codex_oauth_resolver_refreshes_expiring_token(tmp_path) -> None:
-    save_openai_codex_oauth_tokens(
-        OpenAICodexOAuthTokens(
-            access_token="old-token",  # noqa: S106
-            refresh_token="refresh-1",  # noqa: S106
-            expires_at=1,  # expired
-            account_id="acct-1",
-        ),
+    _save_oauth_tokens(
         tmp_path,
+        access_token="old-token",  # noqa: S106
+        refresh_token="refresh-1",  # noqa: S106
+        expires_at=1,
+        account_id="acct-1",
     )
 
     calls: list[str] = []
@@ -127,13 +146,11 @@ def test_openai_codex_oauth_resolver_refreshes_expiring_token(tmp_path) -> None:
 
 
 def test_openai_codex_oauth_resolver_returns_none_when_expired_and_refresh_fails(tmp_path) -> None:
-    save_openai_codex_oauth_tokens(
-        OpenAICodexOAuthTokens(
-            access_token="old-token",  # noqa: S106
-            refresh_token="refresh-1",  # noqa: S106
-            expires_at=1,  # expired
-        ),
+    _save_oauth_tokens(
         tmp_path,
+        access_token="old-token",  # noqa: S106
+        refresh_token="refresh-1",  # noqa: S106
+        expires_at=1,
     )
 
     resolver = openai_codex_oauth_resolver(
@@ -144,13 +161,11 @@ def test_openai_codex_oauth_resolver_returns_none_when_expired_and_refresh_fails
 
 
 def test_openai_codex_oauth_resolver_uses_current_token_if_refresh_fails_but_not_expired(tmp_path) -> None:
-    save_openai_codex_oauth_tokens(
-        OpenAICodexOAuthTokens(
-            access_token="still-valid",  # noqa: S106
-            refresh_token="refresh-1",  # noqa: S106
-            expires_at=4_102_444_800,  # far future
-        ),
+    _save_oauth_tokens(
         tmp_path,
+        access_token="still-valid",  # noqa: S106
+        refresh_token="refresh-1",  # noqa: S106
+        expires_at=4_102_444_800,
     )
 
     resolver = openai_codex_oauth_resolver(
@@ -182,7 +197,7 @@ def test_login_openai_codex_oauth_success_persists_tokens(monkeypatch, tmp_path)
         )
 
     monkeypatch.setattr("republic.auth.openai_codex._exchange_openai_codex_authorization_code", _exchange)
-    monkeypatch.setattr("republic.auth.openai_codex.secrets.token_hex", lambda _: "state-fixed")
+    _set_fixed_oauth_state(monkeypatch)
 
     opened: list[str] = []
 
@@ -192,7 +207,7 @@ def test_login_openai_codex_oauth_success_persists_tokens(monkeypatch, tmp_path)
 
     def _prompt(url: str) -> str:
         assert "state=state-fixed" in url
-        return "http://127.0.0.1:1455/auth/callback?code=auth-code&state=state-fixed"
+        return _oauth_redirect_url(state="state-fixed", code="auth-code")
 
     tokens = login_openai_codex_oauth(
         codex_home=tmp_path,
@@ -215,10 +230,10 @@ def test_login_openai_codex_oauth_raises_on_state_mismatch(monkeypatch, tmp_path
         "republic.auth.openai_codex._exchange_openai_codex_authorization_code",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError),
     )
-    monkeypatch.setattr("republic.auth.openai_codex.secrets.token_hex", lambda _: "state-fixed")
+    _set_fixed_oauth_state(monkeypatch)
 
     def _prompt(_: str) -> str:
-        return "http://127.0.0.1:1455/auth/callback?code=auth-code&state=wrong"
+        return _oauth_redirect_url(state="wrong", code="auth-code")
 
     with pytest.raises(CodexOAuthStateMismatchError):
         login_openai_codex_oauth(
@@ -233,10 +248,10 @@ def test_login_openai_codex_oauth_raises_on_missing_code(monkeypatch, tmp_path) 
         "republic.auth.openai_codex._exchange_openai_codex_authorization_code",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError),
     )
-    monkeypatch.setattr("republic.auth.openai_codex.secrets.token_hex", lambda _: "state-fixed")
+    _set_fixed_oauth_state(monkeypatch)
 
     def _prompt(_: str) -> str:
-        return "http://127.0.0.1:1455/auth/callback?state=state-fixed"
+        return _oauth_redirect_url(state="state-fixed")
 
     with pytest.raises(CodexOAuthMissingCodeError):
         login_openai_codex_oauth(
@@ -247,7 +262,7 @@ def test_login_openai_codex_oauth_raises_on_missing_code(monkeypatch, tmp_path) 
 
 
 def test_login_openai_codex_oauth_uses_local_callback_without_prompt(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("republic.auth.openai_codex.secrets.token_hex", lambda _: "state-fixed")
+    _set_fixed_oauth_state(monkeypatch)
     monkeypatch.setattr(
         "republic.auth.openai_codex._wait_for_local_oauth_callback",
         lambda **_: ("auth-code", "state-fixed"),
@@ -280,7 +295,7 @@ def test_login_openai_codex_oauth_uses_local_callback_without_prompt(monkeypatch
 
 
 def test_login_openai_codex_oauth_raises_without_prompt_and_without_callback(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("republic.auth.openai_codex.secrets.token_hex", lambda _: "state-fixed")
+    _set_fixed_oauth_state(monkeypatch)
     monkeypatch.setattr("republic.auth.openai_codex._wait_for_local_oauth_callback", lambda **_: None)
 
     with pytest.raises(CodexOAuthLoginError, match="Did not receive OAuth callback"):
