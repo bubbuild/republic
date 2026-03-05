@@ -9,7 +9,7 @@ from republic import LLM
 
 llm = LLM(model="openrouter:openrouter/free", api_key="<API_KEY>")
 out = llm.chat("Output exactly one word: ready", max_tokens=8)
-print(out.value, out.error)
+print(out)
 ```
 
 ## Messages Mode
@@ -25,12 +25,18 @@ out = llm.chat(messages=messages, max_tokens=48)
 ## Structured Error Handling
 
 ```python
-result = llm.chat("Write one sentence.")
-if result.error:
-    if result.error.kind == "temporary":
+from republic import ErrorPayload, LLM
+
+llm = LLM(model="openrouter:openrouter/free", api_key="<API_KEY>")
+
+try:
+    out = llm.chat("Write one sentence.", max_tokens=32)
+    print(out)
+except ErrorPayload as error:
+    if error.kind == "temporary":
         print("retry later")
     else:
-        print("fail fast:", result.error.message)
+        print("fail fast:", error.message)
 ```
 
 ## Retries and Fallback

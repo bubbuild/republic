@@ -142,10 +142,56 @@ def make_responses_response(
     *,
     text: str = "",
     tool_calls: list[Any] | None = None,
+    usage: dict[str, Any] | None = None,
 ) -> Any:
     output: list[Any] = []
     if text:
         output.append(make_responses_message(text))
     if tool_calls:
         output.extend(tool_calls)
-    return SimpleNamespace(output=output)
+    return SimpleNamespace(output=output, usage=usage)
+
+
+def make_responses_text_delta(delta: str) -> Any:
+    return SimpleNamespace(type="response.output_text.delta", delta=delta)
+
+
+def make_responses_function_delta(delta: str, *, item_id: str = "call_1") -> Any:
+    return SimpleNamespace(type="response.function_call_arguments.delta", delta=delta, item_id=item_id, output_index=0)
+
+
+def make_responses_function_done(name: str, arguments: str, *, item_id: str = "call_1") -> Any:
+    return SimpleNamespace(
+        type="response.function_call_arguments.done",
+        name=name,
+        arguments=arguments,
+        item_id=item_id,
+        output_index=0,
+    )
+
+
+def make_responses_completed(usage: dict[str, Any] | None = None) -> Any:
+    response = SimpleNamespace(usage=usage)
+    return SimpleNamespace(type="response.completed", response=response)
+
+
+def make_responses_output_item_added(
+    *,
+    item_id: str = "fc_1",
+    call_id: str = "call_1",
+    name: str = "echo",
+    arguments: str = "",
+) -> Any:
+    item = SimpleNamespace(type="function_call", id=item_id, call_id=call_id, name=name, arguments=arguments)
+    return SimpleNamespace(type="response.output_item.added", item=item)
+
+
+def make_responses_output_item_done(
+    *,
+    item_id: str = "fc_1",
+    call_id: str = "call_1",
+    name: str = "echo",
+    arguments: str = '{"text":"tokyo"}',
+) -> Any:
+    item = SimpleNamespace(type="function_call", id=item_id, call_id=call_id, name=name, arguments=arguments)
+    return SimpleNamespace(type="response.output_item.done", item=item)

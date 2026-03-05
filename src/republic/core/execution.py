@@ -9,7 +9,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 from any_llm import AnyLLM
 from any_llm.exceptions import (
@@ -26,7 +26,9 @@ from any_llm.exceptions import (
     UnsupportedProviderError,
 )
 
+from republic.core import provider_policies
 from republic.core.errors import ErrorKind, RepublicError
+from republic.core.request_adapters import normalize_responses_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,25 @@ class AttemptOutcome:
     decision: AttemptDecision
 
 
+@dataclass(frozen=True)
+class TransportResponse:
+    transport: Literal["completion", "responses", "messages"]
+    payload: Any
+
+
+@dataclass(frozen=True)
+class TransportCallRequest:
+    client: AnyLLM
+    provider_name: str
+    model_id: str
+    messages_payload: list[dict[str, Any]]
+    tools_payload: list[dict[str, Any]] | None
+    max_tokens: int | None
+    stream: bool
+    reasoning_effort: Any | None
+    kwargs: dict[str, Any]
+
+
 class LLMCore:
     """Shared LLM execution utilities (provider resolution, retries, client cache)."""
 
@@ -61,7 +82,7 @@ class LLMCore:
         api_key: str | dict[str, str] | None,
         api_base: str | dict[str, str] | None,
         client_args: dict[str, Any],
-        use_responses: bool,
+        api_format: Literal["completion", "responses", "messages"],
         verbose: int,
         error_classifier: Callable[[Exception], ErrorKind | None] | None = None,
     ) -> None:
@@ -72,7 +93,7 @@ class LLMCore:
         self._api_key = api_key
         self._api_base = api_base
         self._client_args = client_args
-        self._use_responses = use_responses
+        self._api_format = api_format
         self._verbose = verbose
         self._error_classifier = error_classifier
         self._client_cache: dict[str, AnyLLM] = {}
@@ -328,8 +349,12 @@ class LLMCore:
         raise self.wrap_error(exc, kind, provider, model) from exc
 
     def _handle_attempt_error(self, exc: Exception, provider_name: str, model_id: str, attempt: int) -> AttemptOutcome:
-        kind = self.classify_exception(exc)
-        wrapped = self.wrap_error(exc, kind, provider_name, model_id)
+        if isinstance(exc, RepublicError):
+            wrapped = exc
+            kind = exc.kind
+        else:
+            kind = self.classify_exception(exc)
+            wrapped = self.wrap_error(exc, kind, provider_name, model_id)
         self.log_error(wrapped, provider_name, model_id, attempt)
         can_retry_same_model = self.should_retry(kind) and attempt + 1 < self.max_attempts()
         if can_retry_same_model:
@@ -339,21 +364,185 @@ class LLMCore:
     def _decide_kwargs_for_provider(
         self, provider: str, max_tokens: int | None, kwargs: dict[str, Any]
     ) -> dict[str, Any]:
-        use_completion_tokens = "openai" in provider.lower()
-        if not use_completion_tokens:
-            return {**kwargs, "max_tokens": max_tokens}
-        if "max_completion_tokens" in kwargs:
-            return kwargs
-        return {**kwargs, "max_completion_tokens": max_tokens}
+        clean_kwargs = dict(kwargs)
+        max_tokens_arg = provider_policies.completion_max_tokens_arg(provider)
+        if max_tokens_arg in clean_kwargs:
+            return clean_kwargs
+        return {**clean_kwargs, max_tokens_arg: max_tokens}
 
     def _decide_responses_kwargs(self, max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
+        # any-llm responses params currently reject extra_headers, so drop it here only.
         clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
+        clean_kwargs = normalize_responses_kwargs(clean_kwargs)
         if "max_output_tokens" in clean_kwargs:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
 
-    def _should_use_responses(self, client: AnyLLM, *, stream: bool) -> bool:
-        return not stream and self._use_responses and bool(getattr(client, "SUPPORTS_RESPONSES", False))
+    @staticmethod
+    def _should_default_completion_stream_usage(provider_name: str) -> bool:
+        return provider_policies.should_include_completion_stream_usage(provider_name)
+
+    def _with_default_completion_stream_options(
+        self,
+        provider_name: str,
+        stream: bool,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not stream:
+            return kwargs
+        if not self._should_default_completion_stream_usage(provider_name):
+            return kwargs
+        if "stream_options" in kwargs:
+            return kwargs
+        return {**kwargs, "stream_options": {"include_usage": True}}
+
+    @staticmethod
+    def _with_responses_reasoning(
+        kwargs: dict[str, Any],
+        reasoning_effort: Any | None,
+    ) -> dict[str, Any]:
+        if reasoning_effort is None:
+            return kwargs
+        if "reasoning" in kwargs:
+            return kwargs
+        return {**kwargs, "reasoning": {"effort": reasoning_effort}}
+
+    @staticmethod
+    def _convert_tools_for_responses(tools_payload: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        if not tools_payload:
+            return tools_payload
+
+        converted_tools: list[dict[str, Any]] = []
+        for tool in tools_payload:
+            function = tool.get("function")
+            if isinstance(function, dict):
+                converted: dict[str, Any] = {
+                    "type": tool.get("type", "function"),
+                    "name": function.get("name"),
+                    "description": function.get("description", ""),
+                    "parameters": function.get("parameters", {}),
+                }
+                if "strict" in function:
+                    converted["strict"] = function["strict"]
+                converted_tools.append(converted)
+                continue
+            converted_tools.append(dict(tool))
+        return converted_tools
+
+    def _selected_transport(
+        self,
+        client: AnyLLM,
+        *,
+        provider_name: str,
+        model_id: str,
+        tools_payload: list[dict[str, Any]] | None,
+    ) -> Literal["completion", "responses", "messages"]:
+        if self._api_format == "completion":
+            return "completion"
+        if self._api_format == "messages":
+            if not provider_policies.supports_messages_format(
+                provider_name=provider_name,
+                model_id=model_id,
+            ):
+                raise RepublicError(
+                    ErrorKind.INVALID_INPUT,
+                    f"{provider_name}:{model_id}: messages format is only valid for Anthropic models",
+                )
+            return "messages"
+
+        reason = provider_policies.responses_rejection_reason(
+            provider_name=provider_name,
+            model_id=model_id,
+            has_tools=bool(tools_payload),
+            supports_responses=bool(getattr(client, "SUPPORTS_RESPONSES", False)),
+        )
+        if reason is not None:
+            raise RepublicError(ErrorKind.INVALID_INPUT, f"{provider_name}:{model_id}: {reason}")
+        return "responses"
+
+    def _call_responses_sync(
+        self,
+        request: TransportCallRequest,
+    ) -> Any:
+        instructions, input_items = self._split_messages_for_responses(request.messages_payload)
+        responses_kwargs = self._with_responses_reasoning(request.kwargs, request.reasoning_effort)
+        return TransportResponse(
+            transport="responses",
+            payload=request.client.responses(
+                model=request.model_id,
+                input_data=input_items,
+                tools=self._convert_tools_for_responses(request.tools_payload),
+                stream=request.stream,
+                instructions=instructions,
+                **self._decide_responses_kwargs(request.max_tokens, responses_kwargs),
+            ),
+        )
+
+    def _call_completion_like_sync(
+        self,
+        *,
+        transport: Literal["completion", "messages"],
+        request: TransportCallRequest,
+    ) -> Any:
+        completion_kwargs = self._decide_kwargs_for_provider(request.provider_name, request.max_tokens, request.kwargs)
+        completion_kwargs = self._with_default_completion_stream_options(
+            request.provider_name,
+            request.stream,
+            completion_kwargs,
+        )
+        return TransportResponse(
+            transport=transport,
+            payload=request.client.completion(
+                model=request.model_id,
+                messages=request.messages_payload,
+                tools=request.tools_payload,
+                stream=request.stream,
+                reasoning_effort=request.reasoning_effort,
+                **completion_kwargs,
+            ),
+        )
+
+    async def _call_responses_async(
+        self,
+        request: TransportCallRequest,
+    ) -> Any:
+        instructions, input_items = self._split_messages_for_responses(request.messages_payload)
+        responses_kwargs = self._with_responses_reasoning(request.kwargs, request.reasoning_effort)
+        return TransportResponse(
+            transport="responses",
+            payload=await request.client.aresponses(
+                model=request.model_id,
+                input_data=input_items,
+                tools=self._convert_tools_for_responses(request.tools_payload),
+                stream=request.stream,
+                instructions=instructions,
+                **self._decide_responses_kwargs(request.max_tokens, responses_kwargs),
+            ),
+        )
+
+    async def _call_completion_like_async(
+        self,
+        *,
+        transport: Literal["completion", "messages"],
+        request: TransportCallRequest,
+    ) -> Any:
+        completion_kwargs = self._decide_kwargs_for_provider(request.provider_name, request.max_tokens, request.kwargs)
+        completion_kwargs = self._with_default_completion_stream_options(
+            request.provider_name,
+            request.stream,
+            completion_kwargs,
+        )
+        return TransportResponse(
+            transport=transport,
+            payload=await request.client.acompletion(
+                model=request.model_id,
+                messages=request.messages_payload,
+                tools=request.tools_payload,
+                stream=request.stream,
+                reasoning_effort=request.reasoning_effort,
+                **completion_kwargs,
+            ),
+        )
 
     def _call_client_sync(
         self,
@@ -368,24 +557,26 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(client, stream=stream):
-            instructions, input_items = self._split_messages_for_responses(messages_payload)
-            return client.responses(
-                model=model_id,
-                input_data=input_items,
-                tools=tools_payload,
-                stream=stream,
-                instructions=instructions,
-                **self._decide_responses_kwargs(max_tokens, kwargs),
-            )
-        return client.completion(
-            model=model_id,
-            messages=messages_payload,
-            tools=tools_payload,
+        request = TransportCallRequest(
+            client=client,
+            provider_name=provider_name,
+            model_id=model_id,
+            messages_payload=messages_payload,
+            tools_payload=tools_payload,
+            max_tokens=max_tokens,
             stream=stream,
             reasoning_effort=reasoning_effort,
-            **self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs),
+            kwargs=kwargs,
         )
+        transport = self._selected_transport(
+            client,
+            provider_name=provider_name,
+            model_id=model_id,
+            tools_payload=tools_payload,
+        )
+        if transport == "responses":
+            return self._call_responses_sync(request)
+        return self._call_completion_like_sync(transport=transport, request=request)
 
     async def _call_client_async(
         self,
@@ -400,24 +591,26 @@ class LLMCore:
         reasoning_effort: Any | None,
         kwargs: dict[str, Any],
     ) -> Any:
-        if self._should_use_responses(client, stream=stream):
-            instructions, input_items = self._split_messages_for_responses(messages_payload)
-            return await client.aresponses(
-                model=model_id,
-                input_data=input_items,
-                tools=tools_payload,
-                stream=stream,
-                instructions=instructions,
-                **self._decide_responses_kwargs(max_tokens, kwargs),
-            )
-        return await client.acompletion(
-            model=model_id,
-            messages=messages_payload,
-            tools=tools_payload,
+        request = TransportCallRequest(
+            client=client,
+            provider_name=provider_name,
+            model_id=model_id,
+            messages_payload=messages_payload,
+            tools_payload=tools_payload,
+            max_tokens=max_tokens,
             stream=stream,
             reasoning_effort=reasoning_effort,
-            **self._decide_kwargs_for_provider(provider_name, max_tokens, kwargs),
+            kwargs=kwargs,
         )
+        transport = self._selected_transport(
+            client,
+            provider_name=provider_name,
+            model_id=model_id,
+            tools_payload=tools_payload,
+        )
+        if transport == "responses":
+            return await self._call_responses_async(request)
+        return await self._call_completion_like_async(transport=transport, request=request)
 
     @staticmethod
     def _split_messages_for_responses(
