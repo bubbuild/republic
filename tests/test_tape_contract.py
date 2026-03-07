@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from republic.core.errors import ErrorKind
@@ -51,3 +53,117 @@ def test_query_between_anchors_and_limit() -> None:
     entries = list(TapeQuery(tape=tape, store=store).between_anchors("a1", "a2").kinds("message").limit(1).all())
     assert len(entries) == 1
     assert entries[0].payload["content"] == "task 1"
+
+
+def test_query_text_matches_payload_and_meta() -> None:
+    store = InMemoryTapeStore()
+    tape = "searchable"
+
+    store.append(tape, TapeEntry.message({"role": "user", "content": "Database timeout on checkout"}, scope="db"))
+    store.append(tape, TapeEntry.event("run", {"status": "ok"}, scope="system"))
+
+    entries = list(TapeQuery(tape=tape, store=store).query("timeout").all())
+    assert len(entries) == 1
+    assert entries[0].kind == "message"
+
+    meta_entries = list(TapeQuery(tape=tape, store=store).query("system").all())
+    assert len(meta_entries) == 1
+    assert meta_entries[0].kind == "event"
+
+
+def test_query_between_dates_filters_inclusive_range() -> None:
+    store = InMemoryTapeStore()
+    tape = "dated"
+
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="message",
+            payload={"role": "user", "content": "before"},
+            date="2026-03-01T08:00:00+00:00",
+        ),
+    )
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="message",
+            payload={"role": "user", "content": "during"},
+            date="2026-03-02T09:30:00+00:00",
+        ),
+    )
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="message",
+            payload={"role": "user", "content": "after"},
+            date="2026-03-04T18:45:00+00:00",
+        ),
+    )
+
+    entries = list(TapeQuery(tape=tape, store=store).between_dates(date(2026, 3, 2), "2026-03-03").all())
+    assert [entry.payload["content"] for entry in entries] == ["during"]
+
+
+def test_query_combines_anchor_date_and_text_filters() -> None:
+    store = InMemoryTapeStore()
+    tape = "combined"
+
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="anchor",
+            payload={"name": "a1"},
+            date="2026-03-01T00:00:00+00:00",
+        ),
+    )
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="message",
+            payload={"role": "user", "content": "old timeout"},
+            date="2026-03-01T12:00:00+00:00",
+        ),
+    )
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="anchor",
+            payload={"name": "a2"},
+            date="2026-03-02T00:00:00+00:00",
+        ),
+    )
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="message",
+            payload={"role": "user", "content": "new timeout"},
+            meta={"source": "ops"},
+            date="2026-03-02T12:00:00+00:00",
+        ),
+    )
+    store.append(
+        tape,
+        TapeEntry(
+            id=0,
+            kind="message",
+            payload={"role": "user", "content": "new success"},
+            meta={"source": "ops"},
+            date="2026-03-03T12:00:00+00:00",
+        ),
+    )
+
+    entries = list(
+        TapeQuery(tape=tape, store=store)
+        .after_anchor("a2")
+        .between_dates("2026-03-02", "2026-03-02")
+        .query("timeout")
+        .all()
+    )
+    assert [entry.payload["content"] for entry in entries] == ["new timeout"]
