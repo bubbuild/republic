@@ -115,12 +115,15 @@ class OpenAICodexClient:
     def _stream_request(self, payload: dict[str, Any]) -> Iterator[Any]:
         def _iterator() -> Iterator[Any]:
             try:
-                with httpx.Client(timeout=self._config.timeout_seconds, trust_env=False) as client, client.stream(
-                    "POST",
-                    self._resolve_url(self._config.api_base),
-                    headers=self._build_headers(),
-                    json=payload,
-                ) as response:
+                with (
+                    httpx.Client(timeout=self._config.timeout_seconds, trust_env=False) as client,
+                    client.stream(
+                        "POST",
+                        self._resolve_url(self._config.api_base),
+                        headers=self._build_headers(),
+                        json=payload,
+                    ) as response,
+                ):
                     status_code = response.status_code
                     if status_code >= 400:
                         body = self._read_response_text(response)
@@ -201,14 +204,12 @@ class OpenAICodexClient:
                 name = function.get("name")
                 parameters = function.get("parameters")
                 if isinstance(name, str) and isinstance(parameters, dict):
-                    converted.append(
-                        {
-                            "type": "function",
-                            "name": name,
-                            "description": function.get("description", "") or "",
-                            "parameters": parameters,
-                        }
-                    )
+                    converted.append({
+                        "type": "function",
+                        "name": name,
+                        "description": function.get("description", "") or "",
+                        "parameters": parameters,
+                    })
                     continue
             if tool.get("type") == "function" and isinstance(tool.get("name"), str):
                 converted.append(dict(tool))
@@ -287,32 +288,26 @@ class OpenAICodexClient:
                 continue
             if role == "assistant":
                 if content:
-                    items.append(
-                        {
-                            "role": "assistant",
-                            "content": [{"type": "output_text", "text": content}],
-                        }
-                    )
+                    items.append({
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": content}],
+                    })
                 items.extend(cls._extract_assistant_function_calls(message))
                 continue
             if role == "tool":
                 call_id = message.get("tool_call_id")
                 if isinstance(call_id, str) and call_id and content:
-                    items.append(
-                        {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": content,
-                        }
-                    )
+                    items.append({
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": content,
+                    })
                 continue
             if content:
-                items.append(
-                    {
-                        "role": role,
-                        "content": [{"type": "input_text", "text": content}],
-                    }
-                )
+                items.append({
+                    "role": role,
+                    "content": [{"type": "input_text", "text": content}],
+                })
         return ("\n\n".join(instructions) or None), items
 
     @staticmethod

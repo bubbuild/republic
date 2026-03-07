@@ -162,13 +162,11 @@ def save_openai_codex_oauth_tokens(
     tokens_node = payload.get("tokens")
     if not isinstance(tokens_node, dict):
         tokens_node = {}
-    tokens_node.update(
-        {
-            "access_token": tokens.access_token,
-            "refresh_token": tokens.refresh_token,
-            "expires_at": tokens.expires_at,
-        }
-    )
+    tokens_node.update({
+        "access_token": tokens.access_token,
+        "refresh_token": tokens.refresh_token,
+        "expires_at": tokens.expires_at,
+    })
     if tokens.account_id:
         tokens_node["account_id"] = tokens.account_id
     payload["tokens"] = tokens_node
@@ -296,9 +294,7 @@ def _wait_for_local_oauth_callback(
             done.set()
 
             body = (
-                b"<!doctype html><html><body>"
-                b"<p>Authentication successful. Return to your terminal.</p>"
-                b"</body></html>"
+                b"<!doctype html><html><body><p>Authentication successful. Return to your terminal.</p></body></html>"
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -42,7 +43,7 @@ class FakeHTTPClient:
         self,
         *,
         sse: str,
-        captured: dict[str, object] | None,
+        captured: dict[str, Any] | None,
         status_code: int = 200,
         content_type: str = "text/event-stream",
     ) -> None:
@@ -78,10 +79,10 @@ def _patch_codex_stream(
     monkeypatch,
     *,
     sse: str,
-    captured: dict[str, object] | None = None,
+    captured: dict[str, Any] | None = None,
     status_code: int = 200,
     content_type: str = "text/event-stream",
-    ) -> None:
+) -> None:
     monkeypatch.setattr(
         "republic.clients.openai_codex.httpx.Client",
         lambda *args, **kwargs: FakeHTTPClient(
@@ -107,9 +108,9 @@ def _build_codex_oauth_llm(
     sse: str,
     model: str = "openai:gpt-5-codex",
     capture_request: bool = False,
-) -> tuple[LLM, dict[str, object] | None]:
+) -> tuple[LLM, dict[str, Any] | None]:
     monkeypatch.setattr(execution.AnyLLM, "create", _unexpected_create)
-    captured: dict[str, object] | None = {} if capture_request else None
+    captured: dict[str, Any] | None = {} if capture_request else None
     _patch_codex_stream(monkeypatch, sse=sse, captured=captured)
     llm = LLM(
         model=model,
@@ -141,11 +142,12 @@ def test_openai_oauth_token_uses_codex_backend(monkeypatch) -> None:
     assert llm.chat("Say hello") == "hello world"
     assert isinstance(captured, dict)
     assert captured["url"] == "https://chatgpt.com/backend-api/codex/responses"
-    headers = {str(k).lower(): str(v) for k, v in dict(captured["headers"]).items()}
+    raw_headers = cast(dict[str, Any], captured["headers"])
+    headers = {str(k).lower(): str(v) for k, v in raw_headers.items()}
     assert headers["authorization"] == f"Bearer {TOKEN}"
     assert headers["chatgpt-account-id"] == "acct-test"
     assert headers["openai-beta"] == "responses=experimental"
-    body = captured["body"]
+    body = cast(dict[str, Any], captured["body"])
     assert body["model"] == "gpt-5.3-codex"
     assert body["stream"] is True
     assert body["input"][0]["role"] == "user"
@@ -185,7 +187,7 @@ def test_openai_oauth_tool_calls_are_parsed_and_tools_are_converted(monkeypatch)
         }
     ]
     assert isinstance(captured, dict)
-    body = captured["body"]
+    body = cast(dict[str, Any], captured["body"])
     assert body["tools"][0]["type"] == "function"
     assert body["tools"][0]["name"] == "echo"
     assert body["tools"][0]["description"] == ""
@@ -227,7 +229,9 @@ def test_regular_openai_key_still_uses_anyllm(monkeypatch) -> None:
 
     class StubClient:
         def completion(self, **kwargs):
-            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=[]))], usage=None)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=[]))], usage=None
+            )
 
         async def acompletion(self, **kwargs):
             return self.completion(**kwargs)
@@ -246,7 +250,6 @@ def test_regular_openai_key_still_uses_anyllm(monkeypatch) -> None:
     assert llm.chat("Say hello") == "ok"
     assert created[0][0] == "openai"
     assert created[0][1]["api_key"] == "sk-test"
-
 
 
 def test_openai_oauth_stream_yields_text_and_usage(monkeypatch) -> None:
