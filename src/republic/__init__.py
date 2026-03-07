@@ -1,5 +1,9 @@
 """Republic public API."""
 
+from republic.auth.openai_codex import (
+    login_openai_codex_oauth,
+    openai_codex_oauth_resolver,
+)
 from republic.core.results import (
     AsyncStreamEvents,
     AsyncTextStream,
@@ -34,6 +38,8 @@ __all__ = [
     "ToolAutoResult",
     "ToolContext",
     "ToolSet",
+    "login_openai_codex_oauth",
+    "openai_codex_oauth_resolver",
     "schema_from_model",
     "tool",
     "tool_from_model",
