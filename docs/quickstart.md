@@ -41,6 +41,8 @@ print(reply.value)
 
 ## Step 4: Handle failures and fallback
 
+Note: `max_retries` is the number of retries after the first attempt (total attempts per model is `1 + max_retries`).
+
 ```python
 llm = LLM(
     model="openai:gpt-4o-mini",

@@ -28,6 +28,31 @@ def test_chat_retries_and_returns_text(fake_anyllm) -> None:
     assert len(client.calls) == 2
 
 
+@pytest.mark.parametrize(
+    ("max_retries", "expected_calls"),
+    [
+        (0, 1),
+        (1, 2),
+        (3, 4),
+    ],
+)
+def test_chat_retry_budget_is_one_plus_max_retries(fake_anyllm, max_retries: int, expected_calls: int) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(*(RuntimeError("temporary failure") for _ in range(expected_calls)))
+
+    llm = LLM(
+        model="openai:gpt-4o-mini",
+        api_key="dummy",
+        max_retries=max_retries,
+        error_classifier=lambda _: ErrorKind.TEMPORARY,
+    )
+
+    with pytest.raises(ErrorPayload) as exc_info:
+        llm.chat("Reply with ready", max_tokens=8)
+    assert exc_info.value.kind == ErrorKind.TEMPORARY
+    assert len(client.calls) == expected_calls
+
+
 def test_chat_uses_fallback_model(fake_anyllm) -> None:
     primary = fake_anyllm.ensure("openai")
     fallback = fake_anyllm.ensure("anthropic")
@@ -38,7 +63,7 @@ def test_chat_uses_fallback_model(fake_anyllm) -> None:
     llm = LLM(
         model="openai:gpt-4o-mini",
         fallback_models=["anthropic:claude-3-5-sonnet-latest"],
-        max_retries=1,
+        max_retries=0,
         api_key={"openai": "x", "anthropic": "y"},
         error_classifier=lambda _: ErrorKind.TEMPORARY,
     )
@@ -89,7 +114,7 @@ def test_chat_fallbacks_on_rate_limit_like_error(fake_anyllm) -> None:
     llm = LLM(
         model="openai:gpt-4o-mini",
         fallback_models=["openrouter:openrouter/free"],
-        max_retries=1,
+        max_retries=0,
         api_key={"openai": "x", "openrouter": "y"},
     )
 

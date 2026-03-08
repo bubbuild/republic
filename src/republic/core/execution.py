@@ -94,7 +94,7 @@ class LLMCore:
         return self._max_retries
 
     def max_attempts(self) -> int:
-        return max(1, self._max_retries)
+        return max(1, 1 + self._max_retries)
 
     @staticmethod
     def resolve_model_provider(model: str, provider: str | None) -> tuple[str, str]:
