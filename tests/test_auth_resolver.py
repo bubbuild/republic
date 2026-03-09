@@ -5,8 +5,17 @@ import pytest
 import republic.core.execution as execution
 from republic import (
     LLM,
+    github_copilot_oauth_resolver,
     login_openai_codex_oauth,
+    login_github_copilot_oauth,
     openai_codex_oauth_resolver,
+)
+from republic.auth.github_copilot import (
+    GitHubCopilotOAuthLoginError,
+    GitHubCopilotOAuthTokens,
+    load_github_cli_oauth_token,
+    load_github_cli_oauth_token_via_command,
+    save_github_copilot_oauth_tokens,
 )
 from republic.auth.openai_codex import (
     CodexOAuthLoginError,
@@ -57,6 +66,21 @@ def _save_oauth_tokens(
             refresh_token=refresh_token,
             expires_at=expires_at,
             account_id=account_id,
+        ),
+        tmp_path,
+    )
+
+
+def _save_github_copilot_tokens(
+    tmp_path,
+    *,
+    github_token: str,
+    expires_at: int | None = None,
+) -> None:
+    save_github_copilot_oauth_tokens(
+        GitHubCopilotOAuthTokens(
+            github_token=github_token,
+            expires_at=expires_at,
         ),
         tmp_path,
     )
@@ -174,6 +198,124 @@ def test_openai_codex_oauth_resolver_uses_current_token_if_refresh_fails_but_not
         refresher=lambda _: (_ for _ in ()).throw(RuntimeError("refresh failed")),
     )
     assert resolver("openai") == "still-valid"
+
+
+def test_github_copilot_oauth_resolver_prefers_persisted_token(tmp_path) -> None:
+    _save_github_copilot_tokens(
+        tmp_path,
+        github_token="gho_token",
+    )
+    resolver = github_copilot_oauth_resolver(tmp_path)
+    assert resolver("github-copilot") == "gho_token"
+
+
+def test_github_copilot_oauth_resolver_uses_github_cli_token_when_local_file_missing(tmp_path) -> None:
+    gh_dir = tmp_path / "gh"
+    gh_dir.mkdir()
+    (gh_dir / "hosts.yml").write_text(
+        "github.com:\n"
+        "  user: psiace\n"
+        "  oauth_token: gho_from_gh\n"
+        "  git_protocol: https\n",
+        encoding="utf-8",
+    )
+
+    resolver = github_copilot_oauth_resolver(tmp_path / "missing", gh_config_dir=gh_dir)
+    assert resolver("github-copilot") == "gho_from_gh"
+
+
+def test_github_copilot_oauth_resolver_returns_none_for_other_provider(tmp_path) -> None:
+    _save_github_copilot_tokens(tmp_path, github_token="gho_token")
+    resolver = github_copilot_oauth_resolver(tmp_path)
+    assert resolver("openai") is None
+
+
+def test_load_github_cli_oauth_token_reads_hosts_yaml(tmp_path) -> None:
+    hosts_path = tmp_path / "hosts.yml"
+    hosts_path.write_text(
+        "github.com:\n"
+        "  user: psiace\n"
+        "  oauth_token: gho_123\n"
+        "  git_protocol: https\n",
+        encoding="utf-8",
+    )
+    assert load_github_cli_oauth_token(tmp_path) == "gho_123"
+
+
+def test_load_github_cli_oauth_token_via_command(monkeypatch) -> None:
+    class _Result:
+        returncode = 0
+        stdout = "gho_from_cli\n"
+
+    monkeypatch.setattr("republic.auth.github_copilot.shutil.which", lambda _: "/usr/bin/gh")
+    monkeypatch.setattr("republic.auth.github_copilot.subprocess.run", lambda *args, **kwargs: _Result())
+
+    assert load_github_cli_oauth_token_via_command() == "gho_from_cli"
+
+
+def test_login_github_copilot_oauth_success_persists_tokens(monkeypatch, tmp_path) -> None:
+    opened: list[str] = []
+    notices: list[tuple[str, str]] = []
+
+    payloads = [
+        {
+            "device_code": "device-1",
+            "user_code": "ABCD-EFGH",
+            "verification_uri": "https://github.com/login/device",
+            "interval": 1,
+            "expires_in": 900,
+        },
+        {
+            "access_token": "gho_access",
+            "token_type": "bearer",
+            "scope": "read:user user:email",
+        },
+    ]
+
+    monkeypatch.setattr(
+        "republic.auth.github_copilot._post_json",
+        lambda *args, **kwargs: payloads.pop(0),
+    )
+    monkeypatch.setattr(
+        "republic.auth.github_copilot._fetch_profile",
+        lambda *args, **kwargs: {"id": 7, "login": "psiace", "email": "psiace@example.com"},
+    )
+
+    tokens = login_github_copilot_oauth(
+        config_home=tmp_path,
+        browser_opener=lambda url: opened.append(url),
+        device_code_notifier=lambda uri, code: notices.append((uri, code)),
+    )
+
+    assert tokens.github_token == "gho_access"
+    assert tokens.login == "psiace"
+    assert opened == ["https://github.com/login/device"]
+    assert notices == [("https://github.com/login/device", "ABCD-EFGH")]
+
+    resolver = github_copilot_oauth_resolver(tmp_path)
+    assert resolver("github-copilot") == "gho_access"
+
+
+def test_login_github_copilot_oauth_raises_when_user_denies(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "republic.auth.github_copilot._post_json",
+        lambda *args, **kwargs: {
+            "device_code": "device-1",
+            "user_code": "ABCD-EFGH",
+            "verification_uri": "https://github.com/login/device",
+            "interval": 1,
+            "expires_in": 900,
+        }
+        if kwargs["payload"].get("grant_type") is None
+        else {"error": "access_denied"},
+    )
+
+    with pytest.raises(GitHubCopilotOAuthLoginError):
+        login_github_copilot_oauth(
+            config_home=tmp_path,
+            open_browser=False,
+            device_code_notifier=lambda *_: None,
+        )
 
 
 def test_login_openai_codex_oauth_success_persists_tokens(monkeypatch, tmp_path) -> None:

@@ -1,5 +1,9 @@
 """Republic public API."""
 
+from republic.auth.github_copilot import (
+    github_copilot_oauth_resolver,
+    login_github_copilot_oauth,
+)
 from republic.auth.openai_codex import (
     login_openai_codex_oauth,
     openai_codex_oauth_resolver,
@@ -38,7 +42,9 @@ __all__ = [
     "ToolAutoResult",
     "ToolContext",
     "ToolSet",
+    "github_copilot_oauth_resolver",
     "login_openai_codex_oauth",
+    "login_github_copilot_oauth",
     "openai_codex_oauth_resolver",
     "schema_from_model",
     "tool",
