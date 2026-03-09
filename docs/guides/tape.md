@@ -46,6 +46,13 @@ previous = tape.query.after_anchor("incident_42").all()
 print([entry.kind for entry in previous])
 ```
 
+## Query Filters
+
+```python
+matches = tape.query.query("timeout").kinds("message").all()
+recent = tape.query.between_dates("2026-03-01", "2026-03-07").all()
+```
+
 ## Conventions
 
 - Tape entries are append-only and never overwrite history.
