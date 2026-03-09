@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 import republic.core.execution as execution
 from republic import LLM, tool
+
+_TEST_GITHUB_TOKEN = "gho_token"  # noqa: S105
 
 
 class FakeSessionEventType:
@@ -64,8 +66,8 @@ class FakeCopilotSession:
 
 
 class FakeCopilotClient:
-    instances: list["FakeCopilotClient"] = []
-    next_events: list[Any] = []
+    instances: ClassVar[list[FakeCopilotClient]] = []
+    next_events: ClassVar[list[Any]] = []
 
     def __init__(self, options: dict[str, Any]) -> None:
         self.options = dict(options)
@@ -110,7 +112,7 @@ def _build_copilot_llm(monkeypatch, *, events: list[Any], model: str = "github-c
     )
     return LLM(
         model=model,
-        api_key_resolver=lambda provider: "gho_token" if provider == "github-copilot" else None,
+        api_key_resolver=lambda provider: _TEST_GITHUB_TOKEN if provider == "github-copilot" else None,
     )
 
 
@@ -126,8 +128,8 @@ def test_github_copilot_oauth_uses_custom_backend(monkeypatch) -> None:
 
     assert llm.chat("Say hello") == "hello from copilot"
     client = FakeCopilotClient.instances[0]
-    assert client.options["env"]["GH_TOKEN"] == "gho_token"
-    assert client.options["env"]["GITHUB_TOKEN"] == "gho_token"
+    assert client.options["env"]["GH_TOKEN"] == _TEST_GITHUB_TOKEN
+    assert client.options["env"]["GITHUB_TOKEN"] == _TEST_GITHUB_TOKEN
     session_config = client.created_sessions[0]
     assert session_config["model"] == "gpt-4.1"
     assert session_config["streaming"] is True

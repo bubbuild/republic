@@ -13,6 +13,20 @@ from republic.auth.github_copilot import (
 )
 
 
+class SmokeTestError(RuntimeError):
+    @classmethod
+    def unexpected_post_url(cls, url: str) -> SmokeTestError:
+        return cls(f"Unexpected POST url: {url}")
+
+    @classmethod
+    def unexpected_get_url(cls, url: str) -> SmokeTestError:
+        return cls(f"Unexpected GET url: {url}")
+
+    @classmethod
+    def missing_live_token(cls) -> SmokeTestError:
+        return cls("No GitHub OAuth token found in env, gh config, or `gh auth token`.")
+
+
 class FakeHTTPResponse:
     def __init__(self, payload: dict[str, Any]) -> None:
         self._payload = payload
@@ -35,36 +49,32 @@ class FakeHTTPClient:
         return None
 
     def post(self, url: str, *, json: dict[str, Any] | None = None, headers=None):
+        del json, headers
         if url.endswith("/login/device/code"):
-            return FakeHTTPResponse(
-                {
-                    "device_code": "device-1",
-                    "user_code": "ABCD-EFGH",
-                    "verification_uri": "https://github.com/login/device",
-                    "interval": 1,
-                    "expires_in": 900,
-                }
-            )
+            return FakeHTTPResponse({
+                "device_code": "device-1",
+                "user_code": "ABCD-EFGH",
+                "verification_uri": "https://github.com/login/device",
+                "interval": 1,
+                "expires_in": 900,
+            })
         if url.endswith("/login/oauth/access_token"):
-            return FakeHTTPResponse(
-                {
-                    "access_token": "gho_mock_access",
-                    "token_type": "bearer",
-                    "scope": "read:user user:email",
-                }
-            )
-        raise RuntimeError(f"Unexpected POST url: {url}")
+            return FakeHTTPResponse({
+                "access_token": "gho_mock_access",
+                "token_type": "bearer",
+                "scope": "read:user user:email",
+            })
+        raise SmokeTestError.unexpected_post_url(url)
 
     def get(self, url: str, *, headers=None):
+        del headers
         if url.endswith("/user"):
-            return FakeHTTPResponse(
-                {
-                    "id": 7,
-                    "login": "psiace",
-                    "email": "psiace@example.com",
-                }
-            )
-        raise RuntimeError(f"Unexpected GET url: {url}")
+            return FakeHTTPResponse({
+                "id": 7,
+                "login": "psiace",
+                "email": "psiace@example.com",
+            })
+        raise SmokeTestError.unexpected_get_url(url)
 
 
 class FakeSessionEventType:
@@ -95,10 +105,24 @@ class FakeCopilotSession:
 
     async def send_and_wait(self, options: dict[str, Any], timeout: float | None = None):
         if self._handler is not None:
-            self._handler(SimpleNamespace(type=FakeSessionEventType.ASSISTANT_MESSAGE_DELTA, data=SimpleNamespace(delta_content="mock-")))
-            self._handler(SimpleNamespace(type=FakeSessionEventType.ASSISTANT_MESSAGE_DELTA, data=SimpleNamespace(delta_content="ok")))
-            self._handler(SimpleNamespace(type=FakeSessionEventType.ASSISTANT_USAGE, data=SimpleNamespace(input_tokens=3, output_tokens=2)))
-            final = SimpleNamespace(type=FakeSessionEventType.ASSISTANT_MESSAGE, data=SimpleNamespace(content="mock-ok"))
+            self._handler(
+                SimpleNamespace(
+                    type=FakeSessionEventType.ASSISTANT_MESSAGE_DELTA, data=SimpleNamespace(delta_content="mock-")
+                )
+            )
+            self._handler(
+                SimpleNamespace(
+                    type=FakeSessionEventType.ASSISTANT_MESSAGE_DELTA, data=SimpleNamespace(delta_content="ok")
+                )
+            )
+            self._handler(
+                SimpleNamespace(
+                    type=FakeSessionEventType.ASSISTANT_USAGE, data=SimpleNamespace(input_tokens=3, output_tokens=2)
+                )
+            )
+            final = SimpleNamespace(
+                type=FakeSessionEventType.ASSISTANT_MESSAGE, data=SimpleNamespace(content="mock-ok")
+            )
             self._handler(final)
             self._handler(SimpleNamespace(type=FakeSessionEventType.SESSION_IDLE, data=SimpleNamespace()))
             return final
@@ -190,7 +214,7 @@ def _run_mock(model: str) -> None:
 
 def _run_live(model: str, prompt: str) -> None:
     if not _has_live_token():
-        raise RuntimeError("No GitHub OAuth token found in env, gh config, or `gh auth token`.")
+        raise SmokeTestError.missing_live_token()
 
     llm = LLM(
         model=model,

@@ -6,8 +6,8 @@ import republic.core.execution as execution
 from republic import (
     LLM,
     github_copilot_oauth_resolver,
-    login_openai_codex_oauth,
     login_github_copilot_oauth,
+    login_openai_codex_oauth,
     openai_codex_oauth_resolver,
 )
 from republic.auth.github_copilot import (
@@ -27,6 +27,9 @@ from republic.auth.openai_codex import (
 )
 
 from .fakes import FakeAnyLLMFactory, make_response
+
+_TEST_GITHUB_TOKEN = "gho_token"  # noqa: S105
+_TEST_GITHUB_ACCESS_TOKEN = "gho_access"  # noqa: S105
 
 
 def _setup_anyllm_create(monkeypatch) -> tuple[FakeAnyLLMFactory, list[tuple[str, dict[str, object]]]]:
@@ -203,20 +206,17 @@ def test_openai_codex_oauth_resolver_uses_current_token_if_refresh_fails_but_not
 def test_github_copilot_oauth_resolver_prefers_persisted_token(tmp_path) -> None:
     _save_github_copilot_tokens(
         tmp_path,
-        github_token="gho_token",
+        github_token=_TEST_GITHUB_TOKEN,
     )
     resolver = github_copilot_oauth_resolver(tmp_path)
-    assert resolver("github-copilot") == "gho_token"
+    assert resolver("github-copilot") == _TEST_GITHUB_TOKEN
 
 
 def test_github_copilot_oauth_resolver_uses_github_cli_token_when_local_file_missing(tmp_path) -> None:
     gh_dir = tmp_path / "gh"
     gh_dir.mkdir()
     (gh_dir / "hosts.yml").write_text(
-        "github.com:\n"
-        "  user: psiace\n"
-        "  oauth_token: gho_from_gh\n"
-        "  git_protocol: https\n",
+        "github.com:\n  user: psiace\n  oauth_token: gho_from_gh\n  git_protocol: https\n",
         encoding="utf-8",
     )
 
@@ -225,7 +225,7 @@ def test_github_copilot_oauth_resolver_uses_github_cli_token_when_local_file_mis
 
 
 def test_github_copilot_oauth_resolver_returns_none_for_other_provider(tmp_path) -> None:
-    _save_github_copilot_tokens(tmp_path, github_token="gho_token")
+    _save_github_copilot_tokens(tmp_path, github_token=_TEST_GITHUB_TOKEN)
     resolver = github_copilot_oauth_resolver(tmp_path)
     assert resolver("openai") is None
 
@@ -233,10 +233,7 @@ def test_github_copilot_oauth_resolver_returns_none_for_other_provider(tmp_path)
 def test_load_github_cli_oauth_token_reads_hosts_yaml(tmp_path) -> None:
     hosts_path = tmp_path / "hosts.yml"
     hosts_path.write_text(
-        "github.com:\n"
-        "  user: psiace\n"
-        "  oauth_token: gho_123\n"
-        "  git_protocol: https\n",
+        "github.com:\n  user: psiace\n  oauth_token: gho_123\n  git_protocol: https\n",
         encoding="utf-8",
     )
     assert load_github_cli_oauth_token(tmp_path) == "gho_123"
@@ -266,7 +263,7 @@ def test_login_github_copilot_oauth_success_persists_tokens(monkeypatch, tmp_pat
             "expires_in": 900,
         },
         {
-            "access_token": "gho_access",
+            "access_token": _TEST_GITHUB_ACCESS_TOKEN,
             "token_type": "bearer",
             "scope": "read:user user:email",
         },
@@ -287,27 +284,29 @@ def test_login_github_copilot_oauth_success_persists_tokens(monkeypatch, tmp_pat
         device_code_notifier=lambda uri, code: notices.append((uri, code)),
     )
 
-    assert tokens.github_token == "gho_access"
+    assert tokens.github_token == _TEST_GITHUB_ACCESS_TOKEN
     assert tokens.login == "psiace"
     assert opened == ["https://github.com/login/device"]
     assert notices == [("https://github.com/login/device", "ABCD-EFGH")]
 
     resolver = github_copilot_oauth_resolver(tmp_path)
-    assert resolver("github-copilot") == "gho_access"
+    assert resolver("github-copilot") == _TEST_GITHUB_ACCESS_TOKEN
 
 
 def test_login_github_copilot_oauth_raises_when_user_denies(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "republic.auth.github_copilot._post_json",
-        lambda *args, **kwargs: {
-            "device_code": "device-1",
-            "user_code": "ABCD-EFGH",
-            "verification_uri": "https://github.com/login/device",
-            "interval": 1,
-            "expires_in": 900,
-        }
-        if kwargs["payload"].get("grant_type") is None
-        else {"error": "access_denied"},
+        lambda *args, **kwargs: (
+            {
+                "device_code": "device-1",
+                "user_code": "ABCD-EFGH",
+                "verification_uri": "https://github.com/login/device",
+                "interval": 1,
+                "expires_in": 900,
+            }
+            if kwargs["payload"].get("grant_type") is None
+            else {"error": "access_denied"}
+        ),
     )
 
     with pytest.raises(GitHubCopilotOAuthLoginError):

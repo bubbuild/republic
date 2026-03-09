@@ -20,11 +20,14 @@ import httpx
 _GITHUB_COPILOT_PROVIDERS = {"github-copilot"}
 _DEFAULT_GITHUB_COPILOT_OAUTH_CLIENT_ID = "Ov23li8tweQw6odWQebz"
 _DEFAULT_GITHUB_COPILOT_DEVICE_CODE_URL = "https://github.com/login/device/code"
-_DEFAULT_GITHUB_COPILOT_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
+_DEFAULT_GITHUB_COPILOT_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"  # noqa: S105
 _DEFAULT_GITHUB_COPILOT_SCOPE = "read:user user:email"
 _DEFAULT_GITHUB_API_VERSION = "2022-11-28"
 _DEFAULT_GITHUB_HOST = "github.com"
 _GITHUB_TOKEN_ENV_VARS = ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
+_GITHUB_DEVICE_FLOW_EXPIRED_MESSAGE = "GitHub device flow expired before authorization completed."
+_GITHUB_DEVICE_FLOW_DENIED_MESSAGE = "GitHub device flow was denied by the user."
+_GITHUB_DEVICE_FLOW_TIMEOUT_MESSAGE = "GitHub device flow timed out before authorization completed."
 
 
 class GitHubCopilotOAuthResponseError(TypeError):
@@ -38,7 +41,7 @@ class GitHubCopilotOAuthLoginError(RuntimeError):
 @dataclass(frozen=True)
 class GitHubCopilotOAuthTokens:
     github_token: str
-    github_token_type: str = "bearer"
+    github_token_type: str = "bearer"  # noqa: S105
     github_scope: str | None = None
     expires_at: int | None = None
     account_id: str | None = None
@@ -175,11 +178,12 @@ def load_github_cli_oauth_token_via_command(
     host: str = _DEFAULT_GITHUB_HOST,
     timeout_seconds: float = 5.0,
 ) -> str | None:
-    if shutil.which("gh") is None:
+    gh_path = shutil.which("gh")
+    if gh_path is None:
         return None
     try:
-        result = subprocess.run(
-            ["gh", "auth", "token", "--hostname", host],
+        result = subprocess.run(  # noqa: S603
+            [gh_path, "auth", "token", "--hostname", host],
             capture_output=True,
             text=True,
             check=False,
@@ -307,14 +311,14 @@ def _poll_github_device_access_token(
             time.sleep(poll_interval)
             continue
         if error == "expired_token":
-            raise GitHubCopilotOAuthLoginError("GitHub device flow expired before authorization completed.")
+            raise GitHubCopilotOAuthLoginError(_GITHUB_DEVICE_FLOW_EXPIRED_MESSAGE)
         if error == "access_denied":
-            raise GitHubCopilotOAuthLoginError("GitHub device flow was denied by the user.")
+            raise GitHubCopilotOAuthLoginError(_GITHUB_DEVICE_FLOW_DENIED_MESSAGE)
         if error:
             message = _normalize_optional_str(payload.get("error_description")) or error
             raise GitHubCopilotOAuthLoginError(message)
         time.sleep(poll_interval)
-    raise GitHubCopilotOAuthLoginError("GitHub device flow timed out before authorization completed.")
+    raise GitHubCopilotOAuthLoginError(_GITHUB_DEVICE_FLOW_TIMEOUT_MESSAGE)
 
 
 def login_github_copilot_oauth(

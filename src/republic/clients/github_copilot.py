@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,14 +50,25 @@ class CollectedCopilotResponse:
     chunks: list[Any] = field(default_factory=list)
 
 
+@dataclass
+class _SessionState:
+    parts: list[str] = field(default_factory=list)
+    final_text: str | None = None
+    usage: dict[str, Any] | None = None
+    chunks: list[Any] = field(default_factory=list)
+    session_error: str | None = None
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    saw_idle: bool = False
+
+
 def should_use_github_copilot_backend(provider: str) -> bool:
     return provider == "github-copilot"
 
 
 def _load_copilot_sdk() -> CopilotSdkBindings:
     try:
-        from copilot import CopilotClient, PermissionRequestResult, Tool  # type: ignore
-        from copilot.generated.session_events import SessionEventType  # type: ignore
+        from copilot import CopilotClient, PermissionRequestResult, Tool
+        from copilot.generated.session_events import SessionEventType
     except Exception as exc:
         raise GitHubCopilotTransportError(
             None,
@@ -108,12 +120,14 @@ class GitHubCopilotClient:
 
             return _iterator()
 
-        return (await self._collect_response(
-            model=str(kwargs["model"]),
-            messages=list(kwargs["messages"]),
-            tools=kwargs.get("tools"),
-            stream=False,
-        ))["response"]
+        return (
+            await self._collect_response(
+                model=str(kwargs["model"]),
+                messages=list(kwargs["messages"]),
+                tools=kwargs.get("tools"),
+                stream=False,
+            )
+        )["response"]
 
     def embedding(self, **_: Any) -> Any:
         raise GitHubCopilotTransportError(None, "GitHub Copilot backend does not support embeddings")
@@ -134,111 +148,24 @@ class GitHubCopilotClient:
         stream: bool,
     ) -> dict[str, Any]:
         sdk = _load_copilot_sdk()
-
         prompt, system_message = self._build_prompt(messages)
         if not prompt.strip():
             prompt = "Continue."
 
         client = sdk.client_type(self._build_client_options())
-        session = None
-        parts: list[str] = []
-        final_text: str | None = None
-        usage: dict[str, Any] | None = None
-        chunks: list[Any] = []
-        session_error: str | None = None
-        tool_calls: list[dict[str, Any]] = []
-        finished = asyncio.Event()
-        saw_idle = False
-
-        def _handle_event(event: Any) -> None:
-            nonlocal final_text, usage, session_error, saw_idle
-            event_type = getattr(event, "type", None)
-            data = getattr(event, "data", None)
-            if event_type == sdk.event_type.ASSISTANT_MESSAGE_DELTA:
-                delta = self._coerce_text(getattr(data, "delta_content", None))
-                if delta:
-                    parts.append(delta)
-                    chunks.append(self._make_text_chunk(delta))
-                return
-            if event_type == sdk.event_type.ASSISTANT_MESSAGE:
-                final_text = self._coerce_text(getattr(data, "content", None))
-                return
-            if event_type == sdk.event_type.ASSISTANT_USAGE:
-                usage = self._extract_usage(data)
-                if usage is not None:
-                    chunks.append(self._make_usage_chunk(usage))
-                return
-            if event_type == sdk.event_type.EXTERNAL_TOOL_REQUESTED:
-                tool_calls.extend(self._extract_tool_calls(data))
-                finished.set()
-                return
-            if event_type == sdk.event_type.SESSION_ERROR:
-                session_error = self._coerce_text(getattr(data, "message", None)) or "GitHub Copilot session error"
-                finished.set()
-                return
-            if event_type == sdk.event_type.SESSION_IDLE:
-                saw_idle = True
-                finished.set()
-
-        try:
-            await client.start()
-            session_config: dict[str, Any] = {
-                "model": model,
-                "streaming": True,
-                "on_permission_request": lambda request, invocation: self._handle_permission_request(
-                    request=request,
-                    invocation=invocation,
-                    permission_result_type=sdk.permission_result_type,
-                ),
-            }
-            if system_message:
-                session_config["system_message"] = {"mode": "append", "content": system_message}
-            sdk_tools = self._build_tools(tools, sdk.tool_type)
-            if sdk_tools:
-                session_config["tools"] = sdk_tools
-            session = await client.create_session(session_config)
-            unsubscribe = session.on(_handle_event)
-            try:
-                await session.send({"prompt": prompt})
-                await asyncio.wait_for(finished.wait(), timeout=self._config.timeout_seconds)
-                if tool_calls:
-                    await session.abort()
-                event = None
-            finally:
-                unsubscribe()
-                if saw_idle:
-                    event = None
-        except GitHubCopilotTransportError:
-            raise
-        except TimeoutError as exc:
-            raise GitHubCopilotTransportError(None, f"Timeout after {self._config.timeout_seconds}s waiting for Copilot") from exc
-        except Exception as exc:
-            raise GitHubCopilotTransportError(None, str(exc)) from exc
-        finally:
-            if session is not None:
-                try:
-                    await session.destroy()
-                except Exception:
-                    pass
-            try:
-                await client.stop()
-            except Exception:
-                pass
-
-        if event is not None and final_text is None:
-            final_text = self._coerce_text(getattr(getattr(event, "data", None), "content", None))
-        if session_error is not None:
-            raise GitHubCopilotTransportError(None, session_error)
-
-        collected = CollectedCopilotResponse(
-            text=final_text if final_text is not None else "".join(parts),
-            tool_calls=tool_calls,
-            usage=usage,
-            chunks=chunks,
+        state = _SessionState()
+        _, event = await self._run_session(
+            client=client,
+            model=model,
+            prompt=prompt,
+            system_message=system_message,
+            tools=tools,
+            sdk=sdk,
+            state=state,
         )
-        if collected.tool_calls:
-            for call in collected.tool_calls:
-                collected.chunks.append(self._make_tool_chunk(call))
+        self._raise_for_session_error(state)
+        self._populate_final_text_from_event(state, event)
+        collected = self._build_collected_response(state)
         if stream and not collected.chunks and collected.text:
             collected.chunks.append(self._make_text_chunk(collected.text))
         return {
@@ -249,6 +176,142 @@ class GitHubCopilotClient:
             ),
             "chunks": collected.chunks,
         }
+
+    async def _run_session(
+        self,
+        *,
+        client: Any,
+        model: str,
+        prompt: str,
+        system_message: str | None,
+        tools: list[dict[str, Any]] | None,
+        sdk: CopilotSdkBindings,
+        state: _SessionState,
+    ) -> tuple[Any, Any]:
+        session = None
+        event = None
+        finished = asyncio.Event()
+        handler = self._build_event_handler(sdk=sdk, state=state, finished=finished)
+
+        try:
+            await client.start()
+            session_config = self._build_session_config(
+                model=model,
+                system_message=system_message,
+                tools=tools,
+                sdk=sdk,
+            )
+            session = await client.create_session(session_config)
+            unsubscribe = session.on(handler)
+            try:
+                await session.send({"prompt": prompt})
+                await asyncio.wait_for(finished.wait(), timeout=self._config.timeout_seconds)
+                if state.tool_calls:
+                    await session.abort()
+            finally:
+                unsubscribe()
+                if state.saw_idle:
+                    event = None
+        except GitHubCopilotTransportError:
+            raise
+        except TimeoutError as exc:
+            raise GitHubCopilotTransportError(
+                None, f"Timeout after {self._config.timeout_seconds}s waiting for Copilot"
+            ) from exc
+        except Exception as exc:
+            raise GitHubCopilotTransportError(None, str(exc)) from exc
+        finally:
+            if session is not None:
+                with suppress(Exception):
+                    await session.destroy()
+            with suppress(Exception):
+                await client.stop()
+        return session, event
+
+    def _build_event_handler(
+        self,
+        *,
+        sdk: CopilotSdkBindings,
+        state: _SessionState,
+        finished: asyncio.Event,
+    ) -> Any:
+        def _handle_event(event: Any) -> None:
+            event_type = getattr(event, "type", None)
+            data = getattr(event, "data", None)
+            if event_type == sdk.event_type.ASSISTANT_MESSAGE_DELTA:
+                delta = self._coerce_text(getattr(data, "delta_content", None))
+                if delta:
+                    state.parts.append(delta)
+                    state.chunks.append(self._make_text_chunk(delta))
+                return
+            if event_type == sdk.event_type.ASSISTANT_MESSAGE:
+                state.final_text = self._coerce_text(getattr(data, "content", None))
+                return
+            if event_type == sdk.event_type.ASSISTANT_USAGE:
+                state.usage = self._extract_usage(data)
+                if state.usage is not None:
+                    state.chunks.append(self._make_usage_chunk(state.usage))
+                return
+            if event_type == sdk.event_type.EXTERNAL_TOOL_REQUESTED:
+                state.tool_calls.extend(self._extract_tool_calls(data))
+                finished.set()
+                return
+            if event_type == sdk.event_type.SESSION_ERROR:
+                state.session_error = (
+                    self._coerce_text(getattr(data, "message", None)) or "GitHub Copilot session error"
+                )
+                finished.set()
+                return
+            if event_type == sdk.event_type.SESSION_IDLE:
+                state.saw_idle = True
+                finished.set()
+
+        return _handle_event
+
+    def _build_session_config(
+        self,
+        *,
+        model: str,
+        system_message: str | None,
+        tools: list[dict[str, Any]] | None,
+        sdk: CopilotSdkBindings,
+    ) -> dict[str, Any]:
+        session_config: dict[str, Any] = {
+            "model": model,
+            "streaming": True,
+            "on_permission_request": lambda request, invocation: self._handle_permission_request(
+                request=request,
+                invocation=invocation,
+                permission_result_type=sdk.permission_result_type,
+            ),
+        }
+        if system_message:
+            session_config["system_message"] = {"mode": "append", "content": system_message}
+        sdk_tools = self._build_tools(tools, sdk.tool_type)
+        if sdk_tools:
+            session_config["tools"] = sdk_tools
+        return session_config
+
+    @staticmethod
+    def _raise_for_session_error(state: _SessionState) -> None:
+        if state.session_error is not None:
+            raise GitHubCopilotTransportError(None, state.session_error)
+
+    def _populate_final_text_from_event(self, state: _SessionState, event: Any) -> None:
+        if event is not None and state.final_text is None:
+            state.final_text = self._coerce_text(getattr(getattr(event, "data", None), "content", None))
+
+    def _build_collected_response(self, state: _SessionState) -> CollectedCopilotResponse:
+        collected = CollectedCopilotResponse(
+            text=state.final_text if state.final_text is not None else "".join(state.parts),
+            tool_calls=list(state.tool_calls),
+            usage=state.usage,
+            chunks=list(state.chunks),
+        )
+        if collected.tool_calls:
+            for call in collected.tool_calls:
+                collected.chunks.append(self._make_tool_chunk(call))
+        return collected
 
     def _build_client_options(self) -> dict[str, Any]:
         env = os.environ.copy()
@@ -322,10 +385,10 @@ class GitHubCopilotClient:
     @staticmethod
     def _extract_usage(data: Any) -> dict[str, Any] | None:
         usage: dict[str, Any] = {}
-        for field in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
-            value = getattr(data, field, None)
+        for usage_field in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+            value = getattr(data, usage_field, None)
             if isinstance(value, (int, float)):
-                usage[field] = int(value)
+                usage[usage_field] = int(value)
         if usage:
             usage["total_tokens"] = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
         return usage or None
@@ -452,7 +515,9 @@ def _run_sync(awaitable: Any) -> Any:
     except RuntimeError:
         loop = None
     if loop is not None and loop.is_running():
-        raise GitHubCopilotTransportError(None, "Synchronous GitHub Copilot calls cannot run inside an active event loop")
+        raise GitHubCopilotTransportError(
+            None, "Synchronous GitHub Copilot calls cannot run inside an active event loop"
+        )
     return asyncio.run(awaitable)
 
 
