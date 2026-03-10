@@ -32,8 +32,12 @@ from republic.clients.github_copilot import (
     should_use_github_copilot_backend,
 )
 from republic.clients.openai_codex import (
-    OpenAICodexBackendConfig,
-    OpenAICodexClient,
+    DEFAULT_CODEX_INCLUDE,
+    DEFAULT_CODEX_INSTRUCTIONS,
+    DEFAULT_CODEX_TEXT_CONFIG,
+    OpenAICodexResponsesClient,
+    build_openai_codex_default_headers,
+    resolve_openai_codex_api_base,
     should_use_openai_codex_backend,
 )
 from republic.core import provider_policies
@@ -217,11 +221,10 @@ class LLMCore:
         cache_key = self._freeze_cache_key(provider, api_key, api_base)
         if cache_key not in self._client_cache:
             if should_use_openai_codex_backend(provider, api_key):
-                self._client_cache[cache_key] = OpenAICodexClient(
-                    OpenAICodexBackendConfig(
-                        api_key=api_key or "",
-                        api_base=api_base,
-                    )
+                self._client_cache[cache_key] = self._build_openai_codex_client(
+                    provider=provider,
+                    api_key=api_key,
+                    api_base=api_base,
                 )
             elif should_use_github_copilot_backend(provider):
                 session_timeout = self._client_args.get("session_timeout")
@@ -245,6 +248,26 @@ class LLMCore:
                     **self._client_args,
                 )
         return self._client_cache[cache_key]
+
+    def _build_openai_codex_client(self, *, provider: str, api_key: str | None, api_base: str | None) -> Any:
+        default_headers = dict(self._client_args.get("default_headers", {}))
+        default_headers.update(build_openai_codex_default_headers(api_key or ""))
+        base_client = AnyLLM.create(
+            provider,
+            api_key=api_key,
+            api_base=resolve_openai_codex_api_base(api_base),
+            **{
+                **self._client_args,
+                "default_headers": default_headers,
+            },
+        )
+        return OpenAICodexResponsesClient(
+            base_client,
+            default_instructions=DEFAULT_CODEX_INSTRUCTIONS,
+            default_include=DEFAULT_CODEX_INCLUDE,
+            default_text=DEFAULT_CODEX_TEXT_CONFIG,
+            store=False,
+        )
 
     def log_error(self, error: RepublicError, provider: str, model: str, attempt: int) -> None:
         if self._verbose == 0:
@@ -413,11 +436,19 @@ class LLMCore:
             return clean_kwargs
         return {**clean_kwargs, max_tokens_arg: max_tokens}
 
-    def _decide_responses_kwargs(self, max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
-        # any-llm responses params currently reject extra_headers, so drop it here only.
-        clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
+    def _decide_responses_kwargs(
+        self,
+        max_tokens: int | None,
+        kwargs: dict[str, Any],
+        *,
+        drop_extra_headers: bool = True,
+    ) -> dict[str, Any]:
+        clean_kwargs = dict(kwargs)
+        if drop_extra_headers:
+            # any-llm responses params currently reject extra_headers, so drop it on the wrapped path only.
+            clean_kwargs.pop("extra_headers", None)
         clean_kwargs = normalize_responses_kwargs(clean_kwargs)
-        if "max_output_tokens" in clean_kwargs:
+        if "max_output_tokens" in clean_kwargs or max_tokens is None:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
 
@@ -480,6 +511,9 @@ class LLMCore:
         model_id: str,
         tools_payload: list[dict[str, Any]] | None,
     ) -> Literal["completion", "responses", "messages"]:
+        forced_transport = getattr(client, "PREFERRED_TRANSPORT", None)
+        if forced_transport in {"completion", "responses", "messages"}:
+            return forced_transport
         if self._api_format == "completion":
             return "completion"
         if self._api_format == "messages":
@@ -517,7 +551,11 @@ class LLMCore:
                 tools=self._convert_tools_for_responses(request.tools_payload),
                 stream=request.stream,
                 instructions=instructions,
-                **self._decide_responses_kwargs(request.max_tokens, responses_kwargs),
+                **self._decide_responses_kwargs(
+                    request.max_tokens,
+                    responses_kwargs,
+                    drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
+                ),
             ),
         )
 
@@ -559,9 +597,17 @@ class LLMCore:
                 tools=self._convert_tools_for_responses(request.tools_payload),
                 stream=request.stream,
                 instructions=instructions,
-                **self._decide_responses_kwargs(request.max_tokens, responses_kwargs),
+                **self._decide_responses_kwargs(
+                    request.max_tokens,
+                    responses_kwargs,
+                    drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
+                ),
             ),
         )
+
+    @staticmethod
+    def _preserves_responses_extra_headers(client: Any) -> bool:
+        return bool(getattr(client, "PRESERVE_EXTRA_HEADERS_IN_RESPONSES", False))
 
     async def _call_completion_like_async(
         self,

@@ -5,6 +5,7 @@ from republic.auth.github_copilot import (
     login_github_copilot_oauth,
 )
 from republic.auth.openai_codex import (
+    load_openai_codex_oauth_tokens,
     login_openai_codex_oauth,
     openai_codex_oauth_resolver,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "ToolSet",
     "github_copilot_oauth_resolver",
     "login_github_copilot_oauth",
+    "load_openai_codex_oauth_tokens",
     "login_openai_codex_oauth",
     "openai_codex_oauth_resolver",
     "schema_from_model",

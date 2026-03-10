@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 import os
 
-from republic import LLM, login_openai_codex_oauth, openai_codex_oauth_resolver
+from republic import (
+    LLM,
+    load_openai_codex_oauth_tokens,
+    login_openai_codex_oauth,
+    openai_codex_oauth_resolver,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -14,6 +19,11 @@ def parse_args() -> argparse.Namespace:
         "--login-only",
         action="store_true",
         help="Run OAuth login and persist tokens without sending a chat request.",
+    )
+    parser.add_argument(
+        "--force-login",
+        action="store_true",
+        help="Always run the OAuth login flow even if local Codex tokens already exist.",
     )
     parser.add_argument(
         "--model",
@@ -38,10 +48,14 @@ def prompt_for_redirect(authorize_url: str) -> str:
 def main() -> None:
     args = parse_args()
 
-    tokens = login_openai_codex_oauth(
-        prompt_for_redirect=None,
-    )
-    print("login: ok")
+    tokens = load_openai_codex_oauth_tokens()
+    if tokens is None or args.force_login:
+        tokens = login_openai_codex_oauth(
+            prompt_for_redirect=None,
+        )
+        print("login: ok")
+    else:
+        print("login: reused")
     print("account_id:", tokens.account_id or "-")
 
     if args.login_only:
@@ -52,11 +66,7 @@ def main() -> None:
         api_key_resolver=openai_codex_oauth_resolver(),
     )
     out = llm.chat(args.prompt)
-
-    if out.error:
-        print("error:", out.error.kind, out.error.message)
-        return
-    print("text:", out.value)
+    print("text:", out)
 
 
 if __name__ == "__main__":
