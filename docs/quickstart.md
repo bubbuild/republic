@@ -6,6 +6,9 @@
 pip install republic
 ```
 
+If you need provider-specific OAuth instead of static tokens, continue with
+[Authentication](guides/authentication.md) after this page.
+
 ## Step 1: Create an LLM
 
 Republic uses the `provider:model` format.

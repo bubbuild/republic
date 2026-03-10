@@ -42,29 +42,22 @@ print(result)
 - **Tape-first memory**: Use anchor/handoff to bound context windows and replay full evidence.
 - **Event streaming**: Subscribe to text deltas, tool calls, tool results, usage, and final state.
 
-## Provider Auth Resolver
+## Authentication
 
-Republic can resolve provider keys dynamically via `api_key_resolver`.
+Republic supports:
 
-```python
-from republic import LLM, login_openai_codex_oauth, openai_codex_oauth_resolver
+- static `api_key`
+- provider maps such as `api_key={"openai": "...", "anthropic": "..."}`
+- dynamic `api_key_resolver`
+- provider-specific OAuth resolvers for OpenAI Codex and GitHub Copilot
 
-# First-time login (paste redirect URL when prompted by your app/CLI wrapper).
-# You can wire `prompt_for_redirect` to your own input UI.
-login_openai_codex_oauth(
-    prompt_for_redirect=lambda authorize_url: input(f"Open this URL and paste callback URL:\n{authorize_url}\n> "),
-)
+Keep the README short and move auth setup into the docs:
 
-llm = LLM(
-    model="openai:gpt-5.3-codex",
-    api_key_resolver=openai_codex_oauth_resolver(),
-)
-print(llm.chat("Say hello in one sentence."))
-```
+- Quickstart: [docs/quickstart.md](./docs/quickstart.md)
+- Authentication guide: [docs/guides/authentication.md](./docs/guides/authentication.md)
+- OpenAI Codex example: [examples/06_openai_codex_oauth.py](./examples/06_openai_codex_oauth.py)
+- GitHub Copilot example: [examples/07_github_copilot_oauth.py](./examples/07_github_copilot_oauth.py)
 
-`openai_codex_oauth_resolver()` reads `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) and returns
-the current access token for `openai`, refreshing it automatically when it is near expiry.
-If you omit `prompt_for_redirect`, login will try to capture the callback from `redirect_uri` automatically.
 ## Development
 
 ```bash

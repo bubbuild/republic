@@ -26,6 +26,11 @@ from any_llm.exceptions import (
     UnsupportedProviderError,
 )
 
+from republic.clients.github_copilot import (
+    GitHubCopilotBackendConfig,
+    GitHubCopilotClient,
+    should_use_github_copilot_backend,
+)
 from republic.clients.openai_codex import (
     OpenAICodexBackendConfig,
     OpenAICodexClient,
@@ -216,6 +221,20 @@ class LLMCore:
                     OpenAICodexBackendConfig(
                         api_key=api_key or "",
                         api_base=api_base,
+                    )
+                )
+            elif should_use_github_copilot_backend(provider):
+                session_timeout = self._client_args.get("session_timeout")
+                self._client_cache[cache_key] = GitHubCopilotClient(
+                    GitHubCopilotBackendConfig(
+                        api_key=api_key or "",
+                        api_base=api_base,
+                        cli_path=self._client_args.get("cli_path"),
+                        cli_url=self._client_args.get("cli_url"),
+                        use_stdio=self._client_args.get("use_stdio"),
+                        log_level=str(self._client_args.get("log_level", "info")),
+                        timeout_seconds=float(session_timeout) if session_timeout is not None else 180.0,
+                        config_dir=self._client_args.get("config_dir"),
                     )
                 )
             else:

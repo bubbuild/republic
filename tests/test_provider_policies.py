@@ -53,12 +53,14 @@ def test_supports_messages_format() -> None:
 def test_completion_stream_usage_policy() -> None:
     assert provider_policies.should_include_completion_stream_usage("openai")
     assert provider_policies.should_include_completion_stream_usage("openrouter")
+    assert provider_policies.should_include_completion_stream_usage("github-copilot")
     assert not provider_policies.should_include_completion_stream_usage("anthropic")
 
 
 def test_completion_max_tokens_arg_policy() -> None:
     assert provider_policies.completion_max_tokens_arg("openai") == "max_completion_tokens"
     assert provider_policies.completion_max_tokens_arg("openrouter") == "max_tokens"
+    assert provider_policies.completion_max_tokens_arg("github-copilot") == "max_tokens"
     assert provider_policies.completion_max_tokens_arg("anthropic") == "max_tokens"
 
 

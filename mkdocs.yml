@@ -12,6 +12,7 @@ nav:
   - Quickstart: quickstart.md
   - Guides:
       - Breaking Changes: guides/breaking-changes.md
+      - Authentication: guides/authentication.md
       - Chat: guides/chat.md
       - Tools: guides/tools.md
       - Tape: guides/tape.md

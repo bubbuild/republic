@@ -15,6 +15,10 @@ class ProviderPolicy:
 
 _DEFAULT_POLICY = ProviderPolicy()
 _POLICIES: dict[str, ProviderPolicy] = {
+    "github-copilot": ProviderPolicy(
+        include_usage_in_completion_stream=True,
+        completion_max_tokens_arg="max_tokens",
+    ),
     "openai": ProviderPolicy(
         include_usage_in_completion_stream=True,
         completion_max_tokens_arg="max_completion_tokens",
