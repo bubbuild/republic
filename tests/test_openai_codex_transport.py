@@ -21,6 +21,21 @@ JWT_PAYLOAD = json.dumps({"https://api.openai.com/auth": {"chatgpt_account_id": 
 TOKEN = "aaa." + base64.urlsafe_b64encode(JWT_PAYLOAD).decode("ascii").rstrip("=") + ".bbb"
 
 
+class _NoQueuedCodexResponseError(AssertionError):
+    def __init__(self) -> None:
+        super().__init__("No queued Codex response")
+
+
+class _UnexpectedCodexCompletionTransportError(AssertionError):
+    def __init__(self) -> None:
+        super().__init__("Codex path should not use completion transport")
+
+
+class _UnexpectedCodexResponsesWrapperError(AssertionError):
+    def __init__(self) -> None:
+        super().__init__("Codex path should bypass any-llm responses wrapper")
+
+
 class _AsyncResponsesApi:
     def __init__(self, queue: deque[Any], calls: list[dict[str, Any]]) -> None:
         self._queue = queue
@@ -29,7 +44,7 @@ class _AsyncResponsesApi:
     async def create(self, **kwargs: Any) -> Any:
         self.calls.append(dict(kwargs))
         if not self._queue:
-            raise AssertionError("No queued Codex response")
+            raise _NoQueuedCodexResponseError
         item = self._queue.popleft()
         if isinstance(item, Exception):
             raise item
@@ -43,16 +58,16 @@ class _CodexAnyLLMClient:
         self.client = SimpleNamespace(responses=_AsyncResponsesApi(queue, calls))
 
     def completion(self, **_: Any) -> Any:
-        raise AssertionError("Codex path should not use completion transport")
+        raise _UnexpectedCodexCompletionTransportError
 
     async def acompletion(self, **_: Any) -> Any:
-        raise AssertionError("Codex path should not use completion transport")
+        raise _UnexpectedCodexCompletionTransportError
 
     def responses(self, **_: Any) -> Any:
-        raise AssertionError("Codex path should bypass any-llm responses wrapper")
+        raise _UnexpectedCodexResponsesWrapperError
 
     async def aresponses(self, **_: Any) -> Any:
-        raise AssertionError("Codex path should bypass any-llm responses wrapper")
+        raise _UnexpectedCodexResponsesWrapperError
 
 
 def _async_items(*items: Any):
@@ -142,6 +157,17 @@ def test_openai_oauth_non_stream_collects_stream_events(monkeypatch) -> None:
 
     assert llm.chat("Reply with exactly: codex-ok") == "codex-ok"
     assert api_calls[0]["stream"] is True
+
+
+def test_openai_oauth_drops_response_token_limit_parameters(monkeypatch) -> None:
+    llm, _, api_calls = _build_codex_llm(
+        monkeypatch,
+        make_responses_response(text="limited"),
+    )
+
+    assert llm.chat("Reply with exactly: limited", max_tokens=12) == "limited"
+    assert "max_tokens" not in api_calls[0]
+    assert "max_output_tokens" not in api_calls[0]
 
 
 def test_openai_oauth_tool_calls_use_responses_transport(monkeypatch) -> None:

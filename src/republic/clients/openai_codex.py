@@ -7,9 +7,10 @@ from types import SimpleNamespace
 from typing import Any
 
 from any_llm.constants import INSIDE_NOTEBOOK
-from any_llm.utils.aio import async_iter_to_sync_iter, run_async_in_sync
+from any_llm.utils.aio import run_async_in_sync
 
 from republic.auth.openai_codex import extract_openai_codex_account_id
+from republic.clients._async_bridge import threaded_async_call_to_sync_iter
 
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 DEFAULT_CODEX_ORIGINATOR = "republic"
@@ -60,12 +61,13 @@ class OpenAICodexResponsesClient:
         allow_running_loop: bool = INSIDE_NOTEBOOK,
         **kwargs: Any,
     ) -> Any:
+        if kwargs.get("stream"):
+            return threaded_async_call_to_sync_iter(self.aresponses(**kwargs))
+
         response = run_async_in_sync(
             self.aresponses(**kwargs),
             allow_running_loop=allow_running_loop,
         )
-        if kwargs.get("stream") and hasattr(response, "__aiter__"):
-            return async_iter_to_sync_iter(response)
         return response
 
     async def aresponses(self, **kwargs: Any) -> Any:
@@ -89,6 +91,9 @@ class OpenAICodexResponsesClient:
         input_data = payload.pop("input_data", None)
         payload["input"] = input_data
         payload["stream"] = True
+        # ChatGPT Codex backend currently rejects response token limit parameters on this path.
+        payload.pop("max_output_tokens", None)
+        payload.pop("max_tokens", None)
         payload["instructions"] = payload.get("instructions") or self._default_instructions
         payload["store"] = payload.get("store", self._store)
         payload["include"] = payload.get("include", list(self._default_include))
@@ -109,45 +114,13 @@ class OpenAICodexResponsesClient:
         completed_response: Any | None = None
 
         for event in events:
-            event_type = getattr(event, "type", None)
-            if event_type == "response.output_text.delta":
-                delta = getattr(event, "delta", None)
-                if isinstance(delta, str):
-                    text_parts.append(delta)
-                continue
-            if event_type == "response.output_item.done":
-                item = getattr(event, "item", None)
-                if getattr(item, "type", None) == "function_call":
-                    call_id = getattr(item, "call_id", None) or getattr(item, "id", None)
-                    if isinstance(call_id, str) and call_id:
-                        tool_calls[call_id] = {
-                            "type": "function_call",
-                            "call_id": call_id,
-                            "id": getattr(item, "id", None),
-                            "name": getattr(item, "name", None),
-                            "arguments": getattr(item, "arguments", "") or "",
-                        }
-                continue
-            if event_type == "response.function_call_arguments.done":
-                call_id = getattr(event, "call_id", None) or getattr(event, "item_id", None)
-                if isinstance(call_id, str) and call_id:
-                    tool_calls[call_id] = {
-                        "type": "function_call",
-                        "call_id": call_id,
-                        "id": getattr(event, "item_id", None),
-                        "name": getattr(event, "name", None),
-                        "arguments": getattr(event, "arguments", "") or "",
-                    }
-                continue
-            if event_type == "response.completed":
-                completed_response = getattr(event, "response", None)
-                maybe_usage = getattr(completed_response, "usage", None)
-                if maybe_usage is not None:
-                    usage = maybe_usage
-                continue
-            maybe_usage = getattr(event, "usage", None)
-            if maybe_usage is not None:
-                usage = maybe_usage
+            completed_response, usage = OpenAICodexResponsesClient._handle_response_event(
+                event=event,
+                text_parts=text_parts,
+                tool_calls=tool_calls,
+                completed_response=completed_response,
+                usage=usage,
+            )
 
         if completed_response is not None and (
             getattr(completed_response, "output", None) is not None
@@ -155,8 +128,9 @@ class OpenAICodexResponsesClient:
         ):
             return completed_response
 
-        if usage is not None and hasattr(usage, "model_dump"):
-            usage = usage.model_dump()
+        model_dump = getattr(usage, "model_dump", None)
+        if usage is not None and callable(model_dump):
+            usage = model_dump()
 
         return SimpleNamespace(
             output_text="".join(text_parts),
@@ -172,6 +146,81 @@ class OpenAICodexResponsesClient:
             ],
             usage=usage,
         )
+
+    @staticmethod
+    def _handle_response_event(
+        *,
+        event: Any,
+        text_parts: list[str],
+        tool_calls: dict[str, dict[str, Any]],
+        completed_response: Any | None,
+        usage: dict[str, Any] | Any | None,
+    ) -> tuple[Any | None, dict[str, Any] | Any | None]:
+        event_type = getattr(event, "type", None)
+        if event_type == "response.output_text.delta":
+            OpenAICodexResponsesClient._append_text_delta(event, text_parts)
+            return completed_response, usage
+        if event_type == "response.output_item.done":
+            OpenAICodexResponsesClient._record_tool_call(
+                tool_calls,
+                OpenAICodexResponsesClient._function_call_from_output_item(event),
+            )
+            return completed_response, usage
+        if event_type == "response.function_call_arguments.done":
+            OpenAICodexResponsesClient._record_tool_call(
+                tool_calls,
+                OpenAICodexResponsesClient._function_call_from_arguments_done(event),
+            )
+            return completed_response, usage
+        if event_type == "response.completed":
+            completed_response = getattr(event, "response", None)
+            usage = getattr(completed_response, "usage", None) or usage
+            return completed_response, usage
+        return completed_response, getattr(event, "usage", None) or usage
+
+    @staticmethod
+    def _append_text_delta(event: Any, text_parts: list[str]) -> None:
+        delta = getattr(event, "delta", None)
+        if isinstance(delta, str):
+            text_parts.append(delta)
+
+    @staticmethod
+    def _record_tool_call(
+        tool_calls: dict[str, dict[str, Any]],
+        tool_call: dict[str, Any] | None,
+    ) -> None:
+        if tool_call is None:
+            return
+        tool_calls[tool_call["call_id"]] = tool_call
+
+    @staticmethod
+    def _function_call_from_output_item(event: Any) -> dict[str, Any] | None:
+        item = getattr(event, "item", None)
+        if getattr(item, "type", None) != "function_call":
+            return None
+        call_id = getattr(item, "call_id", None) or getattr(item, "id", None)
+        if not isinstance(call_id, str) or not call_id:
+            return None
+        return {
+            "type": "function_call",
+            "call_id": call_id,
+            "id": getattr(item, "id", None),
+            "name": getattr(item, "name", None),
+            "arguments": getattr(item, "arguments", "") or "",
+        }
+
+    @staticmethod
+    def _function_call_from_arguments_done(event: Any) -> dict[str, Any] | None:
+        call_id = getattr(event, "call_id", None) or getattr(event, "item_id", None)
+        if not isinstance(call_id, str) or not call_id:
+            return None
+        return {
+            "type": "function_call",
+            "call_id": call_id,
+            "id": getattr(event, "item_id", None),
+            "name": getattr(event, "name", None),
+            "arguments": getattr(event, "arguments", "") or "",
+        }
 
 
 def should_use_openai_codex_backend(provider: str, api_key: str | None) -> bool:
@@ -205,7 +254,6 @@ def build_openai_codex_default_headers(
 
 
 __all__ = [
-    "build_openai_codex_default_headers",
     "DEFAULT_CODEX_BASE_URL",
     "DEFAULT_CODEX_INCLUDE",
     "DEFAULT_CODEX_INSTRUCTIONS",
@@ -213,6 +261,7 @@ __all__ = [
     "DEFAULT_CODEX_TEXT_CONFIG",
     "OpenAICodexResponsesClient",
     "OpenAICodexTransportError",
+    "build_openai_codex_default_headers",
     "resolve_openai_codex_api_base",
     "should_use_openai_codex_backend",
 ]

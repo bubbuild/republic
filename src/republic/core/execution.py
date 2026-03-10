@@ -26,21 +26,8 @@ from any_llm.exceptions import (
     UnsupportedProviderError,
 )
 
-from republic.clients.github_copilot import (
-    GitHubCopilotBackendConfig,
-    GitHubCopilotClient,
-    should_use_github_copilot_backend,
-)
-from republic.clients.openai_codex import (
-    DEFAULT_CODEX_INCLUDE,
-    DEFAULT_CODEX_INSTRUCTIONS,
-    DEFAULT_CODEX_TEXT_CONFIG,
-    OpenAICodexResponsesClient,
-    build_openai_codex_default_headers,
-    resolve_openai_codex_api_base,
-    should_use_openai_codex_backend,
-)
 from republic.core import provider_policies
+from republic.core.client_registry import build_special_client
 from republic.core.errors import ErrorKind, RepublicError
 from republic.core.request_adapters import normalize_responses_kwargs
 
@@ -220,26 +207,15 @@ class LLMCore:
         api_base = self._resolve_api_base(provider)
         cache_key = self._freeze_cache_key(provider, api_key, api_base)
         if cache_key not in self._client_cache:
-            if should_use_openai_codex_backend(provider, api_key):
-                self._client_cache[cache_key] = self._build_openai_codex_client(
-                    provider=provider,
-                    api_key=api_key,
-                    api_base=api_base,
-                )
-            elif should_use_github_copilot_backend(provider):
-                session_timeout = self._client_args.get("session_timeout")
-                self._client_cache[cache_key] = GitHubCopilotClient(
-                    GitHubCopilotBackendConfig(
-                        api_key=api_key or "",
-                        api_base=api_base,
-                        cli_path=self._client_args.get("cli_path"),
-                        cli_url=self._client_args.get("cli_url"),
-                        use_stdio=self._client_args.get("use_stdio"),
-                        log_level=str(self._client_args.get("log_level", "info")),
-                        timeout_seconds=float(session_timeout) if session_timeout is not None else 180.0,
-                        config_dir=self._client_args.get("config_dir"),
-                    )
-                )
+            special_client = build_special_client(
+                provider=provider,
+                api_key=api_key,
+                api_base=api_base,
+                client_args=self._client_args,
+                create_client=AnyLLM.create,
+            )
+            if special_client is not None:
+                self._client_cache[cache_key] = special_client
             else:
                 self._client_cache[cache_key] = AnyLLM.create(
                     provider,
@@ -248,26 +224,6 @@ class LLMCore:
                     **self._client_args,
                 )
         return self._client_cache[cache_key]
-
-    def _build_openai_codex_client(self, *, provider: str, api_key: str | None, api_base: str | None) -> Any:
-        default_headers = dict(self._client_args.get("default_headers", {}))
-        default_headers.update(build_openai_codex_default_headers(api_key or ""))
-        base_client = AnyLLM.create(
-            provider,
-            api_key=api_key,
-            api_base=resolve_openai_codex_api_base(api_base),
-            **{
-                **self._client_args,
-                "default_headers": default_headers,
-            },
-        )
-        return OpenAICodexResponsesClient(
-            base_client,
-            default_instructions=DEFAULT_CODEX_INSTRUCTIONS,
-            default_include=DEFAULT_CODEX_INCLUDE,
-            default_text=DEFAULT_CODEX_TEXT_CONFIG,
-            store=False,
-        )
 
     def log_error(self, error: RepublicError, provider: str, model: str, attempt: int) -> None:
         if self._verbose == 0:

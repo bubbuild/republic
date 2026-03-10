@@ -24,7 +24,6 @@ requires-python = ">=3.11,<4.0"
 dependencies = [
     "any-llm-sdk>=1.7.0",
     "authlib>=1.6.5",
-    "github-copilot-sdk>=0.1.32",
     "httpx>=0.28.1",
     "pydantic>=2.7.0",
 ]

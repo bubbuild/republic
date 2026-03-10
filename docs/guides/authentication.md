@@ -117,10 +117,9 @@ If no Republic auth file exists, the resolver also tries:
 - `~/.config/gh/hosts.yml`
 - `gh auth token`
 
-The `github-copilot` backend is implemented through `github-copilot-sdk`, not
-through Copilot private HTTP APIs. Republic maps Copilot tool requests into the
-same `tool_calls(...)`, `run_tools(...)`, and `stream_events(...)` interfaces used
-by other providers.
+The `github-copilot` provider reuses the standard `any-llm` OpenAI-compatible
+client and points it at GitHub Models. Republic only owns the GitHub OAuth
+token resolution and provider-specific default headers.
 
 See `examples/07_github_copilot_oauth.py` for a runnable smoke test.
 

@@ -77,80 +77,22 @@ class FakeHTTPClient:
         raise SmokeTestError.unexpected_get_url(url)
 
 
-class FakeSessionEventType:
-    ASSISTANT_MESSAGE_DELTA = "assistant.message.delta"
-    ASSISTANT_MESSAGE = "assistant.message"
-    ASSISTANT_USAGE = "assistant.usage"
-    SESSION_ERROR = "session.error"
-    SESSION_IDLE = "session.idle"
-    EXTERNAL_TOOL_REQUESTED = "external_tool.requested"
-
-
-class FakePermissionRequestResult:
-    def __init__(self, kind: str = "denied-no-approval-rule-and-could-not-request-from-user") -> None:
-        self.kind = kind
-
-
-class FakeCopilotSession:
-    def __init__(self) -> None:
-        self._handler = None
-
-    def on(self, handler):
-        self._handler = handler
-
-        def _unsubscribe():
-            self._handler = None
-
-        return _unsubscribe
-
-    async def send_and_wait(self, options: dict[str, Any], timeout: float | None = None):
-        if self._handler is not None:
-            self._handler(
+class FakeGitHubModelsClient:
+    def completion(self, **_: Any) -> Any:
+        return SimpleNamespace(
+            choices=[
                 SimpleNamespace(
-                    type=FakeSessionEventType.ASSISTANT_MESSAGE_DELTA, data=SimpleNamespace(delta_content="mock-")
+                    message=SimpleNamespace(
+                        content="mock-ok",
+                        tool_calls=[],
+                    )
                 )
-            )
-            self._handler(
-                SimpleNamespace(
-                    type=FakeSessionEventType.ASSISTANT_MESSAGE_DELTA, data=SimpleNamespace(delta_content="ok")
-                )
-            )
-            self._handler(
-                SimpleNamespace(
-                    type=FakeSessionEventType.ASSISTANT_USAGE, data=SimpleNamespace(input_tokens=3, output_tokens=2)
-                )
-            )
-            final = SimpleNamespace(
-                type=FakeSessionEventType.ASSISTANT_MESSAGE, data=SimpleNamespace(content="mock-ok")
-            )
-            self._handler(final)
-            self._handler(SimpleNamespace(type=FakeSessionEventType.SESSION_IDLE, data=SimpleNamespace()))
-            return final
-        return None
+            ],
+            usage={"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+        )
 
-    async def destroy(self) -> None:
-        return None
-
-    async def send(self, options: dict[str, Any]) -> str:
-        await self.send_and_wait(options)
-        return "msg_1"
-
-    async def abort(self) -> None:
-        return None
-
-
-class FakeCopilotClient:
-    def __init__(self, options: dict[str, Any]) -> None:
-        self.options = dict(options)
-
-    async def start(self) -> None:
-        return None
-
-    async def stop(self) -> None:
-        return None
-
-    async def create_session(self, config: dict[str, Any]) -> FakeCopilotSession:
-        return FakeCopilotSession()
+    async def acompletion(self, **kwargs: Any) -> Any:
+        return self.completion(**kwargs)
 
 
 def parse_args() -> argparse.Namespace:
@@ -176,17 +118,17 @@ def parse_args() -> argparse.Namespace:
 
 def _run_mock(model: str) -> None:
     import republic.auth.github_copilot as auth_module
-    import republic.clients.github_copilot as client_module
+    import republic.core.execution as execution_module
 
     original_http_client = auth_module.httpx.Client
-    original_sdk_loader = client_module._load_copilot_sdk
+    original_anyllm_create = execution_module.AnyLLM.create
+
+    def _create_mock_client(provider: str, **kwargs: Any) -> FakeGitHubModelsClient:
+        del provider, kwargs
+        return FakeGitHubModelsClient()
+
     auth_module.httpx.Client = FakeHTTPClient
-    client_module._load_copilot_sdk = lambda: SimpleNamespace(
-        client_type=FakeCopilotClient,
-        permission_result_type=FakePermissionRequestResult,
-        event_type=FakeSessionEventType,
-        tool_type=SimpleNamespace,
-    )
+    execution_module.AnyLLM.create = _create_mock_client
 
     try:
         with tempfile.TemporaryDirectory(prefix="republic-copilot-smoke-") as temp_dir:
@@ -209,7 +151,7 @@ def _run_mock(model: str) -> None:
             print("mock chat:", text)
     finally:
         auth_module.httpx.Client = original_http_client
-        client_module._load_copilot_sdk = original_sdk_loader
+        execution_module.AnyLLM.create = original_anyllm_create
 
 
 def _run_live(model: str, prompt: str) -> None:
