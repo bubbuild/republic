@@ -6,6 +6,7 @@ import asyncio
 import queue
 import threading
 from collections.abc import AsyncIterator, Coroutine, Iterator
+from contextlib import suppress
 from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
@@ -35,38 +36,56 @@ def _pending_tasks() -> list[asyncio.Task[object]]:
     return [task for task in asyncio.all_tasks() if task is not current_task and not task.done()]
 
 
-def threaded_async_iter_to_sync_iter(async_iter: AsyncIterator[T]) -> Iterator[T]:
-    """Bridge an async iterator into a sync iterator on a dedicated event loop thread."""
+async def _cleanup_stream(stream_source: object | None, *, stop_requested: threading.Event) -> None:
+    if not stop_requested.is_set() or stream_source is None:
+        return
 
-    messages: queue.Queue[StreamMessage[T]] = queue.Queue()
-    stop_requested = threading.Event()
+    aclose = getattr(stream_source, "aclose", None)
+    close = getattr(stream_source, "close", None)
+    if callable(aclose):
+        with suppress(Exception):
+            await aclose()
+        return
+    if callable(close):
+        with suppress(Exception):
+            close()
 
-    async def _drain_async_iterator() -> None:
-        try:
-            async for item in async_iter:
-                if stop_requested.is_set():
-                    break
-                messages.put(_StreamItem(item))
-        except Exception as exc:
-            messages.put(_StreamError(exc))
-        finally:
-            aclose = getattr(async_iter, "aclose", None)
-            if stop_requested.is_set() and callable(aclose):
-                try:
-                    await aclose()
-                except Exception:
-                    pass
-            pending_tasks = _pending_tasks()
-            if pending_tasks:
-                await asyncio.gather(*pending_tasks, return_exceptions=True)
-            messages.put(_StreamDone())
 
-    def _run_worker() -> None:
-        asyncio.run(_drain_async_iterator())
+async def _gather_pending_tasks() -> None:
+    if pending_tasks := _pending_tasks():
+        await asyncio.gather(*pending_tasks, return_exceptions=True)
 
-    worker = threading.Thread(target=_run_worker, name="republic-async-stream", daemon=True)
-    worker.start()
 
+async def _emit_async_items(
+    stream_source: AsyncIterator[T],
+    *,
+    messages: queue.Queue[StreamMessage[T]],
+    stop_requested: threading.Event,
+) -> None:
+    async for item in stream_source:
+        if stop_requested.is_set():
+            break
+        messages.put(_StreamItem(item))
+
+
+def _emit_sync_items(
+    stream_source: Iterator[T],
+    *,
+    messages: queue.Queue[StreamMessage[T]],
+    stop_requested: threading.Event,
+) -> None:
+    for item in stream_source:
+        if stop_requested.is_set():
+            break
+        messages.put(_StreamItem(item))
+
+
+def _yield_messages(
+    *,
+    messages: queue.Queue[StreamMessage[T]],
+    worker: threading.Thread,
+    stop_requested: threading.Event,
+) -> Iterator[T]:
     try:
         while True:
             try:
@@ -85,6 +104,12 @@ def threaded_async_iter_to_sync_iter(async_iter: AsyncIterator[T]) -> Iterator[T
     finally:
         stop_requested.set()
         worker.join(timeout=_THREAD_JOIN_TIMEOUT_SECONDS)
+
+
+def _start_worker(*, runner: Coroutine[Any, Any, None], thread_name: str) -> threading.Thread:
+    worker = threading.Thread(target=lambda: asyncio.run(runner), name=thread_name, daemon=True)
+    worker.start()
+    return worker
 
 
 def threaded_async_call_to_sync_iter(awaitable: Coroutine[Any, Any, AsyncIterator[T] | Iterator[T]]) -> Iterator[T]:
@@ -98,57 +123,23 @@ def threaded_async_call_to_sync_iter(awaitable: Coroutine[Any, Any, AsyncIterato
         try:
             stream_source = await awaitable
             if isinstance(stream_source, AsyncIterator):
-                async for item in stream_source:
-                    if stop_requested.is_set():
-                        break
-                    messages.put(_StreamItem(item))
+                await _emit_async_items(
+                    stream_source,
+                    messages=messages,
+                    stop_requested=stop_requested,
+                )
             else:
-                for item in stream_source:
-                    if stop_requested.is_set():
-                        break
-                    messages.put(_StreamItem(item))
+                _emit_sync_items(
+                    stream_source,
+                    messages=messages,
+                    stop_requested=stop_requested,
+                )
         except Exception as exc:
             messages.put(_StreamError(exc))
         finally:
-            if stop_requested.is_set() and stream_source is not None:
-                aclose = getattr(stream_source, "aclose", None)
-                close = getattr(stream_source, "close", None)
-                if callable(aclose):
-                    try:
-                        await aclose()
-                    except Exception:
-                        pass
-                elif callable(close):
-                    try:
-                        close()
-                    except Exception:
-                        pass
-            pending_tasks = _pending_tasks()
-            if pending_tasks:
-                await asyncio.gather(*pending_tasks, return_exceptions=True)
+            await _cleanup_stream(stream_source, stop_requested=stop_requested)
+            await _gather_pending_tasks()
             messages.put(_StreamDone())
 
-    def _run_worker() -> None:
-        asyncio.run(_drain_stream())
-
-    worker = threading.Thread(target=_run_worker, name="republic-async-call-stream", daemon=True)
-    worker.start()
-
-    try:
-        while True:
-            try:
-                message = messages.get(timeout=_QUEUE_TIMEOUT_SECONDS)
-            except queue.Empty:
-                if worker.is_alive():
-                    continue
-                break
-
-            if isinstance(message, _StreamItem):
-                yield message.value
-                continue
-            if isinstance(message, _StreamError):
-                raise message.error
-            break
-    finally:
-        stop_requested.set()
-        worker.join(timeout=_THREAD_JOIN_TIMEOUT_SECONDS)
+    worker = _start_worker(runner=_drain_stream(), thread_name="republic-async-call-stream")
+    yield from _yield_messages(messages=messages, worker=worker, stop_requested=stop_requested)
