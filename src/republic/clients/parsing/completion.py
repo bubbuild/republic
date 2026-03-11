@@ -75,7 +75,22 @@ class CompletionTransportParser(BaseTransportParser):
         if usage is None:
             return None
         if isinstance(usage, dict):
-            return dict(usage)
-        if hasattr(usage, "model_dump"):
-            return usage.model_dump()
-        return None
+            payload = dict(usage)
+        elif hasattr(usage, "model_dump"):
+            payload = usage.model_dump()
+        else:
+            return None
+        normalized: dict[str, Any] = {}
+        if "input_tokens" in payload:
+            normalized["input_tokens"] = payload["input_tokens"]
+        elif "prompt_tokens" in payload:
+            normalized["input_tokens"] = payload["prompt_tokens"]
+        if "output_tokens" in payload:
+            normalized["output_tokens"] = payload["output_tokens"]
+        elif "completion_tokens" in payload:
+            normalized["output_tokens"] = payload["completion_tokens"]
+        if "total_tokens" in payload:
+            normalized["total_tokens"] = payload["total_tokens"]
+        if "requests" in payload:
+            normalized["requests"] = payload["requests"]
+        return normalized or None

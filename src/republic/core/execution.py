@@ -27,7 +27,7 @@ from any_llm.exceptions import (
 )
 
 from republic.core import provider_policies
-from republic.core.client_registry import build_special_client
+from republic.core.client_registry import create_anyllm_client
 from republic.core.errors import ErrorKind, RepublicError
 from republic.core.request_adapters import normalize_responses_kwargs
 
@@ -207,22 +207,13 @@ class LLMCore:
         api_base = self._resolve_api_base(provider)
         cache_key = self._freeze_cache_key(provider, api_key, api_base)
         if cache_key not in self._client_cache:
-            special_client = build_special_client(
+            client = create_anyllm_client(
                 provider=provider,
                 api_key=api_key,
                 api_base=api_base,
                 client_args=self._client_args,
-                create_client=AnyLLM.create,
             )
-            if special_client is not None:
-                self._client_cache[cache_key] = special_client
-            else:
-                self._client_cache[cache_key] = AnyLLM.create(
-                    provider,
-                    api_key=api_key,
-                    api_base=api_base,
-                    **self._client_args,
-                )
+            self._client_cache[cache_key] = client
         return self._client_cache[cache_key]
 
     def log_error(self, error: RepublicError, provider: str, model: str, attempt: int) -> None:

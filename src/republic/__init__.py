@@ -1,12 +1,11 @@
 """Republic public API."""
 
-from republic.auth.github_copilot import (
+from republic.auth import (
     github_copilot_oauth_resolver,
-    login_github_copilot_oauth,
-)
-from republic.auth.openai_codex import (
     load_openai_codex_oauth_tokens,
+    login_github_copilot_oauth,
     login_openai_codex_oauth,
+    multi_api_key_resolver,
     openai_codex_oauth_resolver,
 )
 from republic.core.results import (
@@ -47,6 +46,7 @@ __all__ = [
     "load_openai_codex_oauth_tokens",
     "login_github_copilot_oauth",
     "login_openai_codex_oauth",
+    "multi_api_key_resolver",
     "openai_codex_oauth_resolver",
     "schema_from_model",
     "tool",

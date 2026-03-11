@@ -4,6 +4,8 @@ from collections import deque
 from types import SimpleNamespace
 from typing import Any
 
+from any_llm.types.responses import Response
+
 
 class FakeQueueEmptyError(AssertionError):
     def __init__(self, provider: str, kind: str) -> None:
@@ -146,10 +148,52 @@ def make_responses_response(
 ) -> Any:
     output: list[Any] = []
     if text:
-        output.append(make_responses_message(text))
+        output.append({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+                {
+                    "type": "output_text",
+                    "text": text,
+                    "annotations": [],
+                }
+            ],
+        })
     if tool_calls:
-        output.extend(tool_calls)
-    return SimpleNamespace(output=output, usage=usage)
+        output.extend(
+            {
+                "type": "function_call",
+                "call_id": getattr(call, "call_id", None) or getattr(call, "id", None) or "call_1",
+                "id": getattr(call, "id", None),
+                "name": getattr(call, "name", None),
+                "arguments": getattr(call, "arguments", "") or "",
+                "status": "completed",
+            }
+            for call in tool_calls
+        )
+    usage_payload = dict(usage or {})
+    input_tokens = usage_payload.get("input_tokens", 0)
+    output_tokens = usage_payload.get("output_tokens", 0)
+    total_tokens = usage_payload.get("total_tokens", input_tokens + output_tokens)
+    return Response.model_validate({
+        "id": "resp_1",
+        "created_at": 1,
+        "model": "gpt-5-codex",
+        "object": "response",
+        "output": output,
+        "parallel_tool_calls": False,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+            "input_tokens": input_tokens,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": output_tokens,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": total_tokens,
+        },
+    })
 
 
 def make_responses_text_delta(delta: str) -> Any:
