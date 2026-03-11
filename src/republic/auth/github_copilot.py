@@ -252,7 +252,7 @@ def _post_json(
     payload: dict[str, Any],
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    with httpx.Client(timeout=timeout_seconds, trust_env=False) as client:
+    with httpx.Client(timeout=timeout_seconds) as client:
         response = client.post(url, json=payload, headers=_github_headers())
     response.raise_for_status()
     body = response.json()
@@ -262,7 +262,7 @@ def _post_json(
 
 
 def _fetch_profile(github_token: str, *, timeout_seconds: float) -> dict[str, Any]:
-    with httpx.Client(timeout=timeout_seconds, trust_env=False) as client:
+    with httpx.Client(timeout=timeout_seconds) as client:
         response = client.get(
             "https://api.github.com/user",
             headers=_github_headers(token=github_token),

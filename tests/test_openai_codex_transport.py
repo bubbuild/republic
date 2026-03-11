@@ -6,14 +6,14 @@ from collections import deque
 from types import SimpleNamespace
 from typing import Any
 
+import republic.clients.openai_codex as codex_client
 import republic.core.execution as execution
 from republic import LLM, tool
 from republic.auth.openai_codex import extract_openai_codex_account_id
 
 from .fakes import (
     make_responses_completed,
-    make_responses_function_call,
-    make_responses_response,
+    make_responses_function_done,
     make_responses_text_delta,
 )
 
@@ -71,32 +71,44 @@ class _CodexAnyLLMClient:
 
 
 def _async_items(*items: Any):
-    async def _iterator():
-        for item in items:
-            yield item
+    class _AsyncIterator:
+        def __init__(self, values: tuple[Any, ...]) -> None:
+            self._values = deque(values)
 
-    return _iterator()
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> Any:
+            if not self._values:
+                raise StopAsyncIteration
+            return self._values.popleft()
+
+    return _AsyncIterator(tuple(items))
 
 
 def _build_codex_llm(
     monkeypatch,
     *queued_responses: Any,
     model: str = "openai:gpt-5-codex",
-) -> tuple[LLM, list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
-    create_calls: list[tuple[str, dict[str, Any]]] = []
+) -> tuple[LLM, list[dict[str, Any]], list[dict[str, Any]]]:
+    init_calls: list[dict[str, Any]] = []
     api_calls: list[dict[str, Any]] = []
     queue = deque(queued_responses)
 
-    def _create(provider: str, **kwargs: Any) -> _CodexAnyLLMClient:
-        create_calls.append((provider, dict(kwargs)))
-        return _CodexAnyLLMClient(queue, api_calls)
+    def _init_client(self, api_key: str | None = None, api_base: str | None = None, **kwargs: Any) -> None:
+        init_calls.append({
+            "api_key": api_key,
+            "api_base": api_base,
+            **dict(kwargs),
+        })
+        self.client = SimpleNamespace(responses=_AsyncResponsesApi(queue, api_calls))
 
-    monkeypatch.setattr(execution.AnyLLM, "create", _create)
+    monkeypatch.setattr(codex_client.OpenAICodexProvider, "_init_client", _init_client)
     llm = LLM(
         model=model,
         api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
     )
-    return llm, create_calls, api_calls
+    return llm, init_calls, api_calls
 
 
 def test_extract_openai_codex_account_id_reads_jwt_claim() -> None:
@@ -104,27 +116,28 @@ def test_extract_openai_codex_account_id_reads_jwt_claim() -> None:
     assert extract_openai_codex_account_id("sk-test") is None
 
 
-def test_openai_oauth_token_uses_anyllm_openai_client(monkeypatch) -> None:
-    llm, create_calls, api_calls = _build_codex_llm(
+def test_openai_oauth_token_uses_codex_special_client(monkeypatch) -> None:
+    llm, init_calls, api_calls = _build_codex_llm(
         monkeypatch,
-        make_responses_response(text="hello world"),
+        _async_items(
+            make_responses_text_delta("hello "),
+            make_responses_text_delta("world"),
+            make_responses_completed({"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}),
+        ),
         model="openai:gpt-5.3-codex",
     )
 
     assert llm.chat("Say hello") == "hello world"
-    assert create_calls == [
-        (
-            "openai",
-            {
-                "api_key": TOKEN,
-                "api_base": "https://chatgpt.com/backend-api/codex",
-                "default_headers": {
-                    "chatgpt-account-id": "acct-test",
-                    "OpenAI-Beta": "responses=experimental",
-                    "originator": "republic",
-                },
+    assert init_calls == [
+        {
+            "api_key": TOKEN,
+            "api_base": "https://chatgpt.com/backend-api/codex",
+            "default_headers": {
+                "chatgpt-account-id": "acct-test",
+                "OpenAI-Beta": "responses=experimental",
+                "originator": "republic",
             },
-        )
+        }
     ]
     assert api_calls[0]["model"] == "gpt-5.3-codex"
     assert api_calls[0]["input"][0]["role"] == "user"
@@ -138,7 +151,10 @@ def test_openai_oauth_token_uses_anyllm_openai_client(monkeypatch) -> None:
 def test_openai_oauth_responses_preserves_extra_headers(monkeypatch) -> None:
     llm, _, api_calls = _build_codex_llm(
         monkeypatch,
-        make_responses_response(text="hello"),
+        _async_items(
+            make_responses_text_delta("hello"),
+            make_responses_completed({"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}),
+        ),
     )
 
     assert llm.chat("Say hello", extra_headers={"X-Title": "Republic"}) == "hello"
@@ -162,7 +178,10 @@ def test_openai_oauth_non_stream_collects_stream_events(monkeypatch) -> None:
 def test_openai_oauth_drops_response_token_limit_parameters(monkeypatch) -> None:
     llm, _, api_calls = _build_codex_llm(
         monkeypatch,
-        make_responses_response(text="limited"),
+        _async_items(
+            make_responses_text_delta("limited"),
+            make_responses_completed({"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}),
+        ),
     )
 
     assert llm.chat("Reply with exactly: limited", max_tokens=12) == "limited"
@@ -177,7 +196,10 @@ def test_openai_oauth_tool_calls_use_responses_transport(monkeypatch) -> None:
 
     llm, _, api_calls = _build_codex_llm(
         monkeypatch,
-        make_responses_response(tool_calls=[make_responses_function_call("echo", '{"message":"hello"}')]),
+        _async_items(
+            make_responses_function_done("echo", '{"message":"hello"}', item_id="call_1"),
+            make_responses_completed({"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}),
+        ),
     )
 
     calls = llm.tool_calls("Use echo", tools=[echo])
