@@ -134,7 +134,7 @@ def _build_copilot_llm(
     model: str = "github-copilot:gpt-4.1",
     api_base: str | None = None,
     client_args: dict[str, Any] | None = None,
-) -> tuple[LLM, list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
+) -> tuple[LLM, list[dict[str, Any]], list[dict[str, Any]]]:
     init_calls: list[dict[str, Any]] = []
     completion_calls: list[dict[str, Any]] = []
     queue = deque(queued_responses)
