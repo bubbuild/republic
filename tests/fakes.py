@@ -196,6 +196,24 @@ def make_responses_response(
     })
 
 
+def make_responses_reasoning_response(
+    *,
+    usage: dict[str, Any] | None = None,
+    status: str = "completed",
+    incomplete_details: Any = None,
+) -> Any:
+    return SimpleNamespace(
+        id="resp_reasoning_1",
+        object="response",
+        status=status,
+        incomplete_details=incomplete_details,
+        model="gpt-5.4-pro",
+        output_text=None,
+        output=[SimpleNamespace(type="reasoning", id="rs_1", summary=[], content=None, status=None)],
+        usage=usage or {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129},
+    )
+
+
 def make_responses_text_delta(delta: str) -> Any:
     return SimpleNamespace(type="response.output_text.delta", delta=delta)
 
@@ -230,6 +248,11 @@ def make_responses_output_item_added(
     return SimpleNamespace(type="response.output_item.added", item=item)
 
 
+def make_responses_reasoning_item_added(*, item_id: str = "rs_1") -> Any:
+    item = SimpleNamespace(type="reasoning", id=item_id, summary=[], content=None, status=None)
+    return SimpleNamespace(type="response.output_item.added", item=item)
+
+
 def make_responses_output_item_done(
     *,
     item_id: str = "fc_1",
@@ -238,4 +261,9 @@ def make_responses_output_item_done(
     arguments: str = '{"text":"tokyo"}',
 ) -> Any:
     item = SimpleNamespace(type="function_call", id=item_id, call_id=call_id, name=name, arguments=arguments)
+    return SimpleNamespace(type="response.output_item.done", item=item)
+
+
+def make_responses_reasoning_item_done(*, item_id: str = "rs_1") -> Any:
+    item = SimpleNamespace(type="reasoning", id=item_id, summary=[], content=None, status=None)
     return SimpleNamespace(type="response.output_item.done", item=item)

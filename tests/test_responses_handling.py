@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -17,6 +18,9 @@ from .fakes import (
     make_responses_function_done,
     make_responses_output_item_added,
     make_responses_output_item_done,
+    make_responses_reasoning_item_added,
+    make_responses_reasoning_item_done,
+    make_responses_reasoning_response,
     make_responses_response,
     make_responses_text_delta,
     make_tool_call,
@@ -56,6 +60,11 @@ def _compact_stream_events(events: list[Any]) -> list[tuple[str, Any]]:
                 },
             ))
     return compact
+
+
+async def _async_items(*items: Any) -> AsyncIterator[Any]:
+    for item in items:
+        yield item
 
 
 def _completion_stream_event_items() -> list[Any]:
@@ -249,6 +258,83 @@ def test_stream_uses_responses_and_collects_usage(fake_anyllm) -> None:
     assert stream.usage == {"total_tokens": 7}
 
 
+def test_sync_stream_uses_async_responses_bridge(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
+    client.queue_aresponses(
+        _async_items(
+            make_responses_text_delta("Hello"),
+            make_responses_text_delta(" world"),
+            make_responses_completed({"total_tokens": 7}),
+        )
+    )
+
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
+    stream = llm.stream("Say hello")
+
+    assert "".join(list(stream)) == "Hello world"
+    assert stream.error is None
+    assert stream.usage == {"total_tokens": 7}
+
+
+def test_stream_treats_completed_reasoning_only_response_as_success(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_responses(make_responses_reasoning_response())
+
+    llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
+    call_id = "call_test_telegram_1"
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "A Telegram user sent the message `h`. "
+                "You already used the send_telegram tool to send `Hello`. "
+                "Now continue the assistant turn based on the tool result."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": "send_telegram", "arguments": '{"message":"Hello"}'},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": '{"status":"sent","message":"Hello","chat_id":"test-chat"}',
+        },
+    ]
+
+    stream = llm.stream(messages=messages, max_tokens=128)
+    assert list(stream) == []
+    assert stream.error is None
+    assert stream.usage == {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}
+
+
+def test_stream_treats_completed_reasoning_only_stream_as_success(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
+    client.queue_aresponses(
+        _async_items(
+            make_responses_reasoning_item_added(),
+            make_responses_reasoning_item_done(),
+            make_responses_completed({"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}),
+        )
+    )
+
+    llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
+    stream = llm.stream("Continue after a completed tool result.", max_tokens=128)
+
+    assert list(stream) == []
+    assert stream.error is None
+    assert stream.usage == {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}
+
+
 def test_stream_events_supports_responses_tool_events(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
     client.queue_responses(
@@ -270,6 +356,124 @@ def test_stream_events_supports_responses_tool_events(fake_anyllm) -> None:
     assert "tool_result" in kinds
     assert "usage" in kinds
     assert kinds[-1] == "final"
+
+
+def test_stream_events_treat_completed_reasoning_only_response_as_success(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_responses(make_responses_reasoning_response())
+
+    llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
+    call_id = "call_test_telegram_1"
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "A Telegram user sent the message `h`. "
+                "You already used the send_telegram tool to send `Hello`. "
+                "Now continue the assistant turn based on the tool result."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": "send_telegram", "arguments": '{"message":"Hello"}'},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": '{"status":"sent","message":"Hello","chat_id":"test-chat"}',
+        },
+    ]
+
+    events = list(llm.stream_events(messages=messages, max_tokens=128))
+    assert _compact_stream_events(events) == [
+        ("usage", {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}),
+        (
+            "final",
+            {
+                "text": None,
+                "tool_calls": [],
+                "tool_results": [],
+                "usage": {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129},
+                "error": None,
+            },
+        ),
+    ]
+
+
+def test_stream_events_treat_completed_reasoning_only_stream_as_success(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
+    client.queue_aresponses(
+        _async_items(
+            make_responses_reasoning_item_added(),
+            make_responses_reasoning_item_done(),
+            make_responses_completed({"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}),
+        )
+    )
+
+    llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
+    events = list(llm.stream_events("Continue after a completed tool result.", max_tokens=128))
+
+    assert _compact_stream_events(events) == [
+        ("usage", {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}),
+        (
+            "final",
+            {
+                "text": None,
+                "tool_calls": [],
+                "tool_results": [],
+                "usage": {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129},
+                "error": None,
+            },
+        ),
+    ]
+
+
+def test_sync_stream_events_use_async_responses_bridge(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
+    client.queue_aresponses(
+        _async_items(
+            make_responses_text_delta("Checking "),
+            make_responses_output_item_added(item_id="fc_1", call_id="call_1", name="echo", arguments=""),
+            make_responses_function_delta('{"text":"to', item_id="fc_1"),
+            make_responses_function_delta('kyo"}', item_id="fc_1"),
+            make_responses_output_item_done(
+                item_id="fc_1",
+                call_id="call_1",
+                name="echo",
+                arguments='{"text":"tokyo"}',
+            ),
+            make_responses_completed({"total_tokens": 12}),
+        )
+    )
+
+    llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
+    events = list(llm.stream_events("Call echo for tokyo", tools=[echo]))
+
+    assert _compact_stream_events(events) == [
+        ("text", "Checking "),
+        ("tool_call", ("call_1", "echo", '{"text":"tokyo"}')),
+        ("tool_result", "TOKYO"),
+        ("usage", {"total_tokens": 12}),
+        (
+            "final",
+            {
+                "text": "Checking ",
+                "tool_calls": [("call_1", "echo", '{"text":"tokyo"}')],
+                "tool_results": ["TOKYO"],
+                "usage": {"total_tokens": 12},
+                "error": None,
+            },
+        ),
+    ]
 
 
 def test_stream_events_parity_between_completion_and_responses(fake_anyllm) -> None:
@@ -345,6 +549,54 @@ def test_chat_reasoning_effort_for_responses_is_mapped(fake_anyllm) -> None:
     assert call["responses"] is True
     assert call.get("reasoning") == {"effort": "low"}
     assert "reasoning_effort" not in call
+
+
+def test_completed_reasoning_only_response_after_tool_result_is_not_retried(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_responses(make_responses_reasoning_response())
+
+    llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
+    call_id = "call_test_telegram_1"
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "A Telegram user sent the message `h`. "
+                "You already used the send_telegram tool to send `Hello`. "
+                "Now continue the assistant turn based on the tool result."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": "send_telegram", "arguments": '{"message":"Hello"}'},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": '{"status":"sent","message":"Hello","chat_id":"test-chat"}',
+        },
+    ]
+
+    assert llm.chat(messages=messages, max_tokens=128) == ""
+
+
+def test_run_tools_treats_completed_reasoning_only_response_as_success(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_responses(make_responses_reasoning_response())
+
+    llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
+    result = llm.run_tools("Reply after a tool has already completed.", tools=[echo], max_tokens=128)
+
+    assert result.kind == "text"
+    assert result.text == ""
+    assert result.error is None
 
 
 def test_completion_preserves_extra_headers(fake_anyllm) -> None:

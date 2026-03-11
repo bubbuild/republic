@@ -30,6 +30,7 @@ from republic.tools.executor import ToolExecutor
 from republic.tools.schema import ToolInput, ToolSet, normalize_tools
 
 MessageInput = dict[str, Any]
+RESPONSES_METADATA_ONLY_ITEM_TYPES = frozenset({"reasoning", "compaction"})
 
 
 @dataclass(frozen=True)
@@ -255,6 +256,29 @@ class ChatClient:
         return payload, parser
 
     @staticmethod
+    def _is_completed_responses_metadata_only(
+        response: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> bool:
+        payload, detected_transport = ChatClient._unwrap_response(response)
+        effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
+        if effective_transport != "responses":
+            return False
+        if _field(payload, "status") != "completed":
+            return False
+        if _field(payload, "incomplete_details") is not None:
+            return False
+
+        output = _field(payload, "output")
+        if not isinstance(output, list) or not output:
+            return False
+        return all(
+            isinstance(item_type := _field(item, "type"), str) and item_type in RESPONSES_METADATA_ONLY_ITEM_TYPES
+            for item in output
+        )
+
+    @staticmethod
     def _is_non_stream_response(
         response: Any,
         *,
@@ -262,6 +286,30 @@ class ChatClient:
     ) -> bool:
         parser = ChatClient._parser_for_payload(response, transport=transport)
         return parser.is_non_stream_response(response)
+
+    @staticmethod
+    def _responses_output_item_type(
+        chunk: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> str | None:
+        effective_transport = ChatClient._resolve_transport(chunk, transport)
+        if effective_transport != "responses":
+            return None
+        if _field(chunk, "type") not in {"response.output_item.added", "response.output_item.done"}:
+            return None
+        item_type = _field(_field(chunk, "item"), "type")
+        return item_type if isinstance(item_type, str) else None
+
+    @staticmethod
+    def _is_completed_responses_stream_metadata_only(
+        *,
+        completed: bool,
+        output_item_types: set[str],
+    ) -> bool:
+        if not completed or not output_item_types:
+            return False
+        return output_item_types.issubset(RESPONSES_METADATA_ONLY_ITEM_TYPES)
 
     def _validate_chat_input(
         self,
@@ -683,8 +731,15 @@ class ChatClient:
         usage: dict[str, Any] | None = None,
         response: Any | None = None,
         log_empty: bool = False,
+        completed_metadata_only: bool = False,
     ) -> None:
-        if not text and not tool_calls and state.error is None:
+        if (
+            not text
+            and not tool_calls
+            and state.error is None
+            and not completed_metadata_only
+            and not self._is_completed_responses_metadata_only(response)
+        ):
             empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             if log_empty:
                 self._core.log_error(empty_error, provider_name, model_id, attempt)
@@ -715,8 +770,15 @@ class ChatClient:
         usage: dict[str, Any] | None = None,
         response: Any | None = None,
         log_empty: bool = False,
+        completed_metadata_only: bool = False,
     ) -> None:
-        if not text and not tool_calls and state.error is None:
+        if (
+            not text
+            and not tool_calls
+            and state.error is None
+            and not completed_metadata_only
+            and not self._is_completed_responses_metadata_only(response)
+        ):
             empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             if log_empty:
                 self._core.log_error(empty_error, provider_name, model_id, attempt)
@@ -745,6 +807,7 @@ class ChatClient:
         model_id: str,
         attempt: int,
         usage: dict[str, Any] | None,
+        completed_metadata_only: bool = False,
     ) -> tuple[list[StreamEvent], list[Any]]:
         events: list[StreamEvent] = []
         for idx, call in enumerate(tool_calls):
@@ -765,7 +828,7 @@ class ChatClient:
             for idx, result in enumerate(tool_results):
                 events.append(StreamEvent("tool_result", {"index": idx, "result": result}))
 
-        if not parts and not tool_calls and state.error is None:
+        if not parts and not tool_calls and state.error is None and not completed_metadata_only:
             empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             self._core.log_error(empty, provider_name, model_id, attempt)
             empty_error = ErrorPayload(empty.kind, empty.message)
@@ -800,6 +863,7 @@ class ChatClient:
         model_id: str,
         attempt: int,
         usage: dict[str, Any] | None,
+        completed_metadata_only: bool = False,
     ) -> tuple[list[StreamEvent], list[Any]]:
         events: list[StreamEvent] = []
         for idx, call in enumerate(tool_calls):
@@ -820,7 +884,7 @@ class ChatClient:
             for idx, result in enumerate(tool_results):
                 events.append(StreamEvent("tool_result", {"index": idx, "result": result}))
 
-        if not parts and not tool_calls and state.error is None:
+        if not parts and not tool_calls and state.error is None and not completed_metadata_only:
             empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             self._core.log_error(empty, provider_name, model_id, attempt)
             empty_error = ErrorPayload(empty.kind, empty.message)
@@ -940,6 +1004,15 @@ class ChatClient:
                 model=model_id,
             )
             return text
+        if self._is_completed_responses_metadata_only(payload, transport=transport):
+            self._update_tape(
+                prepared,
+                None,
+                response=payload,
+                provider=provider_name,
+                model=model_id,
+            )
+            return ""
         empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
         self._core.log_error(empty_error, provider_name, model_id, attempt)
         return self._core.RETRY
@@ -963,6 +1036,15 @@ class ChatClient:
                 model=model_id,
             )
             return text
+        if self._is_completed_responses_metadata_only(payload, transport=transport):
+            await self._update_tape_async(
+                prepared,
+                None,
+                response=payload,
+                provider=provider_name,
+                model=model_id,
+            )
+            return ""
         empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
         self._core.log_error(empty_error, provider_name, model_id, attempt)
         return self._core.RETRY
@@ -1046,6 +1128,15 @@ class ChatClient:
                 model=model_id,
             )
             return ToolAutoResult.text_result(text)
+        if self._is_completed_responses_metadata_only(payload, transport=transport):
+            self._update_tape(
+                prepared,
+                None,
+                response=payload,
+                provider=provider_name,
+                model=model_id,
+            )
+            return ToolAutoResult.text_result("")
 
         empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
         self._core.log_error(empty_error, provider_name, model_id, attempt)
@@ -1088,6 +1179,15 @@ class ChatClient:
                 model=model_id,
             )
             return ToolAutoResult.text_result(text)
+        if self._is_completed_responses_metadata_only(payload, transport=transport):
+            await self._update_tape_async(
+                prepared,
+                None,
+                response=payload,
+                provider=provider_name,
+                model=model_id,
+            )
+            return ToolAutoResult.text_result("")
 
         empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
         self._core.log_error(empty_error, provider_name, model_id, attempt)
@@ -1493,11 +1593,17 @@ class ChatClient:
         assembler = ToolCallAssembler()
 
         usage: dict[str, Any] | None = None
+        response_completed = False
+        output_item_types: set[str] = set()
 
         def _iterator() -> Iterator[str]:
-            nonlocal usage
+            nonlocal usage, response_completed
             try:
                 for chunk in payload:
+                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
+                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
+                    if output_item_type is not None:
+                        output_item_types.add(output_item_type)
                     deltas = self._extract_chunk_tool_call_deltas(chunk, transport=transport)
                     if deltas:
                         assembler.add_deltas(deltas)
@@ -1522,6 +1628,10 @@ class ChatClient:
                     attempt=attempt,
                     usage=usage,
                     log_empty=True,
+                    completed_metadata_only=self._is_completed_responses_stream_metadata_only(
+                        completed=response_completed,
+                        output_item_types=output_item_types,
+                    ),
                 )
 
         return TextStream(_iterator(), state=state)
@@ -1562,11 +1672,17 @@ class ChatClient:
         parts: list[str] = []
         usage: dict[str, Any] | None = None
         assembler = ToolCallAssembler()
+        response_completed = False
+        output_item_types: set[str] = set()
 
         async def _iterator() -> AsyncIterator[str]:
-            nonlocal usage
+            nonlocal usage, response_completed
             try:
                 async for chunk in payload:
+                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
+                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
+                    if output_item_type is not None:
+                        output_item_types.add(output_item_type)
                     deltas = self._extract_chunk_tool_call_deltas(chunk, transport=transport)
                     if deltas:
                         assembler.add_deltas(deltas)
@@ -1591,6 +1707,10 @@ class ChatClient:
                     attempt=attempt,
                     usage=usage,
                     log_empty=True,
+                    completed_metadata_only=self._is_completed_responses_stream_metadata_only(
+                        completed=response_completed,
+                        output_item_types=output_item_types,
+                    ),
                 )
 
         return AsyncTextStream(_iterator(), state=state)
@@ -1637,11 +1757,17 @@ class ChatClient:
         tool_calls: list[dict[str, Any]] | None = None
         tool_results: list[Any] = []
         assembler = ToolCallAssembler()
+        response_completed = False
+        output_item_types: set[str] = set()
 
         def _iterator() -> Iterator[StreamEvent]:
-            nonlocal usage, tool_calls, tool_results
+            nonlocal usage, tool_calls, tool_results, response_completed
             try:
                 for chunk in payload:
+                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
+                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
+                    if output_item_type is not None:
+                        output_item_types.add(output_item_type)
                     usage = self._extract_usage(chunk, transport=transport) or usage
                     assembler.add_deltas(self._extract_chunk_tool_call_deltas(chunk, transport=transport))
                     text = self._extract_chunk_text(chunk, transport=transport)
@@ -1659,6 +1785,10 @@ class ChatClient:
                     model_id=model_id,
                     attempt=attempt,
                     usage=usage,
+                    completed_metadata_only=self._is_completed_responses_stream_metadata_only(
+                        completed=response_completed,
+                        output_item_types=output_item_types,
+                    ),
                 )
                 yield from events
             except Exception as exc:
@@ -1712,11 +1842,17 @@ class ChatClient:
         tool_calls: list[dict[str, Any]] | None = None
         tool_results: list[Any] = []
         assembler = ToolCallAssembler()
+        response_completed = False
+        output_item_types: set[str] = set()
 
         async def _iterator() -> AsyncIterator[StreamEvent]:
-            nonlocal usage, tool_calls, tool_results
+            nonlocal usage, tool_calls, tool_results, response_completed
             try:
                 async for chunk in payload:
+                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
+                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
+                    if output_item_type is not None:
+                        output_item_types.add(output_item_type)
                     usage = self._extract_usage(chunk, transport=transport) or usage
                     assembler.add_deltas(self._extract_chunk_tool_call_deltas(chunk, transport=transport))
                     text = self._extract_chunk_text(chunk, transport=transport)
@@ -1734,6 +1870,10 @@ class ChatClient:
                     model_id=model_id,
                     attempt=attempt,
                     usage=usage,
+                    completed_metadata_only=self._is_completed_responses_stream_metadata_only(
+                        completed=response_completed,
+                        output_item_types=output_item_types,
+                    ),
                 )
                 for event in events:
                     yield event
@@ -1783,7 +1923,12 @@ class ChatClient:
             tool_results = self._execute_tool_calls(prepared, tool_calls, provider_name, model_id)
         except ErrorPayload as exc:
             state.error = exc
-        if not text and not tool_calls and state.error is None:
+        if (
+            not text
+            and not tool_calls
+            and state.error is None
+            and not self._is_completed_responses_metadata_only(response, transport=transport)
+        ):
             empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             self._core.log_error(empty, provider_name, model_id, 0)
             state.error = ErrorPayload(empty.kind, empty.message)
@@ -1844,7 +1989,12 @@ class ChatClient:
                 tool_results = await self._execute_tool_calls_async(prepared, tool_calls, provider_name, model_id)
             except ErrorPayload as exc:
                 state.error = exc
-            if not text and not tool_calls and state.error is None:
+            if (
+                not text
+                and not tool_calls
+                and state.error is None
+                and not self._is_completed_responses_metadata_only(response, transport=transport)
+            ):
                 empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
                 self._core.log_error(empty, provider_name, model_id, 0)
                 state.error = ErrorPayload(empty.kind, empty.message)
