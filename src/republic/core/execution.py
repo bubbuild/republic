@@ -26,17 +26,8 @@ from any_llm.exceptions import (
     UnsupportedProviderError,
 )
 
-from republic.clients.github_copilot import (
-    GitHubCopilotBackendConfig,
-    GitHubCopilotClient,
-    should_use_github_copilot_backend,
-)
-from republic.clients.openai_codex import (
-    OpenAICodexBackendConfig,
-    OpenAICodexClient,
-    should_use_openai_codex_backend,
-)
 from republic.core import provider_policies
+from republic.core.client_registry import build_special_client
 from republic.core.errors import ErrorKind, RepublicError
 from republic.core.request_adapters import normalize_responses_kwargs
 
@@ -216,27 +207,15 @@ class LLMCore:
         api_base = self._resolve_api_base(provider)
         cache_key = self._freeze_cache_key(provider, api_key, api_base)
         if cache_key not in self._client_cache:
-            if should_use_openai_codex_backend(provider, api_key):
-                self._client_cache[cache_key] = OpenAICodexClient(
-                    OpenAICodexBackendConfig(
-                        api_key=api_key or "",
-                        api_base=api_base,
-                    )
-                )
-            elif should_use_github_copilot_backend(provider):
-                session_timeout = self._client_args.get("session_timeout")
-                self._client_cache[cache_key] = GitHubCopilotClient(
-                    GitHubCopilotBackendConfig(
-                        api_key=api_key or "",
-                        api_base=api_base,
-                        cli_path=self._client_args.get("cli_path"),
-                        cli_url=self._client_args.get("cli_url"),
-                        use_stdio=self._client_args.get("use_stdio"),
-                        log_level=str(self._client_args.get("log_level", "info")),
-                        timeout_seconds=float(session_timeout) if session_timeout is not None else 180.0,
-                        config_dir=self._client_args.get("config_dir"),
-                    )
-                )
+            special_client = build_special_client(
+                provider=provider,
+                api_key=api_key,
+                api_base=api_base,
+                client_args=self._client_args,
+                create_client=AnyLLM.create,
+            )
+            if special_client is not None:
+                self._client_cache[cache_key] = special_client
             else:
                 self._client_cache[cache_key] = AnyLLM.create(
                     provider,
@@ -413,11 +392,19 @@ class LLMCore:
             return clean_kwargs
         return {**clean_kwargs, max_tokens_arg: max_tokens}
 
-    def _decide_responses_kwargs(self, max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
-        # any-llm responses params currently reject extra_headers, so drop it here only.
-        clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
+    def _decide_responses_kwargs(
+        self,
+        max_tokens: int | None,
+        kwargs: dict[str, Any],
+        *,
+        drop_extra_headers: bool = True,
+    ) -> dict[str, Any]:
+        clean_kwargs = dict(kwargs)
+        if drop_extra_headers:
+            # any-llm responses params currently reject extra_headers, so drop it on the wrapped path only.
+            clean_kwargs.pop("extra_headers", None)
         clean_kwargs = normalize_responses_kwargs(clean_kwargs)
-        if "max_output_tokens" in clean_kwargs:
+        if "max_output_tokens" in clean_kwargs or max_tokens is None:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
 
@@ -480,6 +467,9 @@ class LLMCore:
         model_id: str,
         tools_payload: list[dict[str, Any]] | None,
     ) -> Literal["completion", "responses", "messages"]:
+        forced_transport = getattr(client, "PREFERRED_TRANSPORT", None)
+        if forced_transport in {"completion", "responses", "messages"}:
+            return forced_transport
         if self._api_format == "completion":
             return "completion"
         if self._api_format == "messages":
@@ -517,7 +507,11 @@ class LLMCore:
                 tools=self._convert_tools_for_responses(request.tools_payload),
                 stream=request.stream,
                 instructions=instructions,
-                **self._decide_responses_kwargs(request.max_tokens, responses_kwargs),
+                **self._decide_responses_kwargs(
+                    request.max_tokens,
+                    responses_kwargs,
+                    drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
+                ),
             ),
         )
 
@@ -559,9 +553,17 @@ class LLMCore:
                 tools=self._convert_tools_for_responses(request.tools_payload),
                 stream=request.stream,
                 instructions=instructions,
-                **self._decide_responses_kwargs(request.max_tokens, responses_kwargs),
+                **self._decide_responses_kwargs(
+                    request.max_tokens,
+                    responses_kwargs,
+                    drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
+                ),
             ),
         )
+
+    @staticmethod
+    def _preserves_responses_extra_headers(client: Any) -> bool:
+        return bool(getattr(client, "PRESERVE_EXTRA_HEADERS_IN_RESPONSES", False))
 
     async def _call_completion_like_async(
         self,
