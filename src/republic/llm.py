@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any, Literal, cast
 
 from republic.__about__ import DEFAULT_MODEL
+from republic.auth import APIKeyResolver
 from republic.clients._internal import InternalOps
 from republic.clients.chat import ChatClient
 from republic.clients.embedding import EmbeddingClient
@@ -46,7 +47,7 @@ class LLM:
         fallback_models: list[str] | None = None,
         max_retries: int = 3,
         api_key: str | dict[str, str] | None = None,
-        api_key_resolver: Callable[[str], str | None] | None = None,
+        api_key_resolver: APIKeyResolver | None = None,
         api_base: str | dict[str, str] | None = None,
         client_args: dict[str, Any] | None = None,
         api_format: Literal["completion", "responses", "messages"] = "completion",
