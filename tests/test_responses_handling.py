@@ -32,6 +32,11 @@ def echo(text: str) -> str:
     return text.upper()
 
 
+class UnexpectedAsyncResponsesCall(AssertionError):
+    def __init__(self) -> None:
+        super().__init__("sync path should go through client.responses")
+
+
 def _compact_stream_events(events: list[Any]) -> list[tuple[str, Any]]:
     compact: list[tuple[str, Any]] = []
     for event in events:
@@ -258,9 +263,13 @@ def test_stream_uses_responses_and_collects_usage(fake_anyllm) -> None:
     assert stream.usage == {"total_tokens": 7}
 
 
-def test_sync_stream_uses_async_responses_bridge(fake_anyllm) -> None:
+def test_sync_stream_uses_client_level_async_responses_bridge(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
+
+    async def _unexpected_aresponses(**_: Any) -> Any:
+        raise UnexpectedAsyncResponsesCall
+
+    client.aresponses = _unexpected_aresponses
     client.queue_aresponses(
         _async_items(
             make_responses_text_delta("Hello"),
@@ -318,7 +327,6 @@ def test_stream_treats_completed_reasoning_only_response_as_success(fake_anyllm)
 
 def test_stream_treats_completed_reasoning_only_stream_as_success(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
     client.queue_aresponses(
         _async_items(
             make_responses_reasoning_item_added(),
@@ -409,7 +417,6 @@ def test_stream_events_treat_completed_reasoning_only_response_as_success(fake_a
 
 def test_stream_events_treat_completed_reasoning_only_stream_as_success(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
     client.queue_aresponses(
         _async_items(
             make_responses_reasoning_item_added(),
@@ -436,9 +443,13 @@ def test_stream_events_treat_completed_reasoning_only_stream_as_success(fake_any
     ]
 
 
-def test_sync_stream_events_use_async_responses_bridge(fake_anyllm) -> None:
+def test_sync_stream_events_use_client_level_async_responses_bridge(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.responses = lambda **_: (_ for _ in ()).throw(AssertionError("sync responses path should not be used"))
+
+    async def _unexpected_aresponses(**_: Any) -> Any:
+        raise UnexpectedAsyncResponsesCall
+
+    client.aresponses = _unexpected_aresponses
     client.queue_aresponses(
         _async_items(
             make_responses_text_delta("Checking "),

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import queue
+import threading
 from collections import deque
+from collections.abc import AsyncIterator, Iterator
 from types import SimpleNamespace
 from typing import Any
 
@@ -62,12 +66,47 @@ class FakeAnyLLMClient:
 
     def responses(self, **kwargs: Any) -> Any:
         self.calls.append({"responses": True, **dict(kwargs)})
+        if kwargs.get("stream") and not self.responses_queue and self.aresponses_queue:
+            response = self._next(self.aresponses_queue, "aresponses")
+            if isinstance(response, Response):
+                return response
+            return self._async_iter_to_sync_iter(response)
         return self._next(self.responses_queue, "responses")
 
     async def aresponses(self, **kwargs: Any) -> Any:
         self.calls.append({"responses": True, **dict(kwargs)})
         queue = self.aresponses_queue if self.aresponses_queue else self.responses_queue
         return self._next(queue, "aresponses")
+
+    @staticmethod
+    def _async_iter_to_sync_iter(async_iter: AsyncIterator[Any]) -> Iterator[Any]:
+        item_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+
+        def _runner() -> None:
+            async def _consume() -> None:
+                try:
+                    async for item in async_iter:
+                        item_queue.put(("item", item))
+                except Exception as exc:
+                    item_queue.put(("error", exc))
+                finally:
+                    item_queue.put(("done", None))
+
+            asyncio.run(_consume())
+
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        try:
+            while True:
+                kind, value = item_queue.get()
+                if kind == "item":
+                    yield value
+                    continue
+                if kind == "error":
+                    raise value
+                break
+        finally:
+            thread.join()
 
     def _embedding(self, **kwargs: Any) -> Any:
         self.calls.append({"embedding": True, **dict(kwargs)})

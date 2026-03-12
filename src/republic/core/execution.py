@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import json
 import logging
-import queue
 import re
-import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Literal, NoReturn
@@ -493,118 +490,20 @@ class LLMCore:
     ) -> Any:
         instructions, input_items = self._split_messages_for_responses(request.messages_payload)
         responses_kwargs = self._with_responses_reasoning(request.kwargs, request.reasoning_effort)
-        payload_kwargs = dict(
-            model=request.model_id,
-            input_data=input_items,
-            tools=self._convert_tools_for_responses(request.tools_payload),
-            stream=request.stream,
-            instructions=instructions,
-            **self._decide_responses_kwargs(
-                request.max_tokens,
-                responses_kwargs,
-                drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
-            ),
-        )
-        if request.stream:
-            payload = self._run_async_stream_in_sync(request.client.aresponses(**payload_kwargs))
-        else:
-            payload = request.client.responses(**payload_kwargs)
         return TransportResponse(
             transport="responses",
-            payload=payload,
-        )
-
-    @staticmethod
-    def _consume_async_stream_in_sync(
-        coro: Any,
-        *,
-        result_queue: queue.Queue[tuple[str, Any]],
-        item_queue: queue.Queue[tuple[str, Any]],
-        stop_event: threading.Event,
-    ) -> None:
-        async def _consume() -> None:
-            stream_started = False
-            async_result = None
-            try:
-                async_result = await coro
-                if hasattr(async_result, "__aiter__"):
-                    stream_started = True
-                    result_queue.put(("stream", None))
-                    async for item in async_result:
-                        if stop_event.is_set():
-                            break
-                        item_queue.put(("item", item))
-                    item_queue.put(("done", None))
-                    return
-                result_queue.put(("result", async_result))
-            except Exception as exc:
-                target_queue = item_queue if stream_started else result_queue
-                target_queue.put(("error", exc))
-            finally:
-                aclose = getattr(async_result, "aclose", None)
-                if callable(aclose):
-                    await aclose()
-
-        asyncio.run(_consume())
-
-    @staticmethod
-    def _wait_for_async_stream_start(
-        *,
-        thread: threading.Thread,
-        result_queue: queue.Queue[tuple[str, Any]],
-    ) -> None | Any:
-        kind, value = result_queue.get()
-        if kind == "result":
-            thread.join()
-            return value
-        if kind == "error":
-            thread.join()
-            raise value
-        return None
-
-    @staticmethod
-    def _iter_sync_stream_items(
-        *,
-        item_queue: queue.Queue[tuple[str, Any]],
-        stop_event: threading.Event,
-        thread: threading.Thread,
-    ) -> Iterator[Any]:
-        try:
-            while True:
-                item_kind, item_value = item_queue.get()
-                if item_kind == "item":
-                    yield item_value
-                    continue
-                if item_kind == "error":
-                    raise item_value
-                break
-        finally:
-            stop_event.set()
-            thread.join()
-
-    @staticmethod
-    def _run_async_stream_in_sync(coro: Any) -> Any:
-        result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
-        item_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
-        stop_event = threading.Event()
-
-        def _runner() -> None:
-            LLMCore._consume_async_stream_in_sync(
-                coro,
-                result_queue=result_queue,
-                item_queue=item_queue,
-                stop_event=stop_event,
-            )
-
-        thread = threading.Thread(target=_runner, daemon=True)
-        thread.start()
-        payload = LLMCore._wait_for_async_stream_start(thread=thread, result_queue=result_queue)
-        if payload is not None:
-            return payload
-        return LLMCore._iter_sync_stream_items(
-            item_queue=item_queue,
-            stop_event=stop_event,
-            thread=thread,
+            payload=request.client.responses(
+                model=request.model_id,
+                input_data=input_items,
+                tools=self._convert_tools_for_responses(request.tools_payload),
+                stream=request.stream,
+                instructions=instructions,
+                **self._decide_responses_kwargs(
+                    request.max_tokens,
+                    responses_kwargs,
+                    drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
+                ),
+            ),
         )
 
     def _call_completion_like_sync(
