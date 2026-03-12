@@ -10,7 +10,7 @@ from typing import Generic, Self, TypeVar, overload
 from republic.tape.entries import TapeEntry
 from republic.tape.store import AsyncTapeStore, TapeStore
 
-T = TypeVar("T", TapeStore, AsyncTapeStore)
+T = TypeVar("T", bound="TapeStore | AsyncTapeStore", covariant=True)
 
 
 @dataclass(frozen=True)
