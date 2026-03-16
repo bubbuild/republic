@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="generator" content="mkdocs-1.6.1, mkdocs-terminal-4.8.0">
+    
+    <meta name="description" content="Tape-first LLM client with structured outputs."> 
+    
+    <meta name="author" content="Bub Build"> 
+    
+    <link rel="canonical" href="https://getrepublic.org/guides/breaking-changes/"><link rel="icon" type="image/png" sizes="192x192" href="../../img/android-chrome-192x192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="../../img/android-chrome-512x512.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="../../img/apple-touch-icon.png" />
+<link rel="shortcut icon" type="image/png" sizes="48x48" href="../../img/favicon.ico" />
+<link rel="icon" type="image/png" sizes="16x16" href="../../img/favicon-16x16.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="../../img/favicon-32x32.png" />
+
+
+    
+ 
+<title>Breaking Changes - republic</title>
+
+
+<link href="../../css/fontawesome/css/fontawesome.min.css" rel="stylesheet">
+<link href="../../css/fontawesome/css/solid.min.css" rel="stylesheet">
+<link href="../../css/normalize.css" rel="stylesheet">
+<link href="../../css/terminal.css" rel="stylesheet">
+<link href="../../css/theme.css" rel="stylesheet">
+<link href="../../css/theme.tile_grid.css" rel="stylesheet">
+<link href="../../css/theme.footer.css" rel="stylesheet">
+<!-- default color palette -->
+<link href="../../css/palettes/default.css" rel="stylesheet">
+
+<!-- page layout -->
+<style>
+/* initially set page layout to a one column grid */
+.terminal-mkdocs-main-grid {
+    display: grid;
+    grid-column-gap: 1.4em;
+    grid-template-columns: auto;
+    grid-template-rows: auto;
+}
+
+/*  
+*   when side navigation is not hidden, use a two column grid.  
+*   if the screen is too narrow, fall back to the initial one column grid layout.
+*   in this case the main content will be placed under the navigation panel. 
+*/
+@media only screen and (min-width: 70em) {
+    .terminal-mkdocs-main-grid {
+        grid-template-columns: 4fr 9fr;
+    }
+}</style>
+
+
+
+    
+    <link href="../../assets/_mkdocstrings.css" rel="stylesheet">  
+    
+    
+
+    
+    <!-- search css support -->
+<link href="../../css/search/bootstrap-modal.css" rel="stylesheet">
+<!-- search scripts -->
+<script>
+    var base_url = "../..",
+    shortcuts = "{}";
+</script>
+<script src="../../js/jquery/jquery-1.10.1.min.js" defer></script>
+<script src="../../js/bootstrap/bootstrap.min.js" defer></script>
+<script src="../../js/mkdocs/base.js" defer></script>
+    
+    
+    
+    
+    <script src="../../search/main.js"></script>
+    
+
+    
+</head>
+
+<body class="terminal"><div class="container">
+    <div class="terminal-nav">
+        <header class="terminal-logo">
+            <div id="mkdocs-terminal-site-name" class="logo terminal-prompt"><a href="https://getrepublic.org/" class="no-style">republic</a></div>
+        </header>
+        
+        <nav class="terminal-menu">
+            
+            <ul vocab="https://schema.org/" typeof="BreadcrumbList">
+                
+                
+                <li property="itemListElement" typeof="ListItem">
+                    <a href="../.." class="menu-item " property="item" typeof="WebPage">
+                        <span property="name">Home</span>
+                    </a>
+                    <meta property="position" content="0">
+                </li>
+                
+                
+                <li property="itemListElement" typeof="ListItem">
+                    <a href="../../quickstart/" class="menu-item " property="item" typeof="WebPage">
+                        <span property="name">Quickstart</span>
+                    </a>
+                    <meta property="position" content="1">
+                </li>
+                
+                
+                
+                
+                <li property="itemListElement" typeof="ListItem">
+                    <a href="../../philosophy/" class="menu-item " property="item" typeof="WebPage">
+                        <span property="name">Philosophy</span>
+                    </a>
+                    <meta property="position" content="2">
+                </li>
+                
+                    
+                    
+
+
+<li property="itemListElement" typeof="ListItem">
+    <a href="#" class="menu-item" data-toggle="modal" data-target="#mkdocs_search_modal" property="item" typeof="SearchAction">
+        <i aria-hidden="true" class="fa fa-search"></i> <span property="name">Search</span>
+    </a>
+    <meta property="position" content="3">
+</li>
+                    
+            </ul>
+            
+        </nav>
+    </div>
+</div>
+        
+    <div class="container">
+        <div class="terminal-mkdocs-main-grid"><aside id="terminal-mkdocs-side-panel"><nav>
+    <ul class="terminal-mkdocs-side-nav-items">
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+    
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../..">Home</a>
+        
+    
+    
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+    
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../quickstart/">Quickstart</a>
+        
+    
+    
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+        
+        
+        
+            
+    
+        
+        <span class="
+        
+    terminal-mkdocs-side-nav-item--active terminal-mkdocs-side-nav-section-no-index">Guides</span>
+    
+    
+        
+        
+            <ul class="terminal-mkdocs-side-nav-li-ul">
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        <span class="terminal-mkdocs-side-nav-item--active">Breaking Changes</span>
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../authentication/">Authentication</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../chat/">Chat</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../tools/">Tools</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../tape/">Tape</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../stream-events/">Stream Events</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../text/">Text Decisions</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../embeddings/">Embeddings</a>
+        
+    
+    </li>
+            
+            
+    </ul>
+        
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+    
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../philosophy/">Philosophy</a>
+        
+    
+    
+    
+       </li>
+        
+    </ul>
+</nav><hr>
+<nav>
+    <ul>
+        <li><a href="#breaking-changes-2026-02-11">Breaking Changes (2026-02-11)</a></li>
+        <li><a href="#summary">Summary</a></li><li><a href="#scope">Scope</a></li><li><a href="#migration-examples">Migration Examples</a></li><li><a href="#fast-detection">Fast Detection</a></li><li><a href="#release-guidance">Release Guidance</a></li>
+    </ul>
+</nav>
+</aside>
+            <main id="terminal-mkdocs-main-content">
+<section id="mkdocs-terminal-content">
+    <h1 id="breaking-changes-2026-02-11">Breaking Changes (2026-02-11)<a class="headerlink" href="#breaking-changes-2026-02-11" title="Permanent link">&para;</a></h1>
+<p>This document summarizes the breaking changes introduced in this branch and shows how to migrate with minimal effort.</p>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>Error handling is now fully aligned with standard Python style:</p>
+<ul>
+<li>Success paths return plain values.</li>
+<li>Failure paths raise <code>ErrorPayload</code>.</li>
+<li><code>StructuredOutput(value, error)</code> is no longer used as a general return wrapper.</li>
+</ul>
+<p>If your code still depends on <code>.value</code> / <code>.error</code>, migrate using the patterns below.</p>
+<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
+<h3 id="1-structuredoutput-removed">1. <code>StructuredOutput</code> Removed<a class="headerlink" href="#1-structuredoutput-removed" title="Permanent link">&para;</a></h3>
+<p><code>StructuredOutput</code> has been removed from core types and public exports.</p>
+<ul>
+<li><code>src/republic/core/results.py</code></li>
+<li><code>src/republic/core/__init__.py</code></li>
+<li><code>src/republic/__init__.py</code></li>
+</ul>
+<h3 id="2-non-streaming-apis-now-use-return-value-exception">2. Non-Streaming APIs Now Use "Return Value + Exception"<a class="headerlink" href="#2-non-streaming-apis-now-use-return-value-exception" title="Permanent link">&para;</a></h3>
+<p>The following APIs no longer return <code>StructuredOutput</code>:</p>
+<ul>
+<li><code>LLM.chat(...) -&gt; str</code></li>
+<li><code>LLM.chat_async(...) -&gt; str</code></li>
+<li><code>LLM.tool_calls(...) -&gt; list[dict[str, Any]]</code></li>
+<li><code>LLM.tool_calls_async(...) -&gt; list[dict[str, Any]]</code></li>
+<li><code>LLM.if_(...) -&gt; bool</code></li>
+<li><code>LLM.if_async(...) -&gt; bool</code></li>
+<li><code>LLM.classify(...) -&gt; str</code></li>
+<li><code>LLM.classify_async(...) -&gt; str</code></li>
+<li><code>LLM.embed(...) -&gt; Any</code></li>
+<li><code>LLM.embed_async(...) -&gt; Any</code></li>
+</ul>
+<p><code>Tape</code> session shortcuts changed in the same way:</p>
+<ul>
+<li><code>Tape.chat(...) -&gt; str</code></li>
+<li><code>Tape.chat_async(...) -&gt; str</code></li>
+<li><code>Tape.tool_calls(...) -&gt; list[dict[str, Any]]</code></li>
+<li><code>Tape.tool_calls_async(...) -&gt; list[dict[str, Any]]</code></li>
+</ul>
+<h3 id="3-toolexecutorexecute-error-semantics-changed">3. <code>ToolExecutor.execute</code> Error Semantics Changed<a class="headerlink" href="#3-toolexecutorexecute-error-semantics-changed" title="Permanent link">&para;</a></h3>
+<p><code>ToolExecutor.execute(...)</code> now raises <code>ErrorPayload</code> for invalid input, validation failures, missing context, unknown tools, and similar failures. It no longer returns a result object with an <code>error</code> field for these cases.</p>
+<h3 id="4-tape-return-type-simplification">4. Tape Return-Type Simplification<a class="headerlink" href="#4-tape-return-type-simplification" title="Permanent link">&para;</a></h3>
+<p>This branch also finalizes:</p>
+<ul>
+<li><code>ContextSelection</code> removed. <code>read_messages(...)</code> now returns <code>list[dict[str, Any]]</code>.</li>
+<li><code>QueryResult</code> removed. <code>TapeQuery.all()</code> now returns <code>list[TapeEntry]</code>, and errors are raised as <code>ErrorPayload</code>.</li>
+<li><code>read_entries()</code> is deprecated. Use <code>tape.query.all()</code> for full entry reads.</li>
+</ul>
+<h2 id="migration-examples">Migration Examples<a class="headerlink" href="#migration-examples" title="Permanent link">&para;</a></h2>
+<h3 id="chat">Chat<a class="headerlink" href="#chat" title="Permanent link">&para;</a></h3>
+<p>Before:</p>
+<pre><code class="language-python">out = llm.chat(&quot;Ping&quot;)
+if out.error:
+    handle_error(out.error)
+else:
+    print(out.value)
+</code></pre>
+<p>After:</p>
+<pre><code class="language-python">from republic.core.results import ErrorPayload
+
+try:
+    text = llm.chat(&quot;Ping&quot;)
+    print(text)
+except ErrorPayload as exc:
+    handle_error(exc)
+</code></pre>
+<h3 id="text-decision-classify">Text Decision / Classify<a class="headerlink" href="#text-decision-classify" title="Permanent link">&para;</a></h3>
+<p>Before:</p>
+<pre><code class="language-python">decision = llm.if_(&quot;service down&quot;, &quot;should page?&quot;)
+if decision.error is None and decision.value:
+    page_oncall()
+</code></pre>
+<p>After:</p>
+<pre><code class="language-python">from republic.core.results import ErrorPayload
+
+try:
+    decision = llm.if_(&quot;service down&quot;, &quot;should page?&quot;)
+    if decision:
+        page_oncall()
+except ErrorPayload as exc:
+    handle_error(exc)
+</code></pre>
+<h3 id="embedding">Embedding<a class="headerlink" href="#embedding" title="Permanent link">&para;</a></h3>
+<p>Before:</p>
+<pre><code class="language-python">out = llm.embed(&quot;incident summary&quot;)
+if out.error:
+    handle_error(out.error)
+else:
+    vectors = out.value
+</code></pre>
+<p>After:</p>
+<pre><code class="language-python">from republic.core.results import ErrorPayload
+
+try:
+    vectors = llm.embed(&quot;incident summary&quot;)
+except ErrorPayload as exc:
+    handle_error(exc)
+</code></pre>
+<h3 id="toolexecutor">ToolExecutor<a class="headerlink" href="#toolexecutor" title="Permanent link">&para;</a></h3>
+<p>Before:</p>
+<pre><code class="language-python">result = executor.execute(calls, tools=tools)
+if result.error:
+    handle_error(result.error)
+else:
+    print(result.tool_results)
+</code></pre>
+<p>After:</p>
+<pre><code class="language-python">from republic.core.results import ErrorPayload
+
+try:
+    result = executor.execute(calls, tools=tools)
+    print(result.tool_results)
+except ErrorPayload as exc:
+    handle_error(exc)
+</code></pre>
+<h2 id="fast-detection">Fast Detection<a class="headerlink" href="#fast-detection" title="Permanent link">&para;</a></h2>
+<p>Use this command to locate old calling patterns:</p>
+<pre><code class="language-bash">rg -n &quot;StructuredOutput|\\.value\\b|\\.error\\b&quot; src tests
+</code></pre>
+<p>Then migrate matches to "return value + <code>try/except ErrorPayload</code>".</p>
+<h2 id="release-guidance">Release Guidance<a class="headerlink" href="#release-guidance" title="Permanent link">&para;</a></h2>
+<ul>
+<li>This is a clear API breaking change. Use a major version bump, or at minimum a minor bump with explicit release notes.</li>
+<li>If you maintain downstream SDK consumers, provide a migration note or codemod focused on replacing <code>.value</code> / <code>.error</code> branches.</li>
+</ul>
+</section>
+
+            </main>
+        </div>
+        <hr><footer>
+    <div class="terminal-mkdocs-footer-grid">
+        <div id="terminal-mkdocs-footer-copyright-info">
+            
+            <p class="text-center text-muted">Copyright (c) 2026 Bub Build contributors.</p>
+             Site built with <a href="http://www.mkdocs.org">MkDocs</a> and <a href="https://github.com/ntno/mkdocs-terminal">Terminal for MkDocs</a>.
+        </div>
+    </div>
+</footer>
+    </div>
+
+    
+    <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="alertdialog" aria-modal="true" aria-labelledby="searchModalLabel">
+    <div class="modal-dialog modal-lg" role="search">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="searchModalLabel">Search</h5>
+                <button type="button" class="close btn btn-default btn-ghost" data-dismiss="modal" aria-label="Close">x</button>
+            </div>
+            <div class="modal-body">
+                <p id="searchInputLabel">Type to start searching</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" aria-labelledby="searchInputLabel" placeholder="" id="mkdocs-search-query" title="Please enter search terms here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No document matches found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+    
+    
+</body>
+
+</html>
