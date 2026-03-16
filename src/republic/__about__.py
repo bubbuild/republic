@@ -1,6 +1,6 @@
 DEFAULT_MODEL = "openai:gpt-4o-mini"
 
-__version__ = "0.5.4"
+__version__ = "0.5.5"
 __author__ = "PsiACE, Frost Ming"
 __author_email__ = "psiace@apache.org, me@frostming.com"
 __copyright__ = "Copyright (c) 2026 Bub Build contributors."
