@@ -19,7 +19,7 @@ def require_env(name: str) -> str:
 
 def main() -> None:
     api_key = require_env("LLM_API_KEY")
-    model = os.getenv("REPUBLIC_CHAT_MODEL", "openrouter:openrouter/free")
+    model = os.getenv("REPUBLIC_CHAT_MODEL", "openrouter:openai/gpt-4o-mini")
     llm = LLM(model=model, api_key=api_key)
 
     tape = llm.tape("support-session")
