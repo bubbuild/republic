@@ -63,9 +63,7 @@ def responses_rejection_reason(
 
 
 def supports_messages_format(*, provider_name: str, model_id: str) -> bool:
-    normalized_provider = _normalize_provider_name(provider_name)
-    normalized_model = model_id.strip().lower()
-    return normalized_provider == "anthropic" or normalized_model.startswith("anthropic/")
+    return bool(provider_name.strip()) and bool(model_id.strip())
 
 
 def should_include_completion_stream_usage(provider_name: str) -> bool:

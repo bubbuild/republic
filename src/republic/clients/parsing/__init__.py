@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from republic.clients.parsing.completion import CompletionTransportParser
+from republic.clients.parsing.messages import MessageTransportParser
 from republic.clients.parsing.responses import ResponseTransportParser
 from republic.clients.parsing.types import BaseTransportParser, TransportKind
 
 _PARSERS: dict[TransportKind, BaseTransportParser] = {
     "completion": CompletionTransportParser(),
     "responses": ResponseTransportParser(),
-    "messages": CompletionTransportParser(),
+    "messages": MessageTransportParser(),
 }
 
 

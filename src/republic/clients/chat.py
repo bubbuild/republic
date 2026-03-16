@@ -234,6 +234,16 @@ class ChatClient:
         event_type = _field(payload, "type")
         if isinstance(event_type, str) and event_type.startswith("response."):
             return "responses"
+        if event_type in {
+            "message",
+            "message_start",
+            "message_delta",
+            "message_stop",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+        }:
+            return "messages"
         return "completion"
 
     @staticmethod
