@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import queue
 import threading
 from collections import deque
@@ -24,6 +25,8 @@ class FakeAnyLLMClient:
         self.calls: list[dict[str, Any]] = []
         self.completion_queue: deque[Any] = deque()
         self.acompletion_queue: deque[Any] = deque()
+        self.messages_queue: deque[Any] = deque()
+        self.amessages_queue: deque[Any] = deque()
         self.responses_queue: deque[Any] = deque()
         self.aresponses_queue: deque[Any] = deque()
         self.embedding_queue: deque[Any] = deque()
@@ -40,6 +43,12 @@ class FakeAnyLLMClient:
 
     def queue_aresponses(self, *items: Any) -> None:
         self.aresponses_queue.extend(items)
+
+    def queue_messages(self, *items: Any) -> None:
+        self.messages_queue.extend(items)
+
+    def queue_amessages(self, *items: Any) -> None:
+        self.amessages_queue.extend(items)
 
     def queue_embedding(self, *items: Any) -> None:
         self.embedding_queue.extend(items)
@@ -64,6 +73,21 @@ class FakeAnyLLMClient:
         queue = self.acompletion_queue if self.acompletion_queue else self.completion_queue
         return self._next(queue, "acompletion")
 
+    def messages(self, **kwargs: Any) -> Any:
+        self.calls.append({"messages_api": True, **dict(kwargs)})
+        if kwargs.get("stream") and not self.messages_queue and self.amessages_queue:
+            response = self._next(self.amessages_queue, "amessages")
+            return self._async_iter_to_sync_iter(response)
+        return self._next(self.messages_queue, "messages")
+
+    async def amessages(self, **kwargs: Any) -> Any:
+        self.calls.append({"messages_api": True, **dict(kwargs)})
+        queue = self.amessages_queue if self.amessages_queue else self.messages_queue
+        response = self._next(queue, "amessages")
+        if kwargs.get("stream") and hasattr(response, "__iter__") and not hasattr(response, "__aiter__"):
+            return self._sync_iter_to_async_iter(response)
+        return response
+
     def responses(self, **kwargs: Any) -> Any:
         self.calls.append({"responses": True, **dict(kwargs)})
         if kwargs.get("stream") and not self.responses_queue and self.aresponses_queue:
@@ -76,7 +100,10 @@ class FakeAnyLLMClient:
     async def aresponses(self, **kwargs: Any) -> Any:
         self.calls.append({"responses": True, **dict(kwargs)})
         queue = self.aresponses_queue if self.aresponses_queue else self.responses_queue
-        return self._next(queue, "aresponses")
+        response = self._next(queue, "aresponses")
+        if kwargs.get("stream") and hasattr(response, "__iter__") and not hasattr(response, "__aiter__"):
+            return self._sync_iter_to_async_iter(response)
+        return response
 
     @staticmethod
     def _async_iter_to_sync_iter(async_iter: AsyncIterator[Any]) -> Iterator[Any]:
@@ -107,6 +134,11 @@ class FakeAnyLLMClient:
                 break
         finally:
             thread.join()
+
+    @staticmethod
+    async def _sync_iter_to_async_iter(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
+        for item in sync_iter:
+            yield item
 
     def _embedding(self, **kwargs: Any) -> Any:
         self.calls.append({"embedding": True, **dict(kwargs)})
@@ -306,3 +338,102 @@ def make_responses_output_item_done(
 def make_responses_reasoning_item_done(*, item_id: str = "rs_1") -> Any:
     item = SimpleNamespace(type="reasoning", id=item_id, summary=[], content=None, status=None)
     return SimpleNamespace(type="response.output_item.done", item=item)
+
+
+def make_message_response(
+    *,
+    text: str = "",
+    tool_calls: list[Any] | None = None,
+    usage: dict[str, Any] | None = None,
+    model: str = "claude-3-5-haiku",
+) -> Any:
+    content: list[Any] = []
+    if text:
+        content.append(SimpleNamespace(type="text", text=text))
+    for call in tool_calls or []:
+        arguments = getattr(call, "arguments", {}) or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = {}
+        content.append(
+            SimpleNamespace(
+                type="tool_use",
+                id=getattr(call, "call_id", None) or getattr(call, "id", None) or "call_1",
+                name=getattr(call, "name", None),
+                input=arguments,
+            )
+        )
+    usage_payload = usage or {}
+    return SimpleNamespace(
+        id="msg_1",
+        type="message",
+        role="assistant",
+        content=content,
+        model=model,
+        stop_reason="tool_use" if tool_calls else "end_turn",
+        usage=SimpleNamespace(
+            input_tokens=usage_payload.get("input_tokens", 0),
+            output_tokens=usage_payload.get("output_tokens", 0),
+            cache_creation_input_tokens=usage_payload.get("cache_creation_input_tokens", 0),
+            cache_read_input_tokens=usage_payload.get("cache_read_input_tokens", 0),
+        ),
+    )
+
+
+def make_message_start(*, input_tokens: int = 0, model: str = "claude-3-5-haiku") -> Any:
+    return SimpleNamespace(
+        type="message_start",
+        message=SimpleNamespace(
+            id="msg_1",
+            type="message",
+            role="assistant",
+            content=[],
+            model=model,
+            stop_reason=None,
+            usage=SimpleNamespace(
+                input_tokens=input_tokens,
+                output_tokens=0,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=0,
+            ),
+        ),
+    )
+
+
+def make_message_text_delta(delta: str, *, index: int = 0) -> Any:
+    return SimpleNamespace(
+        type="content_block_delta",
+        index=index,
+        delta=SimpleNamespace(type="text_delta", text=delta),
+    )
+
+
+def make_message_tool_use_start(name: str, *, call_id: str = "call_1", index: int = 0) -> Any:
+    return SimpleNamespace(
+        type="content_block_start",
+        index=index,
+        content_block=SimpleNamespace(type="tool_use", id=call_id, name=name, input={}),
+    )
+
+
+def make_message_tool_input_delta(partial_json: str, *, index: int = 0) -> Any:
+    return SimpleNamespace(
+        type="content_block_delta",
+        index=index,
+        delta=SimpleNamespace(type="input_json_delta", partial_json=partial_json),
+    )
+
+
+def make_message_delta(*, stop_reason: str | None = None, usage: dict[str, Any] | None = None) -> Any:
+    usage_payload = usage or {}
+    return SimpleNamespace(
+        type="message_delta",
+        delta={"stop_reason": stop_reason},
+        usage=SimpleNamespace(**usage_payload),
+    )
+
+
+def make_message_stop() -> Any:
+    return SimpleNamespace(type="message_stop")

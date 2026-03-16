@@ -11,6 +11,13 @@ from republic.core.results import ErrorPayload
 
 from .fakes import (
     make_chunk,
+    make_message_delta,
+    make_message_response,
+    make_message_start,
+    make_message_stop,
+    make_message_text_delta,
+    make_message_tool_input_delta,
+    make_message_tool_use_start,
     make_response,
     make_responses_completed,
     make_responses_function_call,
@@ -35,6 +42,11 @@ def echo(text: str) -> str:
 class UnexpectedAsyncResponsesCall(AssertionError):
     def __init__(self) -> None:
         super().__init__("sync path should go through client.responses")
+
+
+class UnexpectedSyncMessagesCall(AssertionError):
+    def __init__(self) -> None:
+        super().__init__("sync path should bypass client.messages")
 
 
 def _compact_stream_events(events: list[Any]) -> list[tuple[str, Any]]:
@@ -80,6 +92,18 @@ def _completion_stream_event_items() -> list[Any]:
             tool_calls=[make_tool_call("echo", 'kyo"}', call_id="call_1")],
             usage={"total_tokens": 12},
         ),
+    ]
+
+
+def _messages_stream_event_items() -> list[Any]:
+    return [
+        make_message_start(input_tokens=6),
+        make_message_text_delta("Checking "),
+        make_message_tool_use_start("echo", call_id="call_1"),
+        make_message_tool_input_delta('{"text":"to'),
+        make_message_tool_input_delta('kyo"}'),
+        make_message_delta(stop_reason="tool_use", usage={"total_tokens": 12}),
+        make_message_stop(),
     ]
 
 
@@ -132,23 +156,54 @@ def test_openrouter_anthropic_tools_rejects_responses_format(fake_anyllm) -> Non
     assert exc_info.value.kind == "invalid_input"
 
 
-def test_messages_format_maps_to_completion(fake_anyllm) -> None:
+def test_messages_format_uses_native_messages_api(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.queue_completion(make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]))
+    client.queue_messages(make_message_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')]))
 
     llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
     calls = llm.tool_calls("Call echo for tokyo", tools=[echo])
 
     assert len(calls) == 1
     assert calls[0]["function"]["name"] == "echo"
-    assert client.calls[-1].get("responses") is None
+    call = client.calls[-1]
+    assert call.get("messages_api") is True
+    assert call["messages"] == [{"role": "user", "content": "Call echo for tokyo"}]
+    assert call["tools"] == [
+        {
+            "name": "echo",
+            "description": "",
+            "input_schema": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        }
+    ]
+    assert call["max_tokens"] == 8192
 
 
-def test_messages_format_rejects_non_anthropic_model(fake_anyllm) -> None:
+def test_messages_format_supports_non_anthropic_model(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_messages(make_message_response(text="hello"))
+
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="messages")
-    with pytest.raises(ErrorPayload) as exc_info:
-        llm.chat("hi")
-    assert exc_info.value.kind == "invalid_input"
+    assert llm.chat("hi") == "hello"
+    assert client.calls[-1].get("messages_api") is True
+
+
+def test_messages_tool_choice_accepts_completion_function_shape(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_messages(make_message_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')]))
+
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
+    calls = llm.tool_calls(
+        "Call echo for tokyo",
+        tools=[echo],
+        tool_choice={"type": "function", "function": {"name": "echo"}},
+    )
+
+    assert len(calls) == 1
+    assert client.calls[-1]["tool_choice"] == {"type": "tool", "name": "echo"}
 
 
 def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) -> None:
@@ -284,6 +339,34 @@ def test_sync_stream_uses_client_level_async_responses_bridge(fake_anyllm) -> No
     assert "".join(list(stream)) == "Hello world"
     assert stream.error is None
     assert stream.usage == {"total_tokens": 7}
+
+
+def test_sync_stream_uses_client_level_async_messages_bridge(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+
+    def _unexpected_messages(**_: Any) -> Any:
+        raise UnexpectedSyncMessagesCall
+
+    async def _streaming_amessages(**kwargs: Any) -> Any:
+        client.calls.append({"messages_api": True, "bridged_async": True, **dict(kwargs)})
+        return _async_items(
+            make_message_start(input_tokens=2),
+            make_message_text_delta("Hello"),
+            make_message_text_delta(" world"),
+            make_message_delta(stop_reason="end_turn", usage={"total_tokens": 7}),
+            make_message_stop(),
+        )
+
+    client.messages = _unexpected_messages
+    client.amessages = _streaming_amessages
+
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
+    stream = llm.stream("Say hello")
+
+    assert "".join(list(stream)) == "Hello world"
+    assert stream.error is None
+    assert stream.usage == {"total_tokens": 7}
+    assert client.calls[-1]["bridged_async"] is True
 
 
 def test_stream_treats_completed_reasoning_only_response_as_success(fake_anyllm) -> None:
@@ -487,6 +570,41 @@ def test_sync_stream_events_use_client_level_async_responses_bridge(fake_anyllm)
     ]
 
 
+def test_sync_stream_events_use_client_level_async_messages_bridge(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+
+    def _unexpected_messages(**_: Any) -> Any:
+        raise UnexpectedSyncMessagesCall
+
+    async def _streaming_amessages(**kwargs: Any) -> Any:
+        client.calls.append({"messages_api": True, "bridged_async": True, **dict(kwargs)})
+        return _async_items(*_messages_stream_event_items())
+
+    client.messages = _unexpected_messages
+    client.amessages = _streaming_amessages
+
+    llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
+    events = list(llm.stream_events("Call echo for tokyo", tools=[echo]))
+
+    assert _compact_stream_events(events) == [
+        ("text", "Checking "),
+        ("tool_call", ("call_1", "echo", '{"text":"tokyo"}')),
+        ("tool_result", "TOKYO"),
+        ("usage", {"total_tokens": 12}),
+        (
+            "final",
+            {
+                "text": "Checking ",
+                "tool_calls": [("call_1", "echo", '{"text":"tokyo"}')],
+                "tool_results": ["TOKYO"],
+                "usage": {"total_tokens": 12},
+                "error": None,
+            },
+        ),
+    ]
+    assert client.calls[-1]["bridged_async"] is True
+
+
 def test_stream_events_parity_between_completion_and_responses(fake_anyllm) -> None:
     completion_client = fake_anyllm.ensure("openai")
     completion_client.queue_completion(iter(_completion_stream_event_items()))
@@ -522,7 +640,7 @@ def test_stream_events_parity_between_completion_and_messages(fake_anyllm) -> No
     completion_client.queue_completion(iter(_completion_stream_event_items()))
 
     messages_client = fake_anyllm.ensure("openrouter")
-    messages_client.queue_completion(iter(_completion_stream_event_items()))
+    messages_client.queue_messages(iter(_messages_stream_event_items()))
 
     completion_llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
     messages_llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
@@ -623,7 +741,7 @@ def test_completion_preserves_extra_headers(fake_anyllm) -> None:
 
 def test_messages_preserves_extra_headers(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
-    client.queue_completion(make_response(text="hello"))
+    client.queue_messages(make_message_response(text="hello"))
 
     llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
     assert llm.chat("Say hello", extra_headers={"X-Title": "Republic"}) == "hello"

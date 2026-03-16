@@ -44,7 +44,7 @@ def test_supports_messages_format() -> None:
         provider_name="openrouter",
         model_id="anthropic/claude-3.5-haiku",
     )
-    assert not provider_policies.supports_messages_format(
+    assert provider_policies.supports_messages_format(
         provider_name="openai",
         model_id="gpt-4o-mini",
     )
