@@ -750,7 +750,7 @@ class LLMCore:
             )
         raise RepublicError(ErrorKind.TEMPORARY, "LLM call failed after retries")
 
-    async def run_chat_async(
+    async def run_chat_async(  # noqa: C901
         self,
         *,
         messages_payload: list[dict[str, Any]],
