@@ -15,12 +15,23 @@ print(out)
 ## Messages Mode
 
 ```python
+from republic import LLM
+
+llm = LLM(
+    model="openrouter:anthropic/claude-3.5-haiku",
+    api_key="<API_KEY>",
+    api_format="messages",
+)
+
 messages = [
     {"role": "system", "content": "Be concise."},
     {"role": "user", "content": "Explain tape-first in one sentence."},
 ]
 out = llm.chat(messages=messages, max_tokens=48)
 ```
+
+Use `api_format="messages"` when you want Republic to call the SDK's native Messages API transport.
+The `messages=[...]` argument itself is independent from the chosen transport.
 
 ## Structured Error Handling
 

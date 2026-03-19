@@ -5,7 +5,7 @@ Use LLM capabilities like regular Python components, with auditable execution tr
 Republic is not a bigger framework. It is a small set of composable primitives:
 
 - `LLM`: One entry point for chat, tools, stream, and embeddings.
-- `StructuredOutput`: Key interfaces return `value + error`.
+- Non-streaming APIs prefer direct return values and `ErrorPayload` exceptions.
 - `Tape`: Append-only records with anchor/handoff/context/query.
 - `ToolExecutor`: Tool calls can be automatic or manual.
 
@@ -16,11 +16,7 @@ from republic import LLM
 
 llm = LLM(model="openrouter:openrouter/free", api_key="<API_KEY>")
 out = llm.chat("Explain tape-first in one sentence.", max_tokens=48)
-
-if out.error:
-    print(out.error.kind, out.error.message)
-else:
-    print(out.value)
+print(out)
 ```
 
 ## What You Get
