@@ -9,7 +9,7 @@ from any_llm.types.completion import ChatCompletion, ChatCompletionChunk
 
 import republic.clients.github_copilot as github_copilot_client
 from republic import LLM, tool
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 
 _TEST_GITHUB_TOKEN = "gho_token"  # noqa: S105
 
@@ -383,7 +383,7 @@ def test_github_copilot_responses_format_is_rejected(monkeypatch) -> None:
         api_format="responses",
     )
 
-    with pytest.raises(ErrorPayload, match="responses format is not supported"):
+    with pytest.raises(RepublicError, match="responses format is not supported"):
         llm.chat("Say hello")
 
     assert init_calls[0]["api_key"] == "gho_token"

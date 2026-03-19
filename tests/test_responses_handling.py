@@ -7,7 +7,7 @@ import pytest
 
 from republic import LLM, tool
 from republic.core.execution import LLMCore
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 
 from .fakes import (
     make_chunk,
@@ -123,7 +123,7 @@ def test_openrouter_anthropic_tools_rejects_responses_format(fake_anyllm) -> Non
     client.SUPPORTS_RESPONSES = False
     llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="responses")
 
-    with pytest.raises(ErrorPayload) as exc_info:
+    with pytest.raises(RepublicError) as exc_info:
         llm.tool_calls(
             "Call echo for tokyo",
             tools=[echo],
@@ -146,7 +146,7 @@ def test_messages_format_maps_to_completion(fake_anyllm) -> None:
 
 def test_messages_format_rejects_non_anthropic_model(fake_anyllm) -> None:
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="messages")
-    with pytest.raises(ErrorPayload) as exc_info:
+    with pytest.raises(RepublicError) as exc_info:
         llm.chat("hi")
     assert exc_info.value.kind == "invalid_input"
 

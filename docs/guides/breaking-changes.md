@@ -7,7 +7,7 @@ This document summarizes the breaking changes introduced in this branch and show
 Error handling is now fully aligned with standard Python style:
 
 - Success paths return plain values.
-- Failure paths raise `ErrorPayload`.
+- Failure paths raise `RepublicError`.
 - `StructuredOutput(value, error)` is no longer used as a general return wrapper.
 
 If your code still depends on `.value` / `.error`, migrate using the patterns below.
@@ -46,14 +46,14 @@ The following APIs no longer return `StructuredOutput`:
 
 ### 3. `ToolExecutor.execute` Error Semantics Changed
 
-`ToolExecutor.execute(...)` now raises `ErrorPayload` for invalid input, validation failures, missing context, unknown tools, and similar failures. It no longer returns a result object with an `error` field for these cases.
+`ToolExecutor.execute(...)` now raises `RepublicError` for invalid input, validation failures, missing context, unknown tools, and similar failures. It no longer returns a result object with an `error` field for these cases.
 
 ### 4. Tape Return-Type Simplification
 
 This branch also finalizes:
 
 - `ContextSelection` removed. `read_messages(...)` now returns `list[dict[str, Any]]`.
-- `QueryResult` removed. `TapeQuery.all()` now returns `list[TapeEntry]`, and errors are raised as `ErrorPayload`.
+- `QueryResult` removed. `TapeQuery.all()` now returns `list[TapeEntry]`, and errors are raised as `RepublicError`.
 - `read_entries()` is deprecated. Use `tape.query.all()` for full entry reads.
 
 ## Migration Examples
@@ -73,12 +73,12 @@ else:
 After:
 
 ```python
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 
 try:
     text = llm.chat("Ping")
     print(text)
-except ErrorPayload as exc:
+except RepublicError as exc:
     handle_error(exc)
 ```
 
@@ -95,13 +95,13 @@ if decision.error is None and decision.value:
 After:
 
 ```python
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 
 try:
     decision = llm.if_("service down", "should page?")
     if decision:
         page_oncall()
-except ErrorPayload as exc:
+except RepublicError as exc:
     handle_error(exc)
 ```
 
@@ -120,11 +120,11 @@ else:
 After:
 
 ```python
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 
 try:
     vectors = llm.embed("incident summary")
-except ErrorPayload as exc:
+except RepublicError as exc:
     handle_error(exc)
 ```
 
@@ -143,12 +143,12 @@ else:
 After:
 
 ```python
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 
 try:
     result = executor.execute(calls, tools=tools)
     print(result.tool_results)
-except ErrorPayload as exc:
+except RepublicError as exc:
     handle_error(exc)
 ```
 
@@ -160,7 +160,7 @@ Use this command to locate old calling patterns:
 rg -n "StructuredOutput|\\.value\\b|\\.error\\b" src tests
 ```
 
-Then migrate matches to "return value + `try/except ErrorPayload`".
+Then migrate matches to "return value + `try/except RepublicError`".
 
 ## Release Guidance
 

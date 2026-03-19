@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from republic.core.errors import ErrorKind
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 from republic.tape.context import TapeContext
 from republic.tools.schema import schema_from_model
 
@@ -67,7 +67,7 @@ class TextClient:
     @staticmethod
     def _normalize_choices(choices: list[str]) -> list[str]:
         if not choices:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "choices must not be empty.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "choices must not be empty.")
         normalized = [choice.strip() for choice in choices]
         return normalized
 
@@ -112,7 +112,7 @@ class TextClient:
         calls = self._chat.tool_calls(prompt=prompt, tools=[tool_schema], tape=tape, context=context)
         label = self._parse_tool_call(calls, _ClassifyDecision, field="label")
         if label not in normalized:
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.INVALID_INPUT,
                 "classification label is not in the allowed choices.",
                 details={"label": label, "choices": normalized},
@@ -134,7 +134,7 @@ class TextClient:
         calls = await self._chat.tool_calls_async(prompt=prompt, tools=[tool_schema], tape=tape, context=context)
         label = self._parse_tool_call(calls, _ClassifyDecision, field="label")
         if label not in normalized:
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.INVALID_INPUT,
                 "classification label is not in the allowed choices.",
                 details={"label": label, "choices": normalized},
@@ -143,24 +143,24 @@ class TextClient:
 
     def _parse_tool_call(self, calls: Any, model: type[BaseModel], *, field: str) -> Any:
         if not isinstance(calls, list) or not calls:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "tool call is missing.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "tool call is missing.")
         call = calls[0]
         args = call.get("function", {}).get("arguments", {})
         if isinstance(args, str):
             try:
                 args = json.loads(args)
             except json.JSONDecodeError as exc:
-                raise ErrorPayload(
+                raise RepublicError(
                     ErrorKind.INVALID_INPUT,
                     "tool arguments are not valid JSON.",
                     details={"error": str(exc)},
                 ) from exc
         if not isinstance(args, dict):
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "tool arguments must be an object.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "tool arguments must be an object.")
         try:
             payload = model(**args)
         except ValidationError as exc:
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.INVALID_INPUT,
                 "tool arguments failed validation.",
                 details={"errors": exc.errors()},

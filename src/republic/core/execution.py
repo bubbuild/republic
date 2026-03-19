@@ -71,8 +71,6 @@ class TransportCallRequest:
 class LLMCore:
     """Shared LLM execution utilities (provider resolution, retries, client cache)."""
 
-    RETRY = object()
-
     def __init__(
         self,
         *,
@@ -221,10 +219,7 @@ class LLMCore:
             return
 
         prefix = f"[{provider}:{model}] attempt {attempt + 1}/{self.max_attempts()}"
-        if error.cause:
-            logger.warning("%s failed: %s (cause=%r)", prefix, error, error.cause)
-        else:
-            logger.warning("%s failed: %s", prefix, error)
+        logger.warning("%s failed: %s", prefix, error)
 
     @staticmethod
     def _extract_status_code(exc: Exception) -> int | None:
@@ -353,21 +348,17 @@ class LLMCore:
     def should_retry(self, kind: ErrorKind) -> bool:
         return kind in {ErrorKind.TEMPORARY, ErrorKind.PROVIDER}
 
-    def wrap_error(self, exc: Exception, kind: ErrorKind, provider: str, model: str) -> RepublicError:
+    def wrap_error(self, exc: Exception, provider: str, model: str) -> RepublicError:
+        kind = self.classify_exception(exc)
         message = f"{provider}:{model}: {exc}"
-        return RepublicError(kind, message, cause=exc)
+        return RepublicError(kind, message)
 
     def raise_wrapped(self, exc: Exception, provider: str, model: str) -> NoReturn:
-        kind = self.classify_exception(exc)
-        raise self.wrap_error(exc, kind, provider, model) from exc
+        raise self.wrap_error(exc, provider, model) from exc
 
     def _handle_attempt_error(self, exc: Exception, provider_name: str, model_id: str, attempt: int) -> AttemptOutcome:
-        if isinstance(exc, RepublicError):
-            wrapped = exc
-            kind = exc.kind
-        else:
-            kind = self.classify_exception(exc)
-            wrapped = self.wrap_error(exc, kind, provider_name, model_id)
+        wrapped = exc if isinstance(exc, RepublicError) else self.wrap_error(exc, provider_name, model_id)
+        kind = wrapped.kind
         self.log_error(wrapped, provider_name, model_id, attempt)
         can_retry_same_model = self.should_retry(kind) and attempt + 1 < self.max_attempts()
         if can_retry_same_model:
@@ -741,9 +732,13 @@ class LLMCore:
                         continue
                     break
                 else:
-                    result = on_response(response, provider_name, model_id, attempt)
-                    if result is self.RETRY:
-                        continue
+                    try:
+                        result = on_response(response, provider_name, model_id, attempt)
+                    except RepublicError as exc:
+                        self.log_error(exc, provider_name, model_id, attempt)
+                        if exc.kind == ErrorKind.TEMPORARY:
+                            continue
+                        raise
                     return result
 
         if last_error is not None:
@@ -793,11 +788,15 @@ class LLMCore:
                         continue
                     break
                 else:
-                    result = on_response(response, provider_name, model_id, attempt)
-                    if inspect.isawaitable(result):
-                        result = await result
-                    if result is self.RETRY:
-                        continue
+                    try:
+                        result = on_response(response, provider_name, model_id, attempt)
+                        if inspect.isawaitable(result):
+                            result = await result
+                    except RepublicError as exc:
+                        self.log_error(exc, provider_name, model_id, attempt)
+                        if exc.kind == ErrorKind.TEMPORARY:
+                            continue
+                        raise
                     return result
 
         if last_error is not None:

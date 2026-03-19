@@ -10,7 +10,7 @@ from typing import Any, NoReturn
 from pydantic import ValidationError
 
 from republic.core.errors import ErrorKind
-from republic.core.results import ErrorPayload, ToolExecution
+from republic.core.results import RepublicError, ToolExecution
 from republic.tools.context import ToolContext
 from republic.tools.schema import Tool, ToolInput, normalize_tools
 
@@ -28,15 +28,15 @@ class ToolExecutor:
         tool_calls, tool_map = self._prepare_execution(response, tools)
         if not tool_map:
             if tool_calls:
-                raise ErrorPayload(ErrorKind.TOOL, "No runnable tools are available.")
+                raise RepublicError(ErrorKind.TOOL, "No runnable tools are available.")
             return ToolExecution(tool_calls=[], tool_results=[])
 
         results: list[Any] = []
-        error: ErrorPayload | None = None
+        error: RepublicError | None = None
         for tool_response in tool_calls:
             try:
                 result = self._handle_tool_response(tool_response, tool_map, context)
-            except ErrorPayload as exc:
+            except RepublicError as exc:
                 error = exc
                 result = exc.as_dict()
             results.append(result)
@@ -53,17 +53,17 @@ class ToolExecutor:
         tool_calls, tool_map = self._prepare_execution(response, tools)
         if not tool_map:
             if tool_calls:
-                raise ErrorPayload(ErrorKind.TOOL, "No runnable tools are available.")
+                raise RepublicError(ErrorKind.TOOL, "No runnable tools are available.")
             return ToolExecution(tool_calls=[], tool_results=[])
 
         results: list[Any] = []
-        error: ErrorPayload | None = None
+        error: RepublicError | None = None
         gathered = await asyncio.gather(
             *(self._handle_tool_response_async(tool_response, tool_map, context) for tool_response in tool_calls),
             return_exceptions=True,
         )
         for resp in gathered:
-            if isinstance(resp, ErrorPayload):
+            if isinstance(resp, RepublicError):
                 error = resp
                 results.append(resp.as_dict())
             elif isinstance(resp, BaseException):  # This should not happen, but we catch it just in case.
@@ -88,13 +88,13 @@ class ToolExecutor:
         tool_map: dict[str, Tool],
     ) -> tuple[str, Tool, dict[str, Any]]:
         if not isinstance(tool_response, dict):
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "Each tool call must be an object.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Each tool call must be an object.")
         tool_name = tool_response.get("function", {}).get("name")
         if not tool_name:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "Tool call is missing name.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Tool call is missing name.")
         tool_obj = tool_map.get(tool_name)
         if tool_obj is None:
-            raise ErrorPayload(ErrorKind.TOOL, f"Unknown tool name: {tool_name}.")
+            raise RepublicError(ErrorKind.TOOL, f"Unknown tool name: {tool_name}.")
         tool_args = tool_response.get("function", {}).get("arguments", {})
         tool_args = self._normalize_tool_args(tool_name, tool_args)
         return tool_name, tool_obj, tool_args
@@ -109,7 +109,7 @@ class ToolExecutor:
     ) -> Any:
         if tool_obj.context:
             if context is None:
-                raise ErrorPayload(
+                raise RepublicError(
                     ErrorKind.INVALID_INPUT, f"Tool '{tool_name}' requires context but none was provided."
                 )
             return tool_obj.run(context=context, **tool_args)
@@ -133,16 +133,16 @@ class ToolExecutor:
                 if inspect.iscoroutine(result):
                     result.close()
                 self._raise_async_execute_error(tool_name)
-        except ErrorPayload:
+        except RepublicError:
             raise
         except ValidationError as exc:
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.INVALID_INPUT,
                 f"Tool '{tool_name}' argument validation failed.",
                 details={"errors": exc.errors()},
             ) from exc
         except Exception as exc:
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.TOOL,
                 f"Tool '{tool_name}' execution failed.",
                 details={"error": repr(exc)},
@@ -166,16 +166,16 @@ class ToolExecutor:
             )
             if inspect.isawaitable(result):
                 return await result
-        except ErrorPayload:
+        except RepublicError:
             raise
         except ValidationError as exc:
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.INVALID_INPUT,
                 f"Tool '{tool_name}' argument validation failed.",
                 details={"errors": json.loads(exc.json())},
             ) from exc
         except Exception as exc:
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.TOOL,
                 f"Tool '{tool_name}' execution failed.",
                 details={"error": repr(exc)},
@@ -184,7 +184,7 @@ class ToolExecutor:
             return result
 
     def _raise_async_execute_error(self, tool_name: str) -> NoReturn:
-        raise ErrorPayload(
+        raise RepublicError(
             ErrorKind.INVALID_INPUT,
             f"Tool '{tool_name}' is async; use execute_async() instead of execute().",
         )
@@ -197,7 +197,7 @@ class ToolExecutor:
             try:
                 response = json.loads(response)
             except json.JSONDecodeError as exc:
-                raise ErrorPayload(
+                raise RepublicError(
                     ErrorKind.INVALID_INPUT,
                     "Tool response is not a valid JSON string.",
                     details={"error": str(exc)},
@@ -205,16 +205,16 @@ class ToolExecutor:
         if isinstance(response, dict):
             response = [response]
         if not isinstance(response, list):
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "Tool response must be a list of objects.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Tool response must be a list of objects.")
         return response
 
     def _build_tool_map(self, tools: ToolInput) -> dict[str, Tool]:
         if tools is None:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "No tools provided.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "No tools provided.")
         try:
             toolset = normalize_tools(tools)
         except (ValueError, TypeError) as exc:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, str(exc)) from exc
+            raise RepublicError(ErrorKind.INVALID_INPUT, str(exc)) from exc
 
         return {tool_obj.name: tool_obj for tool_obj in toolset.runnable if tool_obj.name}
 
@@ -223,13 +223,13 @@ class ToolExecutor:
             try:
                 tool_args = json.loads(tool_args)
             except json.JSONDecodeError as exc:
-                raise ErrorPayload(
+                raise RepublicError(
                     ErrorKind.INVALID_INPUT,
                     f"Tool '{tool_name}' arguments are not valid JSON.",
                 ) from exc
         if isinstance(tool_args, dict):
             return dict(tool_args)
-        raise ErrorPayload(
+        raise RepublicError(
             ErrorKind.INVALID_INPUT,
             f"Tool '{tool_name}' arguments must be an object.",
         )

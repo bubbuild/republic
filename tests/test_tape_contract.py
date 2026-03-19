@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from republic.core.errors import ErrorKind
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 from republic.tape.context import LAST_ANCHOR, TapeContext
 from republic.tape.entries import TapeEntry
 from republic.tape.manager import AsyncTapeManager, TapeManager
@@ -38,7 +38,7 @@ def test_build_messages_uses_last_anchor_slice(manager) -> None:
 
 
 def test_build_messages_reports_missing_anchor(manager) -> None:
-    with pytest.raises(ErrorPayload) as exc_info:
+    with pytest.raises(RepublicError) as exc_info:
         manager.read_messages("test_tape", context=TapeContext(anchor="missing"))
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
 

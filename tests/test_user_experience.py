@@ -6,7 +6,7 @@ import pytest
 
 from republic import LLM, TapeContext, tool
 from republic.core.errors import ErrorKind
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 from republic.tape.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 
 from .fakes import make_chunk, make_response, make_tool_call
@@ -47,7 +47,7 @@ def test_chat_retry_budget_is_one_plus_max_retries(fake_anyllm, max_retries: int
         error_classifier=lambda _: ErrorKind.TEMPORARY,
     )
 
-    with pytest.raises(ErrorPayload) as exc_info:
+    with pytest.raises(RepublicError) as exc_info:
         llm.chat("Reply with ready", max_tokens=8)
     assert exc_info.value.kind == ErrorKind.TEMPORARY
     assert len(client.calls) == expected_calls
@@ -131,7 +131,7 @@ def test_tape_requires_anchor_then_records_full_run(fake_anyllm) -> None:
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
     tape = llm.tape("ops")
 
-    with pytest.raises(ErrorPayload) as exc_info:
+    with pytest.raises(RepublicError) as exc_info:
         llm.chat("Investigate DB timeout", tape="ops")
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
     assert len(client.calls) == 0
@@ -338,7 +338,7 @@ def test_sync_chat_with_async_tape_store_is_rejected(fake_anyllm) -> None:
         context=TapeContext(anchor=None),
     )
 
-    with pytest.raises(ErrorPayload) as exc_info:
+    with pytest.raises(RepublicError) as exc_info:
         llm.chat("Ping", tape="ops")
     assert exc_info.value.kind == ErrorKind.INVALID_INPUT
     assert "Sync tape APIs are unavailable" in exc_info.value.message
@@ -376,7 +376,7 @@ def test_text_shortcuts_and_embeddings_share_the_same_facade(fake_anyllm) -> Non
     label = llm.classify("Need invoice support", ["support", "sales"])
     assert label == "support"
 
-    with pytest.raises(ErrorPayload) as exc_info:
+    with pytest.raises(RepublicError) as exc_info:
         llm.classify("Unknown intent", ["support", "sales"])
     assert exc_info.value.kind == ErrorKind.INVALID_INPUT
 

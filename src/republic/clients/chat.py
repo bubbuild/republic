@@ -16,7 +16,6 @@ from republic.core.execution import LLMCore, TransportResponse
 from republic.core.results import (
     AsyncStreamEvents,
     AsyncTextStream,
-    ErrorPayload,
     StreamEvent,
     StreamEvents,
     StreamState,
@@ -40,7 +39,7 @@ class PreparedChat:
     toolset: ToolSet
     tape: str | None
     should_update: bool
-    context_error: ErrorPayload | None
+    context_error: RepublicError | None
     run_id: str
     system_prompt: str | None
     context: TapeContext | None
@@ -320,11 +319,11 @@ class ChatClient:
         tape: str | None,
     ) -> None:
         if prompt is not None and messages is not None:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "Provide either prompt or messages, not both.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Provide either prompt or messages, not both.")
         if prompt is None and messages is None:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "Either prompt or messages is required.")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Either prompt or messages is required.")
         if messages is not None and (system_prompt is not None or tape is not None):
-            raise ErrorPayload(
+            raise RepublicError(
                 ErrorKind.INVALID_INPUT,
                 "system_prompt and tape are not supported with messages input.",
             )
@@ -349,7 +348,7 @@ class ChatClient:
             return payload, []
 
         if prompt is None:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "prompt is required when messages is not provided")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "prompt is required when messages is not provided")
 
         user_message = {"role": "user", "content": prompt}
 
@@ -388,7 +387,7 @@ class ChatClient:
             return payload, []
 
         if prompt is None:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, "prompt is required when messages is not provided")
+            raise RepublicError(ErrorKind.INVALID_INPUT, "prompt is required when messages is not provided")
 
         user_message = {"role": "user", "content": prompt}
 
@@ -419,7 +418,7 @@ class ChatClient:
         require_tools: bool = False,
         require_runnable: bool = False,
     ) -> PreparedChat:
-        context_error: ErrorPayload | None = None
+        context_error: RepublicError | None = None
         payload: list[dict[str, Any]] = []
         new_messages: list[dict[str, Any]] = []
         try:
@@ -431,9 +430,9 @@ class ChatClient:
                 context=context,
             )
             if require_tools and not tools:
-                raise ErrorPayload(ErrorKind.INVALID_INPUT, "tools are required for this operation.")  # noqa: TRY301
+                raise RepublicError(ErrorKind.INVALID_INPUT, "tools are required for this operation.")  # noqa: TRY301
             toolset = self._normalize_tools(tools)
-        except ErrorPayload as exc:
+        except RepublicError as exc:
             context_error = exc
             toolset = ToolSet([], [])
         else:
@@ -441,7 +440,7 @@ class ChatClient:
                 try:
                     toolset.require_runnable()
                 except ValueError as exc:
-                    context_error = ErrorPayload(ErrorKind.INVALID_INPUT, str(exc))
+                    context_error = RepublicError(ErrorKind.INVALID_INPUT, str(exc))
 
         should_update = tape is not None and messages is None
         run_id = uuid.uuid4().hex
@@ -469,7 +468,7 @@ class ChatClient:
         require_tools: bool = False,
         require_runnable: bool = False,
     ) -> PreparedChat:
-        context_error: ErrorPayload | None = None
+        context_error: RepublicError | None = None
         payload: list[dict[str, Any]] = []
         new_messages: list[dict[str, Any]] = []
         try:
@@ -481,9 +480,9 @@ class ChatClient:
                 context=context,
             )
             if require_tools and not tools:
-                raise ErrorPayload(ErrorKind.INVALID_INPUT, "tools are required for this operation.")  # noqa: TRY301
+                raise RepublicError(ErrorKind.INVALID_INPUT, "tools are required for this operation.")  # noqa: TRY301
             toolset = self._normalize_tools(tools)
-        except ErrorPayload as exc:
+        except RepublicError as exc:
             context_error = exc
             toolset = ToolSet([], [])
         else:
@@ -491,7 +490,7 @@ class ChatClient:
                 try:
                     toolset.require_runnable()
                 except ValueError as exc:
-                    context_error = ErrorPayload(ErrorKind.INVALID_INPUT, str(exc))
+                    context_error = RepublicError(ErrorKind.INVALID_INPUT, str(exc))
 
         should_update = tape is not None and messages is None
         run_id = uuid.uuid4().hex
@@ -543,7 +542,7 @@ class ChatClient:
                 on_response=on_response,
             )
         except RepublicError as exc:
-            raise ErrorPayload(exc.kind, exc.message) from exc
+            raise RepublicError(exc.kind, exc.message) from exc
 
     async def _execute_async(
         self,
@@ -573,13 +572,13 @@ class ChatClient:
                 on_response=on_response,
             )
         except RepublicError as exc:
-            raise ErrorPayload(exc.kind, exc.message) from exc
+            raise RepublicError(exc.kind, exc.message) from exc
 
     def _normalize_tools(self, tools: ToolInput) -> ToolSet:
         try:
             return normalize_tools(tools)
         except (ValueError, TypeError) as exc:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, str(exc)) from exc
+            raise RepublicError(ErrorKind.INVALID_INPUT, str(exc)) from exc
 
     def _update_tape(
         self,
@@ -588,7 +587,7 @@ class ChatClient:
         *,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
-        error: ErrorPayload | None = None,
+        error: RepublicError | None = None,
         response: Any | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -621,7 +620,7 @@ class ChatClient:
         *,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
-        error: ErrorPayload | None = None,
+        error: RepublicError | None = None,
         response: Any | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -656,15 +655,15 @@ class ChatClient:
         if False:
             yield ""
 
-    def _stream_error_result(self, prepared: PreparedChat, error: ErrorPayload) -> TextStream:
+    def _stream_error_result(self, prepared: PreparedChat, error: RepublicError) -> TextStream:
         self._update_tape(prepared, None, error=error)
         return TextStream(self._empty_iterator(), state=StreamState(error=error))
 
-    async def _stream_async_error_result(self, prepared: PreparedChat, error: ErrorPayload) -> AsyncTextStream:
+    async def _stream_async_error_result(self, prepared: PreparedChat, error: RepublicError) -> AsyncTextStream:
         await self._update_tape_async(prepared, None, error=error)
         return AsyncTextStream(self._empty_async_iterator(), state=StreamState(error=error))
 
-    def _event_error_result(self, prepared: PreparedChat, error: ErrorPayload) -> StreamEvents:
+    def _event_error_result(self, prepared: PreparedChat, error: RepublicError) -> StreamEvents:
         self._update_tape(prepared, None, error=error)
         state = StreamState(error=error)
         events = [
@@ -682,7 +681,7 @@ class ChatClient:
         ]
         return StreamEvents(iter(events), state=state)
 
-    async def _event_async_error_result(self, prepared: PreparedChat, error: ErrorPayload) -> AsyncStreamEvents:
+    async def _event_async_error_result(self, prepared: PreparedChat, error: RepublicError) -> AsyncStreamEvents:
         await self._update_tape_async(prepared, None, error=error)
         state = StreamState(error=error)
 
@@ -708,7 +707,7 @@ class ChatClient:
         tool_calls: list[dict[str, Any]],
         tool_results: list[Any],
         usage: dict[str, Any] | None,
-        error: ErrorPayload | None,
+        error: RepublicError | None,
     ) -> dict[str, Any]:
         return {
             "text": text,
@@ -743,7 +742,7 @@ class ChatClient:
             empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             if log_empty:
                 self._core.log_error(empty_error, provider_name, model_id, attempt)
-            state.error = ErrorPayload(empty_error.kind, empty_error.message)
+            state.error = RepublicError(empty_error.kind, empty_error.message)
         state.usage = usage
         self._update_tape(
             prepared,
@@ -782,7 +781,7 @@ class ChatClient:
             empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             if log_empty:
                 self._core.log_error(empty_error, provider_name, model_id, attempt)
-            state.error = ErrorPayload(empty_error.kind, empty_error.message)
+            state.error = RepublicError(empty_error.kind, empty_error.message)
         state.usage = usage
         await self._update_tape_async(
             prepared,
@@ -821,7 +820,7 @@ class ChatClient:
                 provider_name,
                 model_id,
             )
-        except ErrorPayload as exc:
+        except RepublicError as exc:
             state.error = exc
             events.append(StreamEvent("error", exc.as_dict()))
         if tool_results:
@@ -829,9 +828,8 @@ class ChatClient:
                 events.append(StreamEvent("tool_result", {"index": idx, "result": result}))
 
         if not parts and not tool_calls and state.error is None and not completed_metadata_only:
-            empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
-            self._core.log_error(empty, provider_name, model_id, attempt)
-            empty_error = ErrorPayload(empty.kind, empty.message)
+            empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
+            self._core.log_error(empty_error, provider_name, model_id, attempt)
             state.error = empty_error
             events.append(StreamEvent("error", empty_error.as_dict()))
 
@@ -877,7 +875,7 @@ class ChatClient:
                 provider_name,
                 model_id,
             )
-        except ErrorPayload as exc:
+        except RepublicError as exc:
             state.error = exc
             events.append(StreamEvent("error", exc.as_dict()))
         if tool_results:
@@ -887,7 +885,7 @@ class ChatClient:
         if not parts and not tool_calls and state.error is None and not completed_metadata_only:
             empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             self._core.log_error(empty, provider_name, model_id, attempt)
-            empty_error = ErrorPayload(empty.kind, empty.message)
+            empty_error = RepublicError(empty.kind, empty.message)
             state.error = empty_error
             events.append(StreamEvent("error", empty_error.as_dict()))
 
@@ -969,7 +967,7 @@ class ChatClient:
         tool_calls: list[dict[str, Any]],
         tool_results: list[Any],
         usage: dict[str, Any] | None,
-        error: ErrorPayload,
+        error: RepublicError,
     ) -> list[StreamEvent]:
         return [
             StreamEvent("error", error.as_dict()),
@@ -992,7 +990,7 @@ class ChatClient:
         provider_name: str,
         model_id: str,
         attempt: int,
-    ) -> str | object:
+    ) -> str:
         payload, transport = self._unwrap_response(response)
         text = self._extract_text(payload, transport=transport)
         if text:
@@ -1013,9 +1011,7 @@ class ChatClient:
                 model=model_id,
             )
             return ""
-        empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
-        self._core.log_error(empty_error, provider_name, model_id, attempt)
-        return self._core.RETRY
+        raise RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
 
     async def _handle_create_response_async(
         self,
@@ -1024,7 +1020,7 @@ class ChatClient:
         provider_name: str,
         model_id: str,
         attempt: int,
-    ) -> str | object:
+    ) -> str:
         payload, transport = self._unwrap_response(response)
         text = self._extract_text(payload, transport=transport)
         if text:
@@ -1045,9 +1041,7 @@ class ChatClient:
                 model=model_id,
             )
             return ""
-        empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
-        self._core.log_error(empty_error, provider_name, model_id, attempt)
-        return self._core.RETRY
+        raise RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
 
     def _handle_tool_calls_response(
         self,
@@ -1098,7 +1092,7 @@ class ChatClient:
         provider_name: str,
         model_id: str,
         attempt: int,
-    ) -> ToolAutoResult | object:
+    ) -> ToolAutoResult:
         payload, transport = self._unwrap_response(response)
         tool_calls = self._extract_tool_calls(payload, transport=transport)
         if tool_calls:
@@ -1138,9 +1132,7 @@ class ChatClient:
             )
             return ToolAutoResult.text_result("")
 
-        empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
-        self._core.log_error(empty_error, provider_name, model_id, attempt)
-        return self._core.RETRY
+        raise RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
 
     async def _handle_tools_auto_response_async(
         self,
@@ -1149,7 +1141,7 @@ class ChatClient:
         provider_name: str,
         model_id: str,
         attempt: int,
-    ) -> ToolAutoResult | object:
+    ) -> ToolAutoResult:
         payload, transport = self._unwrap_response(response)
         tool_calls = self._extract_tool_calls(payload, transport=transport)
         if tool_calls:
@@ -1189,9 +1181,7 @@ class ChatClient:
             )
             return ToolAutoResult.text_result("")
 
-        empty_error = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
-        self._core.log_error(empty_error, provider_name, model_id, attempt)
-        return self._core.RETRY
+        raise RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
 
     def chat(
         self,
@@ -1225,7 +1215,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._handle_create_response, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             self._update_tape(prepared, None, error=error)
             raise
 
@@ -1263,7 +1253,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._handle_tool_calls_response, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             self._update_tape(prepared, None, error=error)
             raise
 
@@ -1302,7 +1292,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._handle_tools_auto_response, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             self._update_tape(prepared, None, error=error)
             return ToolAutoResult.error_result(error)
 
@@ -1338,7 +1328,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._handle_create_response_async, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             await self._update_tape_async(prepared, None, error=error)
             raise
 
@@ -1376,7 +1366,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._handle_tool_calls_response_async, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             await self._update_tape_async(prepared, None, error=error)
             raise
 
@@ -1415,7 +1405,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._handle_tools_auto_response_async, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             await self._update_tape_async(prepared, None, error=error)
             return ToolAutoResult.error_result(error)
 
@@ -1451,7 +1441,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._build_text_stream, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             return self._stream_error_result(prepared, error)
 
     async def stream_async(
@@ -1486,7 +1476,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._build_async_text_stream, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             return await self._stream_async_error_result(prepared, error)
 
     def stream_events(
@@ -1522,7 +1512,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._build_event_stream, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             return self._event_error_result(prepared, error)
 
     async def stream_events_async(
@@ -1558,7 +1548,7 @@ class ChatClient:
                 kwargs=kwargs,
                 on_response=partial(self._build_async_event_stream, prepared),
             )
-        except ErrorPayload as error:
+        except RepublicError as error:
             return await self._event_async_error_result(prepared, error)
 
     def _build_text_stream(
@@ -1613,9 +1603,7 @@ class ChatClient:
                         yield text
                     usage = self._extract_usage(chunk, transport=transport) or usage
             except Exception as exc:
-                kind = self._core.classify_exception(exc)
-                wrapped = self._core.wrap_error(exc, kind, provider_name, model_id)
-                state.error = ErrorPayload(wrapped.kind, wrapped.message)
+                state.error = self._core.wrap_error(exc, provider_name, model_id)
             finally:
                 tool_calls = assembler.finalize()
                 self._finalize_text_stream(
@@ -1692,9 +1680,7 @@ class ChatClient:
                         yield text
                     usage = self._extract_usage(chunk, transport=transport) or usage
             except Exception as exc:
-                kind = self._core.classify_exception(exc)
-                wrapped = self._core.wrap_error(exc, kind, provider_name, model_id)
-                state.error = ErrorPayload(wrapped.kind, wrapped.message)
+                state.error = self._core.wrap_error(exc, provider_name, model_id)
             finally:
                 tool_calls = assembler.finalize()
                 await self._finalize_text_stream_async(
@@ -1792,9 +1778,7 @@ class ChatClient:
                 )
                 yield from events
             except Exception as exc:
-                kind = self._core.classify_exception(exc)
-                wrapped = self._core.wrap_error(exc, kind, provider_name, model_id)
-                state.error = ErrorPayload(wrapped.kind, wrapped.message)
+                state.error = self._core.wrap_error(exc, provider_name, model_id)
                 final_calls = tool_calls or assembler.finalize()
                 yield from self._error_event_sequence(
                     parts=parts,
@@ -1878,9 +1862,7 @@ class ChatClient:
                 for event in events:
                     yield event
             except Exception as exc:
-                kind = self._core.classify_exception(exc)
-                wrapped = self._core.wrap_error(exc, kind, provider_name, model_id)
-                state.error = ErrorPayload(wrapped.kind, wrapped.message)
+                state.error = self._core.wrap_error(exc, provider_name, model_id)
                 final_calls = tool_calls or assembler.finalize()
                 for event in self._error_event_sequence(
                     parts=parts,
@@ -1921,7 +1903,7 @@ class ChatClient:
         tool_results: list[Any] = []
         try:
             tool_results = self._execute_tool_calls(prepared, tool_calls, provider_name, model_id)
-        except ErrorPayload as exc:
+        except RepublicError as exc:
             state.error = exc
         if (
             not text
@@ -1931,7 +1913,7 @@ class ChatClient:
         ):
             empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             self._core.log_error(empty, provider_name, model_id, 0)
-            state.error = ErrorPayload(empty.kind, empty.message)
+            state.error = RepublicError(empty.kind, empty.message)
         events: list[StreamEvent] = []
         if text:
             events.append(StreamEvent("text", {"delta": text}))
@@ -1987,7 +1969,7 @@ class ChatClient:
             nonlocal tool_results
             try:
                 tool_results = await self._execute_tool_calls_async(prepared, tool_calls, provider_name, model_id)
-            except ErrorPayload as exc:
+            except RepublicError as exc:
                 state.error = exc
             if (
                 not text
@@ -1997,7 +1979,7 @@ class ChatClient:
             ):
                 empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
                 self._core.log_error(empty, provider_name, model_id, 0)
-                state.error = ErrorPayload(empty.kind, empty.message)
+                state.error = RepublicError(empty.kind, empty.message)
 
             if text:
                 yield StreamEvent("text", {"delta": text})
@@ -2044,7 +2026,7 @@ class ChatClient:
         if not tool_calls:
             return []
         if not prepared.toolset.runnable:
-            raise ErrorPayload(ErrorKind.TOOL, "No runnable tools are available.")
+            raise RepublicError(ErrorKind.TOOL, "No runnable tools are available.")
         execution = self._tool_executor.execute(
             tool_calls,
             tools=prepared.toolset.runnable,
@@ -2062,7 +2044,7 @@ class ChatClient:
         if not tool_calls:
             return []
         if not prepared.toolset.runnable:
-            raise ErrorPayload(ErrorKind.TOOL, "No runnable tools are available.")
+            raise RepublicError(ErrorKind.TOOL, "No runnable tools are available.")
         execution = await self._tool_executor.execute_async(
             tool_calls,
             tools=prepared.toolset.runnable,

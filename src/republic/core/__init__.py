@@ -4,7 +4,6 @@ from republic.core.errors import ErrorKind, RepublicError
 from republic.core.results import (
     AsyncStreamEvents,
     AsyncTextStream,
-    ErrorPayload,
     StreamEvent,
     StreamEvents,
     StreamState,
@@ -17,7 +16,7 @@ __all__ = [
     "AsyncStreamEvents",
     "AsyncTextStream",
     "ErrorKind",
-    "ErrorPayload",
+    "RepublicError",
     "RepublicError",
     "StreamEvent",
     "StreamEvents",

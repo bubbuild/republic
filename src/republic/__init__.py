@@ -11,7 +11,7 @@ from republic.auth import (
 from republic.core.results import (
     AsyncStreamEvents,
     AsyncTextStream,
-    ErrorPayload,
+    RepublicError,
     StreamEvent,
     StreamEvents,
     StreamState,
@@ -28,7 +28,7 @@ __all__ = [
     "AsyncTapeManager",
     "AsyncTapeStore",
     "AsyncTextStream",
-    "ErrorPayload",
+    "RepublicError",
     "StreamEvent",
     "StreamEvents",
     "StreamState",

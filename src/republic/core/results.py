@@ -6,31 +6,12 @@ from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from republic.core.errors import ErrorKind
-
-
-@dataclass
-class ErrorPayload(Exception):
-    kind: ErrorKind
-    message: str
-    details: dict[str, Any] | None = None
-
-    def __str__(self) -> str:
-        return f"[{self.kind.value}] {self.message}"
-
-    def as_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "kind": self.kind.value,
-            "message": self.message,
-        }
-        if self.details:
-            payload["details"] = self.details
-        return payload
+from republic.core.errors import RepublicError
 
 
 @dataclass
 class StreamState:
-    error: ErrorPayload | None = None
+    error: RepublicError | None = None
     usage: dict[str, Any] | None = None
 
 
@@ -43,7 +24,7 @@ class TextStream:
         return self._iterator
 
     @property
-    def error(self) -> ErrorPayload | None:
+    def error(self) -> RepublicError | None:
         return self._state.error
 
     @property
@@ -60,7 +41,7 @@ class AsyncTextStream:
         return self._iterator
 
     @property
-    def error(self) -> ErrorPayload | None:
+    def error(self) -> RepublicError | None:
         return self._state.error
 
     @property
@@ -90,7 +71,7 @@ class StreamEvents:
         return self._iterator
 
     @property
-    def error(self) -> ErrorPayload | None:
+    def error(self) -> RepublicError | None:
         return self._state.error
 
     @property
@@ -107,7 +88,7 @@ class AsyncStreamEvents:
         return self._iterator
 
     @property
-    def error(self) -> ErrorPayload | None:
+    def error(self) -> RepublicError | None:
         return self._state.error
 
     @property
@@ -119,7 +100,7 @@ class AsyncStreamEvents:
 class ToolExecution:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_results: list[Any] = field(default_factory=list)
-    error: ErrorPayload | None = None
+    error: RepublicError | None = None
 
 
 @dataclass(frozen=True)
@@ -128,7 +109,7 @@ class ToolAutoResult:
     text: str | None
     tool_calls: list[dict[str, Any]]
     tool_results: list[Any]
-    error: ErrorPayload | None
+    error: RepublicError | None
 
     @classmethod
     def text_result(cls, text: str) -> ToolAutoResult:
@@ -157,7 +138,7 @@ class ToolAutoResult:
     @classmethod
     def error_result(
         cls,
-        error: ErrorPayload,
+        error: RepublicError,
         *,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,

@@ -46,6 +46,7 @@ Documentation = "https://getrepublic.org"
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
     "tox-uv>=1.29.0",
     "ty>=0.0.8",
     "ruff>=0.14.10",

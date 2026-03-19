@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 
 
 def utc_now() -> str:
@@ -50,7 +50,7 @@ class TapeEntry:
         return cls(id=0, kind="tool_result", payload={"results": results}, meta=dict(meta))
 
     @classmethod
-    def error(cls, error: ErrorPayload, **meta: Any) -> TapeEntry:
+    def error(cls, error: RepublicError, **meta: Any) -> TapeEntry:
         return cls(id=0, kind="error", payload=error.as_dict(), meta=dict(meta))
 
     @classmethod

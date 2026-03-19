@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from republic.core import RepublicError
 from republic.core.errors import ErrorKind
 from republic.core.execution import LLMCore
-from republic.core.results import ErrorPayload
 
 
 class InternalOps:
@@ -24,12 +24,12 @@ class InternalOps:
     def _resolve_provider(self, provider: str | None) -> str:
         return provider or self._core.provider
 
-    def _error(self, exc: Exception, *, provider: str, model: str | None, operation: str) -> ErrorPayload:
+    def _error(self, exc: Exception, *, provider: str, model: str | None, operation: str) -> RepublicError:
         kind = self._core.classify_exception(exc)
         if isinstance(exc, NotImplementedError):
             kind = ErrorKind.INVALID_INPUT
         message = f"{provider}:{model}: {exc}" if model else f"{provider}: {exc}"
-        return ErrorPayload(kind, message, details={"operation": operation})
+        return RepublicError(kind, message, details={"operation": operation})
 
     def responses(
         self,

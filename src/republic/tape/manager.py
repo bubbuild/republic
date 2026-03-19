@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from typing import Any, cast
 
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 from republic.tape.context import TapeContext, build_messages
 from republic.tape.entries import TapeEntry
 from republic.tape.query import TapeQuery
@@ -81,12 +81,12 @@ class TapeManager:
         tape: str,
         run_id: str,
         system_prompt: str | None,
-        context_error: ErrorPayload | None,
+        context_error: RepublicError | None,
         new_messages: list[dict[str, Any]],
         response_text: str | None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
-        error: ErrorPayload | None = None,
+        error: RepublicError | None = None,
         response: Any | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -207,12 +207,12 @@ class AsyncTapeManager:
         tape: str,
         run_id: str,
         system_prompt: str | None,
-        context_error: ErrorPayload | None,
+        context_error: RepublicError | None,
         new_messages: list[dict[str, Any]],
         response_text: str | None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
-        error: ErrorPayload | None = None,
+        error: RepublicError | None = None,
         response: Any | None = None,
         provider: str | None = None,
         model: str | None = None,

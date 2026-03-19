@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 
 class ErrorKind(StrEnum):
@@ -24,10 +25,16 @@ class RepublicError(Exception):
 
     kind: ErrorKind
     message: str
-    cause: Exception | None = None
+    details: dict[str, Any] | None = None
 
     def __str__(self) -> str:
         return f"[{self.kind.value}] {self.message}"
 
-    def with_cause(self, cause: Exception) -> RepublicError:
-        return replace(self, cause=cause)
+    def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "kind": self.kind.value,
+            "message": self.message,
+        }
+        if self.details:
+            payload["details"] = self.details
+        return payload

@@ -11,7 +11,7 @@ from datetime import date as date_type
 from typing import TYPE_CHECKING, NoReturn, Protocol, TypeGuard
 
 from republic.core.errors import ErrorKind
-from republic.core.results import ErrorPayload
+from republic.core.results import RepublicError
 from republic.tape.entries import TapeEntry
 
 if TYPE_CHECKING:
@@ -80,7 +80,7 @@ def _parse_datetime_boundary(value: str, *, is_end: bool) -> datetime:
         try:
             parsed_date = date_type.fromisoformat(value)
         except ValueError as exc:
-            raise ErrorPayload(ErrorKind.INVALID_INPUT, f"Invalid ISO date or datetime: '{value}'.") from exc
+            raise RepublicError(ErrorKind.INVALID_INPUT, f"Invalid ISO date or datetime: '{value}'.") from exc
         boundary_time = time.max if is_end else time.min
         parsed = datetime.combine(parsed_date, boundary_time, tzinfo=UTC)
     if parsed.tzinfo is None:
@@ -123,21 +123,21 @@ class InMemoryQueryMixin:
             start_name, end_name = query._between_anchors
             start_idx = _anchor_index(entries, start_name, default=-1, forward=False)
             if start_idx < 0:
-                raise ErrorPayload(ErrorKind.NOT_FOUND, f"Anchor '{start_name}' was not found.")
+                raise RepublicError(ErrorKind.NOT_FOUND, f"Anchor '{start_name}' was not found.")
             end_idx = _anchor_index(entries, end_name, default=-1, forward=True, start=start_idx + 1)
             if end_idx < 0:
-                raise ErrorPayload(ErrorKind.NOT_FOUND, f"Anchor '{end_name}' was not found.")
+                raise RepublicError(ErrorKind.NOT_FOUND, f"Anchor '{end_name}' was not found.")
             start_index = min(start_idx + 1, len(entries))
             end_index = min(max(start_index, end_idx), len(entries))
         elif query._after_last:
             anchor_index = _anchor_index(entries, None, default=-1, forward=False)
             if anchor_index < 0:
-                raise ErrorPayload(ErrorKind.NOT_FOUND, "No anchors found in tape.")
+                raise RepublicError(ErrorKind.NOT_FOUND, "No anchors found in tape.")
             start_index = min(anchor_index + 1, len(entries))
         elif query._after_anchor is not None:
             anchor_index = _anchor_index(entries, query._after_anchor, default=-1, forward=False)
             if anchor_index < 0:
-                raise ErrorPayload(ErrorKind.NOT_FOUND, f"Anchor '{query._after_anchor}' was not found.")
+                raise RepublicError(ErrorKind.NOT_FOUND, f"Anchor '{query._after_anchor}' was not found.")
             start_index = min(anchor_index + 1, len(entries))
 
         sliced = entries[start_index:end_index]
@@ -146,7 +146,7 @@ class InMemoryQueryMixin:
             start_dt = _parse_datetime_boundary(start_date, is_end=False)
             end_dt = _parse_datetime_boundary(end_date, is_end=True)
             if start_dt > end_dt:
-                raise ErrorPayload(ErrorKind.INVALID_INPUT, "Start date must be earlier than or equal to end date.")
+                raise RepublicError(ErrorKind.INVALID_INPUT, "Start date must be earlier than or equal to end date.")
             sliced = [entry for entry in sliced if _entry_in_datetime_range(entry, start_dt, end_dt)]
         if query._query:
             sliced = [entry for entry in sliced if _entry_matches_query(entry, query._query)]
@@ -210,7 +210,7 @@ class UnavailableTapeStore:
         self._message = message
 
     def _raise(self) -> NoReturn:
-        raise ErrorPayload(ErrorKind.INVALID_INPUT, self._message)
+        raise RepublicError(ErrorKind.INVALID_INPUT, self._message)
 
     def list_tapes(self) -> list[str]:
         self._raise()

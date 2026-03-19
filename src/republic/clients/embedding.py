@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from republic.core.execution import LLMCore
-from republic.core.results import ErrorPayload
 
 
 class EmbeddingClient:
@@ -33,9 +32,7 @@ class EmbeddingClient:
         try:
             response = client._embedding(model=model_id, inputs=inputs, **kwargs)
         except Exception as exc:
-            kind = self._core.classify_exception(exc)
-            error = self._core.wrap_error(exc, kind, provider_name, model_id)
-            raise ErrorPayload(error.kind, error.message) from exc
+            self._core.raise_wrapped(exc, provider_name, model_id)
         return response
 
     async def embed_async(
@@ -51,7 +48,5 @@ class EmbeddingClient:
         try:
             response = await client.aembedding(model=model_id, inputs=inputs, **kwargs)
         except Exception as exc:
-            kind = self._core.classify_exception(exc)
-            error = self._core.wrap_error(exc, kind, provider_name, model_id)
-            raise ErrorPayload(error.kind, error.message) from exc
+            self._core.raise_wrapped(exc, provider_name, model_id)
         return response

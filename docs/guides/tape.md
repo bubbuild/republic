@@ -83,6 +83,6 @@ print(first, second)
 
 When `tape_store` is an `AsyncTapeStore`:
 
-- Sync APIs with `tape=...` are unavailable (they raise `ErrorPayload`).
+- Sync APIs with `tape=...` are unavailable (they raise `RepublicError`).
 - Use async APIs instead: `chat_async`, `tool_calls_async`, `run_tools_async`, `stream_async`, and `stream_events_async`.
 - `llm.tape("...")` returns a session object that exposes both sync and async methods; in this mode, use the `*_async` methods.

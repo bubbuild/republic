@@ -25,14 +25,14 @@ out = llm.chat(messages=messages, max_tokens=48)
 ## Structured Error Handling
 
 ```python
-from republic import ErrorPayload, LLM
+from republic import RepublicError, LLM
 
 llm = LLM(model="openrouter:openrouter/free", api_key="<API_KEY>")
 
 try:
     out = llm.chat("Write one sentence.", max_tokens=32)
     print(out)
-except ErrorPayload as error:
+except RepublicError as error:
     if error.kind == "temporary":
         print("retry later")
     else:
