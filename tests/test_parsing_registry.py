@@ -6,7 +6,7 @@ from republic.clients.chat import ChatClient
 from republic.clients.parsing import parser_for_transport
 from republic.clients.parsing.types import BaseTransportParser
 
-from .fakes import make_responses_function_call, make_responses_response
+from .fakes import make_message_response, make_responses_function_call, make_responses_response
 
 
 def test_parser_for_transport_returns_parser_objects() -> None:
@@ -33,6 +33,15 @@ def test_responses_extract_tool_calls_accepts_full_response() -> None:
     response = make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')])
     responses_parser = parser_for_transport("responses")
     calls = responses_parser.extract_tool_calls(response)
+    assert calls[0]["function"]["name"] == "echo"
+
+
+def test_messages_extract_tool_calls_accepts_full_response() -> None:
+    response = make_message_response(
+        tool_calls=[SimpleNamespace(name="echo", arguments={"text": "tokyo"}, call_id="call_1")]
+    )
+    messages_parser = parser_for_transport("messages")
+    calls = messages_parser.extract_tool_calls(response)
     assert calls[0]["function"]["name"] == "echo"
 
 

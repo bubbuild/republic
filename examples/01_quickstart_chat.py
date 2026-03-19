@@ -23,11 +23,7 @@ def main() -> None:
 
     llm = LLM(model=model, api_key=api_key)
     out = llm.chat("Explain tape-first in one sentence.", max_tokens=48)
-
-    if out.error:
-        print("error:", out.error.kind, out.error.message)
-        return
-    print("text:", out.value)
+    print("text:", out)
 
 
 if __name__ == "__main__":

@@ -13,17 +13,19 @@ wheels = [
 
 [[package]]
 name = "any-llm-sdk"
-version = "1.7.0"
+version = "1.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "openai" },
+    { name = "openresponses-types" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/08/8a/4ec31cf0c0edd6204749a0939df823c797088319c4aae31c4919929a1e5c/any_llm_sdk-1.7.0.tar.gz", hash = "sha256:667f3a1ba5ef0478fd30cf961a62ebb74c2a47597a7ae2c8947ba983f2f97bc5", size = 122620, upload-time = "2026-01-16T09:25:27.724Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/d5/21ef27d031b72f0054ba0015a66cc1f10cda9410e4a3acb6e795d848ad0d/any_llm_sdk-1.12.1.tar.gz", hash = "sha256:76e043fcaa56fccfb375a908511869dc7dbf393dd97a82d06bb764d8201724e8", size = 152078, upload-time = "2026-03-18T13:13:01.735Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/7f/2f18e3f27da280724bfa1ab5576d28ae3489c480b305611f68bf80a3e177/any_llm_sdk-1.7.0-py3-none-any.whl", hash = "sha256:037b5c34fbabb67a38803e7589fb84cbd85ff0c4cc839d4c9352986fd7bdb4b0", size = 174078, upload-time = "2026-01-16T09:25:26.024Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/cf/b8bf1ca1831c18438e117e29da85a58aee3a6a4cb0499e2bd0c0218fccd2/any_llm_sdk-1.12.1-py3-none-any.whl", hash = "sha256:2461eb53995b482499f70d020069e9e22ae5a97c1f7a105d74c33cb620621b09", size = 213698, upload-time = "2026-03-18T13:12:59.896Z" },
 ]
 
 [[package]]
@@ -668,6 +670,18 @@ wheels = [
 ]
 
 [[package]]
+name = "openresponses-types"
+version = "2.3.0.post1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/26/b612c3215f5599714fa94d63eb5ee59b4eb66dbdeeaf86bb4d848359484d/openresponses_types-2.3.0.post1.tar.gz", hash = "sha256:11b8896d3621d2ac2439f6ff106f34ddcb1bbd517c317a6c852a9df2e98a0753", size = 19254, upload-time = "2026-01-22T20:02:03.933Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/5f/e16dad89ed24f586da5b01b9b206d3adbf21fe1af8e4dc55d5b93158fde6/openresponses_types-2.3.0.post1-py3-none-any.whl", hash = "sha256:88f6abcef9cad839203abff420dd080978bf6eb33cc06ddc5d78da4ccdba7613", size = 13847, upload-time = "2026-01-22T20:02:02.582Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1017,7 +1031,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "any-llm-sdk", specifier = ">=1.7.0" },
+    { name = "any-llm-sdk", specifier = ">=1.12.1" },
     { name = "authlib", specifier = ">=1.6.5" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.7.0" },
