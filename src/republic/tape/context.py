@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
@@ -17,6 +17,8 @@ class _LastAnchor:
 
 LAST_ANCHOR = _LastAnchor()
 AnchorSelector: TypeAlias = str | None | _LastAnchor
+SelectedMessages: TypeAlias = list[dict[str, Any]] | Coroutine[Any, Any, list[dict[str, Any]]]
+ContextSelector: TypeAlias = Callable[[Iterable[TapeEntry], "TapeContext"], SelectedMessages]
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,7 @@ class TapeContext:
     """
 
     anchor: AnchorSelector = LAST_ANCHOR
-    select: Callable[[Iterable[TapeEntry], TapeContext], list[dict[str, Any]]] | None = None
+    select: ContextSelector | None = None
     state: dict[str, Any] = field(default_factory=dict)
 
     def build_query(self, query: TapeQuery) -> TapeQuery:
@@ -40,7 +42,7 @@ class TapeContext:
         return query.after_anchor(self.anchor)
 
 
-def build_messages(entries: Iterable[TapeEntry], context: TapeContext) -> list[dict[str, Any]]:
+def build_messages(entries: Iterable[TapeEntry], context: TapeContext) -> SelectedMessages:
     if context.select is not None:
         return context.select(entries, context)
     return _default_messages(entries)

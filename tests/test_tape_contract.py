@@ -8,9 +8,9 @@ from republic.core.errors import ErrorKind
 from republic.core.results import ErrorPayload
 from republic.tape.context import LAST_ANCHOR, TapeContext
 from republic.tape.entries import TapeEntry
-from republic.tape.manager import TapeManager
+from republic.tape.manager import AsyncTapeManager, TapeManager
 from republic.tape.query import TapeQuery
-from republic.tape.store import InMemoryTapeStore
+from republic.tape.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 
 
 def _seed_entries() -> list[TapeEntry]:
@@ -41,6 +41,52 @@ def test_build_messages_reports_missing_anchor(manager) -> None:
     with pytest.raises(ErrorPayload) as exc_info:
         manager.read_messages("test_tape", context=TapeContext(anchor="missing"))
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
+
+
+class _AwaitableMessages:
+    def __init__(self, messages: list[dict[str, str]]) -> None:
+        self._messages = messages
+
+    def __await__(self):  # type: ignore[no-untyped-def]
+        async def _resolve() -> list[dict[str, str]]:
+            return self._messages
+
+        return _resolve().__await__()
+
+
+def test_sync_manager_rejects_async_context_selector(manager) -> None:
+    def select(entries, context):  # type: ignore[no-untyped-def]
+        return _AwaitableMessages([{"role": "assistant", "content": str(len(list(entries)))}])
+
+    context = TapeContext(anchor=LAST_ANCHOR, select=select)
+
+    with pytest.raises(ValueError, match="Use AsyncTapeManager for async support"):
+        manager.read_messages("test_tape", context=context)
+
+
+@pytest.mark.asyncio
+async def test_async_manager_awaits_context_selector_after_anchor_slice() -> None:
+    sync_store = InMemoryTapeStore()
+    for entry in _seed_entries():
+        sync_store.append("test_tape", entry)
+    manager = AsyncTapeManager(store=AsyncTapeStoreAdapter(sync_store))
+
+    seen: dict[str, object] = {}
+
+    async def select(entries, context):  # type: ignore[no-untyped-def]
+        entry_list = list(entries)
+        seen["contents"] = [entry.payload["content"] for entry in entry_list]
+        seen["state"] = dict(context.state)
+        return [{"role": "system", "content": f"{context.state['prefix']}:{entry_list[0].payload['content']}"}]
+
+    context = TapeContext(anchor=LAST_ANCHOR, select=select, state={"prefix": "summary"})
+    messages = await manager.read_messages("test_tape", context=context)
+
+    assert messages == [{"role": "system", "content": "summary:task 2"}]
+    assert seen == {
+        "contents": ["task 2"],
+        "state": {"prefix": "summary"},
+    }
 
 
 def test_query_between_anchors_and_limit() -> None:

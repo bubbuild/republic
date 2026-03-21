@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, cast
 
 from republic.core.results import ErrorPayload
@@ -44,7 +45,12 @@ class TapeManager:
         active_context = context or self._global_context
         query = self.query_tape(tape)
         query = active_context.build_query(query)
-        return build_messages(self._tape_store.fetch_all(query), active_context)
+        messages = build_messages(self._tape_store.fetch_all(query), active_context)
+        if inspect.isawaitable(messages):
+            raise ValueError(  # noqa: TRY003
+                "Context selector returned a coroutine, but TapeManager is sync. Use AsyncTapeManager for async support."
+            )
+        return messages
 
     def append_entry(self, tape: str, entry: TapeEntry) -> None:
         self._tape_store.append(tape, entry)
@@ -170,7 +176,10 @@ class AsyncTapeManager:
         query = self.query_tape(tape)
         query = active_context.build_query(query)
         entries = await self._tape_store.fetch_all(query)
-        return build_messages(entries, active_context)
+        messages = build_messages(entries, active_context)
+        if inspect.isawaitable(messages):
+            messages = await messages
+        return messages
 
     async def append_entry(self, tape: str, entry: TapeEntry) -> None:
         await self._tape_store.append(tape, entry)
