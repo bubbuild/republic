@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from typing import Any, NoReturn
@@ -57,13 +58,18 @@ class ToolExecutor:
 
         results: list[Any] = []
         error: ErrorPayload | None = None
-        for tool_response in tool_calls:
-            try:
-                result = await self._handle_tool_response_async(tool_response, tool_map, context)
-            except ErrorPayload as exc:
-                error = exc
-                result = exc.as_dict()
-            results.append(result)
+        gathered = await asyncio.gather(
+            *(self._handle_tool_response_async(tool_response, tool_map, context) for tool_response in tool_calls),
+            return_exceptions=True,
+        )
+        for resp in gathered:
+            if isinstance(resp, ErrorPayload):
+                error = resp
+                results.append(resp.as_dict())
+            elif isinstance(resp, BaseException):  # This should not happen, but we catch it just in case.
+                raise resp
+            else:
+                results.append(resp)
 
         return ToolExecution(tool_calls=tool_calls, tool_results=results, error=error)
 
