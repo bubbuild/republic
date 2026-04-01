@@ -28,21 +28,19 @@ def main() -> None:
         "The checkout API has 30% errors after deployment.",
         "Should we trigger rollback now?",
     )
-    print("if:", decision.value, decision.error)
+    print("if:", decision)
 
     label = llm.classify(
         "Need VAT invoice and payment receipt.",
         ["sales", "support", "finance"],
     )
-    print("classify:", label.value, label.error)
+    print("classify:", label)
 
     emb_out = llm.embed(
         ["checkout incident", "rollback decision"],
         model=embedding_model,
     )
-    print("embeddings error:", emb_out.error)
-    if emb_out.error is None:
-        print("embeddings value type:", type(emb_out.value).__name__)
+    print("embeddings value type:", type(emb_out).__name__)
 
 
 if __name__ == "__main__":

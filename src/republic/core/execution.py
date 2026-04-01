@@ -11,25 +11,11 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Literal, NoReturn
 
-from any_llm import AnyLLM
-from any_llm.exceptions import (
-    AnyLLMError,
-    AuthenticationError,
-    ContentFilterError,
-    ContextLengthExceededError,
-    InvalidRequestError,
-    MissingApiKeyError,
-    ModelNotFoundError,
-    ProviderError,
-    RateLimitError,
-    UnsupportedParameterError,
-    UnsupportedProviderError,
-)
-
-from republic.core import provider_policies
-from republic.core.client_registry import create_anyllm_client
+from republic.conversation import conversation_from_messages
 from republic.core.errors import ErrorKind, RepublicError
 from republic.core.request_adapters import normalize_responses_kwargs
+from republic.providers.runtime import default_provider_runtime
+from republic.providers.types import MESSAGES_TRANSPORTS, ChatRequest, ProviderBackend, ProviderContext
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +43,7 @@ class TransportResponse:
 
 @dataclass(frozen=True)
 class TransportCallRequest:
-    client: AnyLLM
+    backend: ProviderBackend
     provider_name: str
     model_id: str
     messages_payload: list[dict[str, Any]]
@@ -69,7 +55,7 @@ class TransportCallRequest:
 
 
 class LLMCore:
-    """Shared LLM execution utilities (provider resolution, retries, client cache)."""
+    """Shared LLM execution utilities (provider resolution, retries, backend cache)."""
 
     def __init__(
         self,
@@ -97,7 +83,8 @@ class LLMCore:
         self._api_format = api_format
         self._verbose = verbose
         self._error_classifier = error_classifier
-        self._client_cache: dict[str, Any] = {}
+        self._client_cache: dict[str, ProviderBackend] = {}
+        self._provider_runtime = default_provider_runtime()
 
     @property
     def provider(self) -> str:
@@ -161,20 +148,23 @@ class LLMCore:
 
     def iter_clients(self, override_model: str | None, override_provider: str | None):
         for provider_name, model_id in self.model_candidates(override_model, override_provider):
-            yield provider_name, model_id, self.get_client(provider_name)
+            yield provider_name, model_id, self.get_backend(provider_name)
 
     def _resolve_api_key(self, provider: str) -> str | None:
         if isinstance(self._api_key, dict):
-            key = self._api_key.get(provider)
-            if key is not None:
+            if (key := self._api_key.get(provider)) is not None:
                 return key
             if self._api_key_resolver is not None:
                 return self._api_key_resolver(provider)
+            if hook := self._provider_runtime.provider_for(provider):
+                return hook.resolve_api_key(provider)
             return None
         if self._api_key is not None:
             return self._api_key
         if self._api_key_resolver is not None:
             return self._api_key_resolver(provider)
+        if hook := self._provider_runtime.provider_for(provider):
+            return hook.resolve_api_key(provider)
         return None
 
     def _resolve_api_base(self, provider: str) -> str | None:
@@ -200,24 +190,28 @@ class LLMCore:
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
-    def get_client(self, provider: str) -> Any:
+    def get_backend(self, provider: str) -> ProviderBackend:
         api_key = self._resolve_api_key(provider)
         api_base = self._resolve_api_base(provider)
         cache_key = self._freeze_cache_key(provider, api_key, api_base)
         if cache_key not in self._client_cache:
-            client = create_anyllm_client(
-                provider=provider,
-                api_key=api_key,
-                api_base=api_base,
-                client_args=self._client_args,
+            hook = self._provider_runtime.provider_for(provider)
+            if hook is None:
+                raise RepublicError(ErrorKind.INVALID_INPUT, f"Unsupported provider: {provider}")
+            backend = hook.create_backend(
+                ProviderContext(
+                    provider=provider,
+                    api_key=api_key,
+                    api_base=api_base,
+                    client_args=dict(self._client_args),
+                )
             )
-            self._client_cache[cache_key] = client
+            self._client_cache[cache_key] = backend
         return self._client_cache[cache_key]
 
     def log_error(self, error: RepublicError, provider: str, model: str, attempt: int) -> None:
         if self._verbose == 0:
             return
-
         prefix = f"[{provider}:{model}] attempt {attempt + 1}/{self.max_attempts()}"
         logger.warning("%s failed: %s", prefix, error)
 
@@ -237,29 +231,35 @@ class LLMCore:
     def _text_matches(text: str, patterns: tuple[str, ...]) -> bool:
         return any(re.search(pattern, text) for pattern in patterns)
 
-    def _classify_anyllm_exception(self, exc: Exception) -> ErrorKind | None:
-        error_map = [
-            ((MissingApiKeyError, AuthenticationError), ErrorKind.CONFIG),
-            (
-                (
-                    UnsupportedProviderError,
-                    UnsupportedParameterError,
-                    InvalidRequestError,
-                    ModelNotFoundError,
-                    ContextLengthExceededError,
-                ),
-                ErrorKind.INVALID_INPUT,
-            ),
-            ((RateLimitError, ContentFilterError), ErrorKind.TEMPORARY),
-            ((ProviderError, AnyLLMError), ErrorKind.PROVIDER),
-        ]
-        for types, kind in error_map:
-            if isinstance(exc, types):
-                return kind
+    def _classify_provider_exception(self, provider: str, exc: Exception) -> ErrorKind | None:
+        hook = self._provider_runtime.provider_for(provider)
+        if hook is None:
+            return None
+        return hook.classify_error(exc)
+
+    @staticmethod
+    def _classify_known_exception_names(exc: Exception) -> ErrorKind | None:
+        error_name = type(exc).__name__
+        if error_name in {"AuthenticationError", "MissingApiKeyError", "PermissionDeniedError"}:
+            return ErrorKind.CONFIG
+        if error_name in {
+            "UnsupportedProviderError",
+            "UnsupportedParameterError",
+            "InvalidRequestError",
+            "ModelNotFoundError",
+            "ContextLengthExceededError",
+            "NotFoundError",
+            "BadRequestError",
+            "UnprocessableEntityError",
+        }:
+            return ErrorKind.INVALID_INPUT
+        if error_name in {"RateLimitError", "ConflictError"}:
+            return ErrorKind.TEMPORARY
+        if error_name in {"APIError", "ProviderError", "InternalServerError"}:
+            return ErrorKind.PROVIDER
         return None
 
     def _classify_by_http_status(self, exc: Exception) -> ErrorKind | None:
-        # SDK-native HTTP status handling (any-llm may pass these through unless unified mode is enabled).
         status = self._extract_status_code(exc)
         if status in {401, 403}:
             return ErrorKind.CONFIG
@@ -314,42 +314,63 @@ class LLMCore:
             return ErrorKind.PROVIDER
         return None
 
-    def classify_exception(self, exc: Exception) -> ErrorKind:
+    def classify_exception(self, exc: Exception, *, provider: str | None = None) -> ErrorKind:
         if isinstance(exc, RepublicError):
             return exc.kind
-        if self._error_classifier is not None:
-            try:
-                kind = self._error_classifier(exc)
-            except Exception as classifier_exc:
-                logger.warning("error_classifier failed: %r", classifier_exc)
-            else:
-                if isinstance(kind, ErrorKind):
-                    return kind
-        try:
-            from pydantic import ValidationError as PydanticValidationError
-
-            validation_error_type: type[Exception] | None = PydanticValidationError
-        except ImportError:
-            validation_error_type = None
-        if validation_error_type is not None and isinstance(exc, validation_error_type):
+        if (custom_kind := self._classify_with_custom_classifier(exc)) is not None:
+            return custom_kind
+        if self._is_pydantic_validation_error(exc):
             return ErrorKind.INVALID_INPUT
 
-        for classifier in (
-            self._classify_anyllm_exception,
-            self._classify_by_http_status,
-            self._classify_by_text_signature,
-        ):
+        for classifier in self._exception_classifiers(provider):
             mapped = classifier(exc)
             if mapped is not None:
                 return mapped
 
         return ErrorKind.UNKNOWN
 
+    def _classify_with_custom_classifier(self, exc: Exception) -> ErrorKind | None:
+        if self._error_classifier is None:
+            return None
+        try:
+            kind = self._error_classifier(exc)
+        except Exception as classifier_exc:
+            logger.warning("error_classifier failed: %r", classifier_exc)
+            return None
+        if isinstance(kind, ErrorKind):
+            return kind
+        return None
+
+    @staticmethod
+    def _pydantic_validation_error_type() -> type[Exception] | None:
+        try:
+            from pydantic import ValidationError as PydanticValidationError
+        except ImportError:
+            return None
+        return PydanticValidationError
+
+    def _is_pydantic_validation_error(self, exc: Exception) -> bool:
+        validation_error_type = self._pydantic_validation_error_type()
+        return validation_error_type is not None and isinstance(exc, validation_error_type)
+
+    def _exception_classifiers(
+        self,
+        provider: str | None,
+    ) -> list[Callable[[Exception], ErrorKind | None]]:
+        classifiers: list[Callable[[Exception], ErrorKind | None]] = [
+            self._classify_known_exception_names,
+            self._classify_by_http_status,
+            self._classify_by_text_signature,
+        ]
+        if provider is None:
+            return classifiers
+        return [lambda error: self._classify_provider_exception(provider, error), *classifiers]
+
     def should_retry(self, kind: ErrorKind) -> bool:
         return kind in {ErrorKind.TEMPORARY, ErrorKind.PROVIDER}
 
     def wrap_error(self, exc: Exception, provider: str, model: str) -> RepublicError:
-        kind = self.classify_exception(exc)
+        kind = self.classify_exception(exc, provider=provider)
         message = f"{provider}:{model}: {exc}"
         return RepublicError(kind, message)
 
@@ -365,11 +386,14 @@ class LLMCore:
             return AttemptOutcome(error=wrapped, decision=AttemptDecision.RETRY_SAME_MODEL)
         return AttemptOutcome(error=wrapped, decision=AttemptDecision.TRY_NEXT_MODEL)
 
-    def _decide_kwargs_for_provider(
-        self, provider: str, max_tokens: int | None, kwargs: dict[str, Any]
+    def _decide_kwargs_for_backend(
+        self,
+        backend: ProviderBackend,
+        max_tokens: int | None,
+        kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         clean_kwargs = dict(kwargs)
-        max_tokens_arg = provider_policies.completion_max_tokens_arg(provider)
+        max_tokens_arg = backend.capabilities.completion_max_tokens_arg
         if max_tokens_arg in clean_kwargs:
             return clean_kwargs
         return {**clean_kwargs, max_tokens_arg: max_tokens}
@@ -383,26 +407,21 @@ class LLMCore:
     ) -> dict[str, Any]:
         clean_kwargs = dict(kwargs)
         if drop_extra_headers:
-            # any-llm responses params currently reject extra_headers, so drop it on the wrapped path only.
             clean_kwargs.pop("extra_headers", None)
         clean_kwargs = normalize_responses_kwargs(clean_kwargs)
         if "max_output_tokens" in clean_kwargs or max_tokens is None:
             return clean_kwargs
         return {**clean_kwargs, "max_output_tokens": max_tokens}
 
-    @staticmethod
-    def _should_default_completion_stream_usage(provider_name: str) -> bool:
-        return provider_policies.should_include_completion_stream_usage(provider_name)
-
     def _with_default_completion_stream_options(
         self,
-        provider_name: str,
+        backend: ProviderBackend,
         stream: bool,
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         if not stream:
             return kwargs
-        if not self._should_default_completion_stream_usage(provider_name):
+        if not backend.capabilities.default_completion_stream_usage:
             return kwargs
         if "stream_options" in kwargs:
             return kwargs
@@ -443,138 +462,63 @@ class LLMCore:
 
     def _selected_transport(
         self,
-        client: AnyLLM,
+        backend: ProviderBackend,
         *,
         provider_name: str,
         model_id: str,
-        tools_payload: list[dict[str, Any]] | None,
     ) -> Literal["completion", "responses", "messages"]:
-        forced_transport = getattr(client, "PREFERRED_TRANSPORT", None)
-        if forced_transport in {"completion", "responses", "messages"}:
-            return forced_transport
-        if self._api_format == "completion":
-            return "completion"
-        if self._api_format == "messages":
-            if not provider_policies.supports_messages_format(
-                provider_name=provider_name,
-                model_id=model_id,
-            ):
-                raise RepublicError(
-                    ErrorKind.INVALID_INPUT,
-                    f"{provider_name}:{model_id}: messages format is only valid for Anthropic models",
-                )
+        capabilities = backend.capabilities
+        if capabilities.preferred_transport is not None:
+            return capabilities.preferred_transport
+        if self._api_format in capabilities.transports:
+            return self._api_format
+        if self._api_format == "completion" and capabilities.transports == MESSAGES_TRANSPORTS:
             return "messages"
-
-        reason = provider_policies.responses_rejection_reason(
-            provider_name=provider_name,
-            model_id=model_id,
-            has_tools=bool(tools_payload),
-            supports_responses=bool(getattr(client, "SUPPORTS_RESPONSES", False)),
+        available = ", ".join(sorted(capabilities.transports))
+        raise RepublicError(
+            ErrorKind.INVALID_INPUT,
+            f"{provider_name}:{model_id}: requested transport '{self._api_format}' is not supported; "
+            f"available transports: {available}",
         )
-        if reason is not None:
-            raise RepublicError(ErrorKind.INVALID_INPUT, f"{provider_name}:{model_id}: {reason}")
-        return "responses"
 
-    def _call_responses_sync(
+    def _build_chat_request(
         self,
         request: TransportCallRequest,
-    ) -> Any:
-        instructions, input_items = self._split_messages_for_responses(request.messages_payload)
-        responses_kwargs = self._with_responses_reasoning(request.kwargs, request.reasoning_effort)
-        return TransportResponse(
-            transport="responses",
-            payload=request.client.responses(
-                model=request.model_id,
-                input_data=input_items,
-                tools=self._convert_tools_for_responses(request.tools_payload),
-                stream=request.stream,
-                instructions=instructions,
-                **self._decide_responses_kwargs(
-                    request.max_tokens,
-                    responses_kwargs,
-                    drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
-                ),
-            ),
-        )
-
-    def _call_completion_like_sync(
-        self,
         *,
-        transport: Literal["completion", "messages"],
-        request: TransportCallRequest,
-    ) -> Any:
-        completion_kwargs = self._decide_kwargs_for_provider(request.provider_name, request.max_tokens, request.kwargs)
-        completion_kwargs = self._with_default_completion_stream_options(
-            request.provider_name,
-            request.stream,
-            completion_kwargs,
-        )
-        return TransportResponse(
+        transport: Literal["completion", "responses", "messages"],
+    ) -> ChatRequest:
+        conversation = conversation_from_messages(request.messages_payload)
+        if transport == "responses":
+            request_kwargs = self._with_responses_reasoning(request.kwargs, request.reasoning_effort)
+            request_kwargs = self._decide_responses_kwargs(
+                request.max_tokens,
+                request_kwargs,
+                drop_extra_headers=not request.backend.capabilities.preserves_responses_extra_headers,
+            )
+            tools = self._convert_tools_for_responses(request.tools_payload)
+        else:
+            request_kwargs = self._decide_kwargs_for_backend(request.backend, request.max_tokens, request.kwargs)
+            request_kwargs = self._with_default_completion_stream_options(
+                request.backend,
+                request.stream,
+                request_kwargs,
+            )
+            tools = request.tools_payload
+
+        return ChatRequest(
             transport=transport,
-            payload=request.client.completion(
-                model=request.model_id,
-                messages=request.messages_payload,
-                tools=request.tools_payload,
-                stream=request.stream,
-                reasoning_effort=request.reasoning_effort,
-                **completion_kwargs,
-            ),
-        )
-
-    async def _call_responses_async(
-        self,
-        request: TransportCallRequest,
-    ) -> Any:
-        instructions, input_items = self._split_messages_for_responses(request.messages_payload)
-        responses_kwargs = self._with_responses_reasoning(request.kwargs, request.reasoning_effort)
-        return TransportResponse(
-            transport="responses",
-            payload=await request.client.aresponses(
-                model=request.model_id,
-                input_data=input_items,
-                tools=self._convert_tools_for_responses(request.tools_payload),
-                stream=request.stream,
-                instructions=instructions,
-                **self._decide_responses_kwargs(
-                    request.max_tokens,
-                    responses_kwargs,
-                    drop_extra_headers=not self._preserves_responses_extra_headers(request.client),
-                ),
-            ),
-        )
-
-    @staticmethod
-    def _preserves_responses_extra_headers(client: Any) -> bool:
-        return bool(getattr(client, "PRESERVE_EXTRA_HEADERS_IN_RESPONSES", False))
-
-    async def _call_completion_like_async(
-        self,
-        *,
-        transport: Literal["completion", "messages"],
-        request: TransportCallRequest,
-    ) -> Any:
-        completion_kwargs = self._decide_kwargs_for_provider(request.provider_name, request.max_tokens, request.kwargs)
-        completion_kwargs = self._with_default_completion_stream_options(
-            request.provider_name,
-            request.stream,
-            completion_kwargs,
-        )
-        return TransportResponse(
-            transport=transport,
-            payload=await request.client.acompletion(
-                model=request.model_id,
-                messages=request.messages_payload,
-                tools=request.tools_payload,
-                stream=request.stream,
-                reasoning_effort=request.reasoning_effort,
-                **completion_kwargs,
-            ),
+            model=request.model_id,
+            conversation=conversation,
+            stream=request.stream,
+            reasoning_effort=request.reasoning_effort,
+            kwargs=request_kwargs,
+            tools=tools,
         )
 
     def _call_client_sync(
         self,
         *,
-        client: AnyLLM,
+        client: ProviderBackend,
         provider_name: str,
         model_id: str,
         messages_payload: list[dict[str, Any]],
@@ -585,7 +529,7 @@ class LLMCore:
         kwargs: dict[str, Any],
     ) -> Any:
         request = TransportCallRequest(
-            client=client,
+            backend=client,
             provider_name=provider_name,
             model_id=model_id,
             messages_payload=messages_payload,
@@ -599,16 +543,15 @@ class LLMCore:
             client,
             provider_name=provider_name,
             model_id=model_id,
-            tools_payload=tools_payload,
         )
-        if transport == "responses":
-            return self._call_responses_sync(request)
-        return self._call_completion_like_sync(transport=transport, request=request)
+        chat_request = self._build_chat_request(request, transport=transport)
+        client.validate_chat_request(chat_request)
+        return client.chat(chat_request)
 
     async def _call_client_async(
         self,
         *,
-        client: AnyLLM,
+        client: ProviderBackend,
         provider_name: str,
         model_id: str,
         messages_payload: list[dict[str, Any]],
@@ -619,7 +562,7 @@ class LLMCore:
         kwargs: dict[str, Any],
     ) -> Any:
         request = TransportCallRequest(
-            client=client,
+            backend=client,
             provider_name=provider_name,
             model_id=model_id,
             messages_payload=messages_payload,
@@ -633,66 +576,10 @@ class LLMCore:
             client,
             provider_name=provider_name,
             model_id=model_id,
-            tools_payload=tools_payload,
         )
-        if transport == "responses":
-            return await self._call_responses_async(request)
-        return await self._call_completion_like_async(transport=transport, request=request)
-
-    @staticmethod
-    def _split_messages_for_responses(
-        messages: list[dict[str, Any]],
-    ) -> tuple[str | None, list[dict[str, Any]]]:
-        instructions_parts: list[str] = []
-        filtered_messages: list[dict[str, Any]] = []
-        for message in messages:
-            role = message.get("role")
-            if role in {"system", "developer"}:
-                content = message.get("content")
-                if content not in (None, ""):
-                    instructions_parts.append(str(content))
-                continue
-            filtered_messages.append(message)
-
-        instructions = "\n\n".join(part for part in instructions_parts if part.strip())
-        if not instructions:
-            instructions = None
-        return instructions, LLMCore._convert_messages_to_responses_input(filtered_messages)
-
-    @staticmethod
-    def _convert_messages_to_responses_input(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        input_items: list[dict[str, Any]] = []
-        for message in messages:
-            role = message.get("role")
-            content = message.get("content")
-            if role in {"user", "assistant"} and content not in (None, ""):
-                input_items.append({"role": role, "content": content, "type": "message"})
-
-            if role == "assistant":
-                tool_calls = message.get("tool_calls") or []
-                for index, tool_call in enumerate(tool_calls):
-                    func = tool_call.get("function") or {}
-                    name = func.get("name")
-                    if not name:
-                        continue
-                    call_id = tool_call.get("id") or tool_call.get("call_id") or f"call_{index}"
-                    input_items.append({
-                        "type": "function_call",
-                        "name": name,
-                        "arguments": func.get("arguments", ""),
-                        "call_id": call_id,
-                    })
-
-            if role == "tool":
-                call_id = message.get("tool_call_id") or message.get("call_id")
-                if not call_id:
-                    continue
-                input_items.append({
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": message.get("content", ""),
-                })
-        return input_items
+        chat_request = self._build_chat_request(request, transport=transport)
+        client.validate_chat_request(chat_request)
+        return await client.achat(chat_request)
 
     def run_chat_sync(
         self,

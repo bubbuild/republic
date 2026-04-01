@@ -3,9 +3,27 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 TransportKind = Literal["completion", "responses", "messages"]
+
+
+@dataclass(frozen=True)
+class ParsedResponse:
+    text: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    usage: dict[str, Any] | None = None
+    metadata_only: bool = False
+
+
+@dataclass(frozen=True)
+class ParsedChunk:
+    text_delta: str = ""
+    tool_call_deltas: list[Any] = field(default_factory=list)
+    usage: dict[str, Any] | None = None
+    response_completed: bool = False
+    output_item_type: str | None = None
 
 
 class BaseTransportParser(ABC):
@@ -14,21 +32,9 @@ class BaseTransportParser(ABC):
         """Return True if the response is a non-streaming response, False otherwise."""
 
     @abstractmethod
-    def extract_chunk_tool_call_deltas(self, chunk: Any) -> list[Any]:
-        """Extract tool call deltas from a response chunk, if present."""
+    def parse_chunk(self, chunk: Any) -> ParsedChunk:
+        """Parse one streaming chunk into typed data."""
 
     @abstractmethod
-    def extract_chunk_text(self, chunk: Any) -> str:
-        """Extract text from a response chunk."""
-
-    @abstractmethod
-    def extract_text(self, response: Any) -> str:
-        """Extract text from a response."""
-
-    @abstractmethod
-    def extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
-        """Extract tool calls from a response, if present."""
-
-    @abstractmethod
-    def extract_usage(self, response: Any) -> dict[str, Any] | None:
-        """Extract usage information from a response, if present."""
+    def parse_response(self, response: Any) -> ParsedResponse:
+        """Parse one full response into typed data."""

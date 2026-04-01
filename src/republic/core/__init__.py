@@ -17,7 +17,6 @@ __all__ = [
     "AsyncTextStream",
     "ErrorKind",
     "RepublicError",
-    "RepublicError",
     "StreamEvent",
     "StreamEvents",
     "StreamState",

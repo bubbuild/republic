@@ -37,7 +37,7 @@ from republic.tools.schema import ToolInput
 
 
 class LLM:
-    """Developer-first LLM client powered by any-llm."""
+    """Developer-first LLM client powered by builtin provider hooks."""
 
     def __init__(
         self,

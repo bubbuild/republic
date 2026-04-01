@@ -12,8 +12,8 @@ from republic.tape.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from .fakes import make_chunk, make_response, make_tool_call
 
 
-def test_chat_retries_and_returns_text(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_chat_retries_and_returns_text(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(RuntimeError("temporary failure"), make_response(text="ready"))
 
     llm = LLM(
@@ -36,8 +36,10 @@ def test_chat_retries_and_returns_text(fake_anyllm) -> None:
         (3, 4),
     ],
 )
-def test_chat_retry_budget_is_one_plus_max_retries(fake_anyllm, max_retries: int, expected_calls: int) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_chat_retry_budget_is_one_plus_max_retries(
+    fake_provider_factory, max_retries: int, expected_calls: int
+) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(*(RuntimeError("temporary failure") for _ in range(expected_calls)))
 
     llm = LLM(
@@ -53,9 +55,9 @@ def test_chat_retry_budget_is_one_plus_max_retries(fake_anyllm, max_retries: int
     assert len(client.calls) == expected_calls
 
 
-def test_chat_uses_fallback_model(fake_anyllm) -> None:
-    primary = fake_anyllm.ensure("openai")
-    fallback = fake_anyllm.ensure("anthropic")
+def test_chat_uses_fallback_model(fake_provider_factory) -> None:
+    primary = fake_provider_factory.ensure("openai")
+    fallback = fake_provider_factory.ensure("anthropic")
 
     primary.queue_completion(RuntimeError("primary down"))
     fallback.queue_completion(make_response(text="fallback ok"))
@@ -74,14 +76,14 @@ def test_chat_uses_fallback_model(fake_anyllm) -> None:
     assert len(fallback.calls) == 1
 
 
-def test_chat_fallbacks_on_auth_error(fake_anyllm) -> None:
+def test_chat_fallbacks_on_auth_error(fake_provider_factory) -> None:
     class FakeAuthError(Exception):
         def __init__(self, message: str) -> None:
             super().__init__(message)
             self.status_code = 401
 
-    primary = fake_anyllm.ensure("openai")
-    fallback = fake_anyllm.ensure("openrouter")
+    primary = fake_provider_factory.ensure("openai")
+    fallback = fake_provider_factory.ensure("openrouter")
 
     primary.queue_completion(FakeAuthError("invalid api key"))
     fallback.queue_completion(make_response(text="fallback ok"))
@@ -99,14 +101,14 @@ def test_chat_fallbacks_on_auth_error(fake_anyllm) -> None:
     assert len(fallback.calls) == 1
 
 
-def test_chat_fallbacks_on_rate_limit_like_error(fake_anyllm) -> None:
+def test_chat_fallbacks_on_rate_limit_like_error(fake_provider_factory) -> None:
     class FakeRateLimitError(Exception):
         def __init__(self, message: str) -> None:
             super().__init__(message)
             self.status_code = 429
 
-    primary = fake_anyllm.ensure("openai")
-    fallback = fake_anyllm.ensure("openrouter")
+    primary = fake_provider_factory.ensure("openai")
+    fallback = fake_provider_factory.ensure("openrouter")
 
     primary.queue_completion(FakeRateLimitError("too many requests"))
     fallback.queue_completion(make_response(text="fallback ok"))
@@ -124,8 +126,8 @@ def test_chat_fallbacks_on_rate_limit_like_error(fake_anyllm) -> None:
     assert len(fallback.calls) == 1
 
 
-def test_tape_requires_anchor_then_records_full_run(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_tape_requires_anchor_then_records_full_run(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(text="step one"), make_response(text="step two"))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -157,8 +159,8 @@ def test_tape_requires_anchor_then_records_full_run(fake_anyllm) -> None:
     assert run_event.payload["data"]["status"] == "ok"
 
 
-def test_tape_chat_shortcuts_bind_current_tape(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_tape_chat_shortcuts_bind_current_tape(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(text="step one"), make_response(text="step two"))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -184,8 +186,8 @@ async def async_echo(text: str) -> str:
     return text.upper()
 
 
-def test_stream_events_carries_text_tools_usage_and_final(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_stream_events_carries_text_tools_usage_and_final(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         iter([
             make_chunk(text="Checking "),
@@ -214,8 +216,8 @@ def test_stream_events_carries_text_tools_usage_and_final(fake_anyllm) -> None:
     assert stream.usage == {"total_tokens": 12}
 
 
-def test_stream_events_merges_tool_deltas_without_id_or_index(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_stream_events_merges_tool_deltas_without_id_or_index(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         iter([
             make_chunk(tool_calls=[make_tool_call("echo", '{"text":"to', call_id="call_1")]),
@@ -248,8 +250,8 @@ def test_stream_events_merges_tool_deltas_without_id_or_index(fake_anyllm) -> No
 
 
 @pytest.mark.asyncio
-async def test_run_tools_async_executes_async_tool_handler(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+async def test_run_tools_async_executes_async_tool_handler(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(tool_calls=[make_tool_call("async_echo", '{"text":"tokyo"}')]))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -261,8 +263,8 @@ async def test_run_tools_async_executes_async_tool_handler(fake_anyllm) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_async_with_async_tape_store_uses_async_tape_manager(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+async def test_chat_async_with_async_tape_store_uses_async_tape_manager(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(text="step one"), make_response(text="step two"))
 
     llm = LLM(
@@ -282,8 +284,8 @@ async def test_chat_async_with_async_tape_store_uses_async_tape_manager(fake_any
 
 
 @pytest.mark.asyncio
-async def test_stream_async_with_async_tape_store_persists_history(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+async def test_stream_async_with_async_tape_store_persists_history(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         make_response(text="step one"),
         make_response(text="step two"),
@@ -307,8 +309,8 @@ async def test_stream_async_with_async_tape_store_persists_history(fake_anyllm) 
 
 
 @pytest.mark.asyncio
-async def test_tool_calls_async_with_async_tape_store_keeps_user_history(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+async def test_tool_calls_async_with_async_tape_store_keeps_user_history(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]),
         make_response(tool_calls=[make_tool_call("echo", '{"text":"osaka"}')]),
@@ -330,7 +332,7 @@ async def test_tool_calls_async_with_async_tape_store_keeps_user_history(fake_an
     assert [message["role"] for message in second_messages] == ["user", "user"]
 
 
-def test_sync_chat_with_async_tape_store_is_rejected(fake_anyllm) -> None:
+def test_sync_chat_with_async_tape_store_is_rejected(fake_provider_factory) -> None:
     llm = LLM(
         model="openai:gpt-4o-mini",
         api_key="dummy",
@@ -345,8 +347,8 @@ def test_sync_chat_with_async_tape_store_is_rejected(fake_anyllm) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_events_async_executes_async_tool_handler(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+async def test_stream_events_async_executes_async_tool_handler(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(tool_calls=[make_tool_call("async_echo", '{"text":"tokyo"}')]))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -359,8 +361,8 @@ async def test_stream_events_async_executes_async_tool_handler(fake_anyllm) -> N
     assert stream.error is None
 
 
-def test_text_shortcuts_and_embeddings_share_the_same_facade(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_text_shortcuts_and_embeddings_share_the_same_facade(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         make_response(tool_calls=[make_tool_call("if_decision", '{"value": true}')]),
         make_response(tool_calls=[make_tool_call("classify_decision", '{"label": "support"}')]),

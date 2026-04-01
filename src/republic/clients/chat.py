@@ -11,6 +11,7 @@ from typing import Any
 from republic.clients.parsing import BaseTransportParser, TransportKind, parser_for_transport
 from republic.clients.parsing.common import expand_tool_calls
 from republic.clients.parsing.common import field as _field
+from republic.clients.parsing.types import ParsedChunk, ParsedResponse
 from republic.core.errors import ErrorKind, RepublicError
 from republic.core.execution import LLMCore, TransportResponse
 from republic.core.results import (
@@ -29,7 +30,6 @@ from republic.tools.executor import ToolExecutor
 from republic.tools.schema import ToolInput, ToolSet, normalize_tools
 
 MessageInput = dict[str, Any]
-RESPONSES_METADATA_ONLY_ITEM_TYPES = frozenset({"reasoning", "compaction"})
 
 
 @dataclass(frozen=True)
@@ -255,6 +255,24 @@ class ChatClient:
         return payload, parser
 
     @staticmethod
+    def _parse_response(
+        response: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> ParsedResponse:
+        payload, parser = ChatClient._unwrap_response_with_parser(response, transport=transport)
+        return parser.parse_response(payload)
+
+    @staticmethod
+    def _parse_chunk(
+        chunk: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> ParsedChunk:
+        parser = ChatClient._parser_for_payload(chunk, transport=transport)
+        return parser.parse_chunk(chunk)
+
+    @staticmethod
     def _is_completed_responses_metadata_only(
         response: Any,
         *,
@@ -264,18 +282,7 @@ class ChatClient:
         effective_transport = ChatClient._resolve_transport(payload, transport or detected_transport)
         if effective_transport != "responses":
             return False
-        if _field(payload, "status") != "completed":
-            return False
-        if _field(payload, "incomplete_details") is not None:
-            return False
-
-        output = _field(payload, "output")
-        if not isinstance(output, list) or not output:
-            return False
-        return all(
-            isinstance(item_type := _field(item, "type"), str) and item_type in RESPONSES_METADATA_ONLY_ITEM_TYPES
-            for item in output
-        )
+        return ChatClient._parse_response(payload, transport=effective_transport).metadata_only
 
     @staticmethod
     def _is_non_stream_response(
@@ -287,20 +294,6 @@ class ChatClient:
         return parser.is_non_stream_response(response)
 
     @staticmethod
-    def _responses_output_item_type(
-        chunk: Any,
-        *,
-        transport: TransportKind | None = None,
-    ) -> str | None:
-        effective_transport = ChatClient._resolve_transport(chunk, transport)
-        if effective_transport != "responses":
-            return None
-        if _field(chunk, "type") not in {"response.output_item.added", "response.output_item.done"}:
-            return None
-        item_type = _field(_field(chunk, "item"), "type")
-        return item_type if isinstance(item_type, str) else None
-
-    @staticmethod
     def _is_completed_responses_stream_metadata_only(
         *,
         completed: bool,
@@ -308,7 +301,7 @@ class ChatClient:
     ) -> bool:
         if not completed or not output_item_types:
             return False
-        return output_item_types.issubset(RESPONSES_METADATA_ONLY_ITEM_TYPES)
+        return output_item_types.issubset({"reasoning", "compaction"})
 
     def _validate_chat_input(
         self,
@@ -992,7 +985,8 @@ class ChatClient:
         attempt: int,
     ) -> str:
         payload, transport = self._unwrap_response(response)
-        text = self._extract_text(payload, transport=transport)
+        parsed = self._parse_response(payload, transport=transport)
+        text = parsed.text
         if text:
             self._update_tape(
                 prepared,
@@ -1002,7 +996,7 @@ class ChatClient:
                 model=model_id,
             )
             return text
-        if self._is_completed_responses_metadata_only(payload, transport=transport):
+        if parsed.metadata_only:
             self._update_tape(
                 prepared,
                 None,
@@ -1022,7 +1016,8 @@ class ChatClient:
         attempt: int,
     ) -> str:
         payload, transport = self._unwrap_response(response)
-        text = self._extract_text(payload, transport=transport)
+        parsed = self._parse_response(payload, transport=transport)
+        text = parsed.text
         if text:
             await self._update_tape_async(
                 prepared,
@@ -1032,7 +1027,7 @@ class ChatClient:
                 model=model_id,
             )
             return text
-        if self._is_completed_responses_metadata_only(payload, transport=transport):
+        if parsed.metadata_only:
             await self._update_tape_async(
                 prepared,
                 None,
@@ -1052,7 +1047,7 @@ class ChatClient:
         attempt: int,
     ) -> list[dict[str, Any]]:
         payload, transport = self._unwrap_response(response)
-        calls = self._extract_tool_calls(payload, transport=transport)
+        calls = self._parse_response(payload, transport=transport).tool_calls
         self._update_tape(
             prepared,
             None,
@@ -1073,7 +1068,7 @@ class ChatClient:
         attempt: int,
     ) -> list[dict[str, Any]]:
         payload, transport = self._unwrap_response(response)
-        calls = self._extract_tool_calls(payload, transport=transport)
+        calls = self._parse_response(payload, transport=transport).tool_calls
         await self._update_tape_async(
             prepared,
             None,
@@ -1094,7 +1089,8 @@ class ChatClient:
         attempt: int,
     ) -> ToolAutoResult:
         payload, transport = self._unwrap_response(response)
-        tool_calls = self._extract_tool_calls(payload, transport=transport)
+        parsed = self._parse_response(payload, transport=transport)
+        tool_calls = parsed.tool_calls
         if tool_calls:
             execution = self._tool_executor.execute(
                 tool_calls,
@@ -1112,7 +1108,7 @@ class ChatClient:
             )
             return ToolAutoResult.tools_result(execution.tool_calls, execution.tool_results)
 
-        text = self._extract_text(payload, transport=transport)
+        text = parsed.text
         if text:
             self._update_tape(
                 prepared,
@@ -1122,7 +1118,7 @@ class ChatClient:
                 model=model_id,
             )
             return ToolAutoResult.text_result(text)
-        if self._is_completed_responses_metadata_only(payload, transport=transport):
+        if parsed.metadata_only:
             self._update_tape(
                 prepared,
                 None,
@@ -1143,7 +1139,8 @@ class ChatClient:
         attempt: int,
     ) -> ToolAutoResult:
         payload, transport = self._unwrap_response(response)
-        tool_calls = self._extract_tool_calls(payload, transport=transport)
+        parsed = self._parse_response(payload, transport=transport)
+        tool_calls = parsed.tool_calls
         if tool_calls:
             execution = await self._tool_executor.execute_async(
                 tool_calls,
@@ -1161,7 +1158,7 @@ class ChatClient:
             )
             return ToolAutoResult.tools_result(execution.tool_calls, execution.tool_results)
 
-        text = self._extract_text(payload, transport=transport)
+        text = parsed.text
         if text:
             await self._update_tape_async(
                 prepared,
@@ -1171,7 +1168,7 @@ class ChatClient:
                 model=model_id,
             )
             return ToolAutoResult.text_result(text)
-        if self._is_completed_responses_metadata_only(payload, transport=transport):
+        if parsed.metadata_only:
             await self._update_tape_async(
                 prepared,
                 None,
@@ -1561,8 +1558,9 @@ class ChatClient:
     ) -> TextStream:
         payload, transport = self._unwrap_response(response)
         if self._is_non_stream_response(payload, transport=transport):
-            text = self._extract_text(payload, transport=transport)
-            tool_calls = self._extract_tool_calls(payload, transport=transport)
+            parsed = self._parse_response(payload, transport=transport)
+            text = parsed.text
+            tool_calls = parsed.tool_calls
             state = StreamState()
             self._finalize_text_stream(
                 prepared,
@@ -1572,7 +1570,7 @@ class ChatClient:
                 provider_name=provider_name,
                 model_id=model_id,
                 attempt=attempt,
-                usage=self._extract_usage(payload, transport=transport),
+                usage=parsed.usage,
                 response=payload,
                 log_empty=False,
             )
@@ -1590,18 +1588,16 @@ class ChatClient:
             nonlocal usage, response_completed
             try:
                 for chunk in payload:
-                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
-                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
-                    if output_item_type is not None:
-                        output_item_types.add(output_item_type)
-                    deltas = self._extract_chunk_tool_call_deltas(chunk, transport=transport)
-                    if deltas:
-                        assembler.add_deltas(deltas)
-                    text = self._extract_chunk_text(chunk, transport=transport)
-                    if text:
-                        parts.append(text)
-                        yield text
-                    usage = self._extract_usage(chunk, transport=transport) or usage
+                    parsed_chunk = self._parse_chunk(chunk, transport=transport)
+                    response_completed = response_completed or parsed_chunk.response_completed
+                    if parsed_chunk.output_item_type is not None:
+                        output_item_types.add(parsed_chunk.output_item_type)
+                    if parsed_chunk.tool_call_deltas:
+                        assembler.add_deltas(parsed_chunk.tool_call_deltas)
+                    if parsed_chunk.text_delta:
+                        parts.append(parsed_chunk.text_delta)
+                        yield parsed_chunk.text_delta
+                    usage = parsed_chunk.usage or usage
             except Exception as exc:
                 state.error = self._core.wrap_error(exc, provider_name, model_id)
             finally:
@@ -1634,8 +1630,9 @@ class ChatClient:
     ) -> AsyncTextStream:
         payload, transport = self._unwrap_response(response)
         if self._is_non_stream_response(payload, transport=transport):
-            text = self._extract_text(payload, transport=transport)
-            tool_calls = self._extract_tool_calls(payload, transport=transport)
+            parsed = self._parse_response(payload, transport=transport)
+            text = parsed.text
+            tool_calls = parsed.tool_calls
             state = StreamState()
             await self._finalize_text_stream_async(
                 prepared,
@@ -1645,7 +1642,7 @@ class ChatClient:
                 provider_name=provider_name,
                 model_id=model_id,
                 attempt=attempt,
-                usage=self._extract_usage(payload, transport=transport),
+                usage=parsed.usage,
                 response=payload,
                 log_empty=False,
             )
@@ -1667,18 +1664,16 @@ class ChatClient:
             nonlocal usage, response_completed
             try:
                 async for chunk in payload:
-                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
-                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
-                    if output_item_type is not None:
-                        output_item_types.add(output_item_type)
-                    deltas = self._extract_chunk_tool_call_deltas(chunk, transport=transport)
-                    if deltas:
-                        assembler.add_deltas(deltas)
-                    text = self._extract_chunk_text(chunk, transport=transport)
-                    if text:
-                        parts.append(text)
-                        yield text
-                    usage = self._extract_usage(chunk, transport=transport) or usage
+                    parsed_chunk = self._parse_chunk(chunk, transport=transport)
+                    response_completed = response_completed or parsed_chunk.response_completed
+                    if parsed_chunk.output_item_type is not None:
+                        output_item_types.add(parsed_chunk.output_item_type)
+                    if parsed_chunk.tool_call_deltas:
+                        assembler.add_deltas(parsed_chunk.tool_call_deltas)
+                    if parsed_chunk.text_delta:
+                        parts.append(parsed_chunk.text_delta)
+                        yield parsed_chunk.text_delta
+                    usage = parsed_chunk.usage or usage
             except Exception as exc:
                 state.error = self._core.wrap_error(exc, provider_name, model_id)
             finally:
@@ -1700,24 +1695,6 @@ class ChatClient:
                 )
 
         return AsyncTextStream(_iterator(), state=state)
-
-    @staticmethod
-    def _extract_chunk_tool_call_deltas(
-        chunk: Any,
-        *,
-        transport: TransportKind | None = None,
-    ) -> list[Any]:
-        parser = ChatClient._parser_for_payload(chunk, transport=transport)
-        return parser.extract_chunk_tool_call_deltas(chunk)
-
-    @staticmethod
-    def _extract_chunk_text(
-        chunk: Any,
-        *,
-        transport: TransportKind | None = None,
-    ) -> str:
-        parser = ChatClient._parser_for_payload(chunk, transport=transport)
-        return parser.extract_chunk_text(chunk)
 
     def _build_event_stream(
         self,
@@ -1750,16 +1727,15 @@ class ChatClient:
             nonlocal usage, tool_calls, tool_results, response_completed
             try:
                 for chunk in payload:
-                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
-                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
-                    if output_item_type is not None:
-                        output_item_types.add(output_item_type)
-                    usage = self._extract_usage(chunk, transport=transport) or usage
-                    assembler.add_deltas(self._extract_chunk_tool_call_deltas(chunk, transport=transport))
-                    text = self._extract_chunk_text(chunk, transport=transport)
-                    if text:
-                        parts.append(text)
-                        yield StreamEvent("text", {"delta": text})
+                    parsed_chunk = self._parse_chunk(chunk, transport=transport)
+                    response_completed = response_completed or parsed_chunk.response_completed
+                    if parsed_chunk.output_item_type is not None:
+                        output_item_types.add(parsed_chunk.output_item_type)
+                    usage = parsed_chunk.usage or usage
+                    assembler.add_deltas(parsed_chunk.tool_call_deltas)
+                    if parsed_chunk.text_delta:
+                        parts.append(parsed_chunk.text_delta)
+                        yield StreamEvent("text", {"delta": parsed_chunk.text_delta})
 
                 tool_calls = assembler.finalize()
                 events, tool_results = self._finalize_event_stream(
@@ -1833,16 +1809,15 @@ class ChatClient:
             nonlocal usage, tool_calls, tool_results, response_completed
             try:
                 async for chunk in payload:
-                    response_completed = response_completed or _field(chunk, "type") == "response.completed"
-                    output_item_type = self._responses_output_item_type(chunk, transport=transport)
-                    if output_item_type is not None:
-                        output_item_types.add(output_item_type)
-                    usage = self._extract_usage(chunk, transport=transport) or usage
-                    assembler.add_deltas(self._extract_chunk_tool_call_deltas(chunk, transport=transport))
-                    text = self._extract_chunk_text(chunk, transport=transport)
-                    if text:
-                        parts.append(text)
-                        yield StreamEvent("text", {"delta": text})
+                    parsed_chunk = self._parse_chunk(chunk, transport=transport)
+                    response_completed = response_completed or parsed_chunk.response_completed
+                    if parsed_chunk.output_item_type is not None:
+                        output_item_types.add(parsed_chunk.output_item_type)
+                    usage = parsed_chunk.usage or usage
+                    assembler.add_deltas(parsed_chunk.tool_call_deltas)
+                    if parsed_chunk.text_delta:
+                        parts.append(parsed_chunk.text_delta)
+                        yield StreamEvent("text", {"delta": parsed_chunk.text_delta})
 
                 tool_calls = assembler.finalize()
                 events, tool_results = await self._finalize_event_stream_async(
@@ -1896,21 +1871,17 @@ class ChatClient:
         *,
         transport: TransportKind | None = None,
     ) -> StreamEvents:
-        text = self._extract_text(response, transport=transport)
-        tool_calls = self._extract_tool_calls(response, transport=transport)
-        usage = self._extract_usage(response, transport=transport)
+        parsed = self._parse_response(response, transport=transport)
+        text = parsed.text
+        tool_calls = parsed.tool_calls
+        usage = parsed.usage
         state = StreamState(usage=usage)
         tool_results: list[Any] = []
         try:
             tool_results = self._execute_tool_calls(prepared, tool_calls, provider_name, model_id)
         except RepublicError as exc:
             state.error = exc
-        if (
-            not text
-            and not tool_calls
-            and state.error is None
-            and not self._is_completed_responses_metadata_only(response, transport=transport)
-        ):
+        if not text and not tool_calls and state.error is None and not parsed.metadata_only:
             empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
             self._core.log_error(empty, provider_name, model_id, 0)
             state.error = RepublicError(empty.kind, empty.message)
@@ -1959,9 +1930,10 @@ class ChatClient:
         *,
         transport: TransportKind | None = None,
     ) -> AsyncStreamEvents:
-        text = self._extract_text(response, transport=transport)
-        tool_calls = self._extract_tool_calls(response, transport=transport)
-        usage = self._extract_usage(response, transport=transport)
+        parsed = self._parse_response(response, transport=transport)
+        text = parsed.text
+        tool_calls = parsed.tool_calls
+        usage = parsed.usage
         state = StreamState(usage=usage)
         tool_results: list[Any] = []
 
@@ -1971,12 +1943,7 @@ class ChatClient:
                 tool_results = await self._execute_tool_calls_async(prepared, tool_calls, provider_name, model_id)
             except RepublicError as exc:
                 state.error = exc
-            if (
-                not text
-                and not tool_calls
-                and state.error is None
-                and not self._is_completed_responses_metadata_only(response, transport=transport)
-            ):
+            if not text and not tool_calls and state.error is None and not parsed.metadata_only:
                 empty = RepublicError(ErrorKind.TEMPORARY, f"{provider_name}:{model_id}: empty response")
                 self._core.log_error(empty, provider_name, model_id, 0)
                 state.error = RepublicError(empty.kind, empty.message)
@@ -2060,30 +2027,3 @@ class ChatClient:
             meta={"provider": provider_name, "model": model_id},
             state={} if prepared.context is None else prepared.context.state,
         )
-
-    @staticmethod
-    def _extract_text(
-        response: Any,
-        *,
-        transport: TransportKind | None = None,
-    ) -> str:
-        payload, parser = ChatClient._unwrap_response_with_parser(response, transport=transport)
-        return parser.extract_text(payload)
-
-    @staticmethod
-    def _extract_tool_calls(
-        response: Any,
-        *,
-        transport: TransportKind | None = None,
-    ) -> list[dict[str, Any]]:
-        payload, parser = ChatClient._unwrap_response_with_parser(response, transport=transport)
-        return parser.extract_tool_calls(payload)
-
-    @staticmethod
-    def _extract_usage(
-        response: Any,
-        *,
-        transport: TransportKind | None = None,
-    ) -> dict[str, Any] | None:
-        payload, parser = ChatClient._unwrap_response_with_parser(response, transport=transport)
-        return parser.extract_usage(payload)

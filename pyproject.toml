@@ -10,7 +10,6 @@ readme = "README.md"
 keywords = [
     "ai",
     "agents",
-    "any-llm",
     "context",
     "llm",
     "openai",
@@ -22,9 +21,11 @@ keywords = [
 ]
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "any-llm-sdk>=1.7.0",
+    "anthropic",
     "authlib>=1.6.5",
     "httpx>=0.28.1",
+    "openai",
+    "pluggy>=1.5.0",
     "pydantic>=2.7.0",
 ]
 classifiers = [

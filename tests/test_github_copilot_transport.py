@@ -4,12 +4,16 @@ from collections import deque
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
-from any_llm.types.completion import ChatCompletion, ChatCompletionChunk
 
-import republic.clients.github_copilot as github_copilot_client
 from republic import LLM, tool
+from republic.conversation import conversation_from_messages
 from republic.core.results import RepublicError
+from republic.providers import github_copilot as github_copilot_provider_module
+from republic.providers.codecs import conversation_to_completion_messages
+from republic.providers.github_copilot import GitHubCopilotBackend
+from republic.providers.types import ChatRequest, ProviderContext
 
 _TEST_GITHUB_TOKEN = "gho_token"  # noqa: S105
 
@@ -25,7 +29,7 @@ def _make_completion_response(
     tool_calls: list[dict[str, Any]] | None = None,
     usage: dict[str, Any] | None = None,
 ) -> Any:
-    return ChatCompletion.model_validate({
+    return {
         "id": "chatcmpl-1",
         "object": "chat.completion",
         "created": 1,
@@ -42,7 +46,7 @@ def _make_completion_response(
             }
         ],
         "usage": _normalize_usage(usage),
-    })
+    }
 
 
 def _make_completion_chunk(
@@ -51,7 +55,7 @@ def _make_completion_chunk(
     tool_calls: list[Any] | None = None,
     usage: dict[str, Any] | None = None,
 ) -> Any:
-    return ChatCompletionChunk.model_validate({
+    return {
         "id": "chatcmpl-1",
         "object": "chat.completion.chunk",
         "created": 1,
@@ -67,7 +71,7 @@ def _make_completion_chunk(
             }
         ],
         "usage": _normalize_usage(usage),
-    })
+    }
 
 
 def _normalize_usage(usage: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -97,6 +101,12 @@ def _async_items(*items: Any):
     return _AsyncIterator(tuple(items))
 
 
+def _async_iter_to_sync_iter(async_iter):
+    from .fakes import FakeProviderBackend
+
+    return FakeProviderBackend._async_iter_to_sync_iter(async_iter)
+
+
 def _normalize_tool_calls(tool_calls: list[Any] | None) -> list[Any]:
     normalized: list[Any] = []
     for tool_call in tool_calls or []:
@@ -116,18 +126,6 @@ def _normalize_tool_calls(tool_calls: list[Any] | None) -> list[Any]:
     return normalized
 
 
-class _AsyncChatCompletionsApi:
-    def __init__(self, queue: deque[Any], completion_calls: list[dict[str, Any]]) -> None:
-        self._queue = queue
-        self.completion_calls = completion_calls
-
-    async def create(self, **kwargs: Any) -> Any:
-        self.completion_calls.append(dict(kwargs))
-        if not self._queue:
-            raise _NoQueuedGitHubResponseError
-        return self._queue.popleft()
-
-
 def _build_copilot_llm(
     monkeypatch,
     *queued_responses: Any,
@@ -139,31 +137,62 @@ def _build_copilot_llm(
     completion_calls: list[dict[str, Any]] = []
     queue = deque(queued_responses)
 
-    def _init_client(self, api_key: str | None = None, api_base: str | None = None, **kwargs: Any) -> None:
+    def _record_context(self) -> None:
+        if init_calls:
+            return
+        headers = dict(self._headers())
+        headers.pop("Authorization", None)
         init_calls.append({
-            "api_key": api_key,
-            "api_base": api_base,
-            **dict(kwargs),
+            "api_key": self._context.api_key,
+            "api_base": github_copilot_provider_module.resolve_github_copilot_api_base(self._context.api_base),
+            "default_headers": headers,
         })
-        self.client = SimpleNamespace(
-            chat=SimpleNamespace(
-                completions=_AsyncChatCompletionsApi(queue, completion_calls),
-            )
-        )
 
-    original_convert = github_copilot_client.GitHubCopilotProvider._convert_completion_response_async
+    def _post_chat(self, request):
+        _record_context(self)
+        completion_calls.append({
+            "model": request.model,
+            "messages": conversation_to_completion_messages(request.conversation),
+            "tools": request.tools,
+            "stream": request.stream,
+            **dict(request.kwargs),
+        })
+        if not queue:
+            raise _NoQueuedGitHubResponseError
+        return queue.popleft()
 
-    def _convert_completion_response_async(self, response: Any):
-        if hasattr(response, "__aiter__"):
-            return response
-        return original_convert(self, response)
+    def _stream_chat(self, request):
+        _record_context(self)
+        completion_calls.append({
+            "model": request.model,
+            "messages": conversation_to_completion_messages(request.conversation),
+            "tools": request.tools,
+            "stream": request.stream,
+            **dict(request.kwargs),
+        })
+        if not queue:
+            raise _NoQueuedGitHubResponseError
+        item = queue.popleft()
+        if hasattr(item, "__aiter__"):
+            return _async_iter_to_sync_iter(item)
+        return item
 
-    monkeypatch.setattr(github_copilot_client.GitHubCopilotProvider, "_init_client", _init_client)
-    monkeypatch.setattr(
-        github_copilot_client.GitHubCopilotProvider,
-        "_convert_completion_response_async",
-        _convert_completion_response_async,
-    )
+    async def _astream_chat(self, request):
+        _record_context(self)
+        completion_calls.append({
+            "model": request.model,
+            "messages": conversation_to_completion_messages(request.conversation),
+            "tools": request.tools,
+            "stream": request.stream,
+            **dict(request.kwargs),
+        })
+        if not queue:
+            raise _NoQueuedGitHubResponseError
+        return queue.popleft()
+
+    monkeypatch.setattr(github_copilot_provider_module.GitHubCopilotBackend, "_post_chat", _post_chat)
+    monkeypatch.setattr(github_copilot_provider_module.GitHubCopilotBackend, "_stream_chat", _stream_chat)
+    monkeypatch.setattr(github_copilot_provider_module.GitHubCopilotBackend, "_astream_chat", _astream_chat)
     llm = LLM(
         model=model,
         api_key_resolver=lambda provider: _TEST_GITHUB_TOKEN if provider == "github-copilot" else None,
@@ -362,28 +391,60 @@ def test_github_copilot_stream_events_carries_tools_usage_and_final(monkeypatch)
 
 
 def test_github_copilot_responses_format_is_rejected(monkeypatch) -> None:
-    init_calls: list[dict[str, Any]] = []
-
-    def _init_client(self, api_key: str | None = None, api_base: str | None = None, **kwargs: Any) -> None:
-        init_calls.append({
-            "api_key": api_key,
-            "api_base": api_base,
-            **dict(kwargs),
-        })
-        self.client = SimpleNamespace(
-            chat=SimpleNamespace(
-                completions=_AsyncChatCompletionsApi(deque([_make_completion_response(text="ignored")]), []),
-            )
-        )
-
-    monkeypatch.setattr(github_copilot_client.GitHubCopilotProvider, "_init_client", _init_client)
     llm = LLM(
         model="github-copilot:gpt-4.1",
         api_key="gho_token",
         api_format="responses",
     )
 
-    with pytest.raises(RepublicError, match="responses format is not supported"):
+    with pytest.raises(RepublicError, match="requested transport 'responses' is not supported"):
         llm.chat("Say hello")
 
-    assert init_calls[0]["api_key"] == "gho_token"
+
+def test_github_copilot_reuses_httpx_client_and_preserves_client_args(monkeypatch) -> None:
+    created_clients: list[dict[str, Any]] = []
+
+    class _DummyResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return _make_completion_response(text="hello")
+
+    class _DummyClient:
+        def __init__(self, **kwargs: Any) -> None:
+            created_clients.append(dict(kwargs))
+
+        def post(self, *args: Any, **kwargs: Any) -> _DummyResponse:
+            return _DummyResponse()
+
+    monkeypatch.setattr(httpx, "Client", _DummyClient)
+
+    backend = GitHubCopilotBackend(
+        ProviderContext(
+            provider="github-copilot",
+            api_key=_TEST_GITHUB_TOKEN,
+            api_base=None,
+            client_args={
+                "timeout": 7,
+                "verify": False,
+                "limits": "custom",
+                "default_headers": {"X-Test": "1"},
+            },
+        )
+    )
+    request = ChatRequest(
+        transport="completion",
+        model="gpt-4.1",
+        conversation=conversation_from_messages([{"role": "user", "content": "hi"}]),
+        stream=False,
+        reasoning_effort=None,
+        kwargs={},
+    )
+
+    first = backend.chat(request)
+    second = backend.chat(request)
+
+    assert first.payload["choices"][0]["message"]["content"] == "hello"
+    assert second.payload["choices"][0]["message"]["content"] == "hello"
+    assert created_clients == [{"timeout": 7, "verify": False, "limits": "custom"}]

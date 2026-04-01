@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from republic.core.errors import ErrorKind
 from republic.core.execution import LLMCore
+from republic.core.results import RepublicError
+from republic.providers.types import EmbedRequest
 
 
 class EmbeddingClient:
@@ -28,10 +31,12 @@ class EmbeddingClient:
         **kwargs: Any,
     ) -> Any:
         provider_name, model_id = self._resolve_provider_model(model, provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
-            response = client._embedding(model=model_id, inputs=inputs, **kwargs)
+            response = client.embed(EmbedRequest(model=model_id, inputs=inputs, kwargs=dict(kwargs)))
         except Exception as exc:
+            if isinstance(exc, NotImplementedError):
+                raise RepublicError(ErrorKind.INVALID_INPUT, f"{provider_name}:{model_id}: {exc}") from exc
             self._core.raise_wrapped(exc, provider_name, model_id)
         return response
 
@@ -44,9 +49,11 @@ class EmbeddingClient:
         **kwargs: Any,
     ) -> Any:
         provider_name, model_id = self._resolve_provider_model(model, provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
-            response = await client.aembedding(model=model_id, inputs=inputs, **kwargs)
+            response = await client.aembed(EmbedRequest(model=model_id, inputs=inputs, kwargs=dict(kwargs)))
         except Exception as exc:
+            if isinstance(exc, NotImplementedError):
+                raise RepublicError(ErrorKind.INVALID_INPUT, f"{provider_name}:{model_id}: {exc}") from exc
             self._core.raise_wrapped(exc, provider_name, model_id)
         return response

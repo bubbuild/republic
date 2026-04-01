@@ -118,17 +118,27 @@ def parse_args() -> argparse.Namespace:
 
 def _run_mock(model: str) -> None:
     import republic.auth.github_copilot as auth_module
-    import republic.core.execution as execution_module
+    import republic.providers.github_copilot as github_provider_module
 
     original_http_client = auth_module.httpx.Client
-    original_anyllm_create = execution_module.AnyLLM.create
+    original_post_chat = github_provider_module.GitHubCopilotBackend._post_chat
 
-    def _create_mock_client(provider: str, **kwargs: Any) -> FakeGitHubModelsClient:
-        del provider, kwargs
-        return FakeGitHubModelsClient()
+    def _post_chat(self, request):
+        del self, request
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": "mock-ok",
+                        "tool_calls": [],
+                    }
+                }
+            ],
+            "usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+        }
 
     auth_module.httpx.Client = FakeHTTPClient
-    execution_module.AnyLLM.create = _create_mock_client
+    github_provider_module.GitHubCopilotBackend._post_chat = _post_chat
 
     try:
         with tempfile.TemporaryDirectory(prefix="republic-copilot-smoke-") as temp_dir:
@@ -151,7 +161,7 @@ def _run_mock(model: str) -> None:
             print("mock chat:", text)
     finally:
         auth_module.httpx.Client = original_http_client
-        execution_module.AnyLLM.create = original_anyllm_create
+        github_provider_module.GitHubCopilotBackend._post_chat = original_post_chat
 
 
 def _run_live(model: str, prompt: str) -> None:

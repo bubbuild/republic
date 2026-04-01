@@ -6,12 +6,13 @@ from collections import deque
 from types import SimpleNamespace
 from typing import Any
 
-import republic.clients.openai_codex as codex_client
-import republic.core.execution as execution
 from republic import LLM, tool
 from republic.auth.openai_codex import extract_openai_codex_account_id
+from republic.providers import openai as openai_provider_module
 
 from .fakes import (
+    install_fake_provider_runtime,
+    make_response,
     make_responses_completed,
     make_responses_function_done,
     make_responses_text_delta,
@@ -26,48 +27,21 @@ class _NoQueuedCodexResponseError(AssertionError):
         super().__init__("No queued Codex response")
 
 
-class _UnexpectedCodexCompletionTransportError(AssertionError):
-    def __init__(self) -> None:
-        super().__init__("Codex path should not use completion transport")
-
-
-class _UnexpectedCodexResponsesWrapperError(AssertionError):
-    def __init__(self) -> None:
-        super().__init__("Codex path should bypass any-llm responses wrapper")
-
-
-class _AsyncResponsesApi:
+class _ResponsesApi:
     def __init__(self, queue: deque[Any], calls: list[dict[str, Any]]) -> None:
         self._queue = queue
         self.calls = calls
 
-    async def create(self, **kwargs: Any) -> Any:
+    def create(self, **kwargs: Any) -> Any:
         self.calls.append(dict(kwargs))
         if not self._queue:
             raise _NoQueuedCodexResponseError
         item = self._queue.popleft()
         if isinstance(item, Exception):
             raise item
+        if hasattr(item, "__aiter__"):
+            return _async_iter_to_sync_iter(item)
         return item
-
-
-class _CodexAnyLLMClient:
-    SUPPORTS_RESPONSES = True
-
-    def __init__(self, queue: deque[Any], calls: list[dict[str, Any]]) -> None:
-        self.client = SimpleNamespace(responses=_AsyncResponsesApi(queue, calls))
-
-    def completion(self, **_: Any) -> Any:
-        raise _UnexpectedCodexCompletionTransportError
-
-    async def acompletion(self, **_: Any) -> Any:
-        raise _UnexpectedCodexCompletionTransportError
-
-    def responses(self, **_: Any) -> Any:
-        raise _UnexpectedCodexResponsesWrapperError
-
-    async def aresponses(self, **_: Any) -> Any:
-        raise _UnexpectedCodexResponsesWrapperError
 
 
 def _async_items(*items: Any):
@@ -86,6 +60,12 @@ def _async_items(*items: Any):
     return _AsyncIterator(tuple(items))
 
 
+def _async_iter_to_sync_iter(async_iter):
+    from .fakes import FakeProviderBackend
+
+    return FakeProviderBackend._async_iter_to_sync_iter(async_iter)
+
+
 def _build_codex_llm(
     monkeypatch,
     *queued_responses: Any,
@@ -95,15 +75,17 @@ def _build_codex_llm(
     api_calls: list[dict[str, Any]] = []
     queue = deque(queued_responses)
 
-    def _init_client(self, api_key: str | None = None, api_base: str | None = None, **kwargs: Any) -> None:
-        init_calls.append({
-            "api_key": api_key,
-            "api_base": api_base,
-            **dict(kwargs),
-        })
-        self.client = SimpleNamespace(responses=_AsyncResponsesApi(queue, api_calls))
+    def _sync(self):
+        if getattr(self, "_sync_client", None) is None:
+            init_calls.append({
+                "api_key": self._context.api_key,
+                "api_base": openai_provider_module.resolve_openai_codex_api_base(self._context.api_base),
+                "default_headers": self._default_headers(),
+            })
+            self._sync_client = SimpleNamespace(responses=_ResponsesApi(queue, api_calls))
+        return self._sync_client
 
-    monkeypatch.setattr(codex_client.OpenAICodexProvider, "_init_client", _init_client)
+    monkeypatch.setattr(openai_provider_module.OpenAICodexBackend, "_sync", _sync)
     llm = LLM(
         model=model,
         api_key_resolver=lambda provider: TOKEN if provider == "openai" else None,
@@ -237,24 +219,10 @@ def test_openai_oauth_stream_yields_text_and_usage(monkeypatch) -> None:
     }
 
 
-def test_regular_openai_key_still_uses_anyllm(monkeypatch) -> None:
+def test_regular_openai_key_still_uses_builtin_openai_backend(monkeypatch) -> None:
     created: list[tuple[str, dict[str, object]]] = []
-
-    class StubClient:
-        def completion(self, **kwargs: Any) -> Any:
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=[]))],
-                usage=None,
-            )
-
-        async def acompletion(self, **kwargs: Any) -> Any:
-            return self.completion(**kwargs)
-
-    def _create(provider: str, **kwargs: object) -> StubClient:
-        created.append((provider, dict(kwargs)))
-        return StubClient()
-
-    monkeypatch.setattr(execution.AnyLLM, "create", _create)
+    factory = install_fake_provider_runtime(monkeypatch, created)
+    factory.ensure("openai").queue_completion(make_response(text="ok"))
 
     llm = LLM(
         model="openai:gpt-4o-mini",

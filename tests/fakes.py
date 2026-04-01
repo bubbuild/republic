@@ -8,7 +8,20 @@ from collections.abc import AsyncIterator, Iterator
 from types import SimpleNamespace
 from typing import Any
 
-from any_llm.types.responses import Response
+from republic.core.errors import ErrorKind
+from republic.core.execution import TransportResponse
+from republic.core.results import RepublicError
+from republic.providers.codecs import conversation_to_completion_messages, conversation_to_openai_responses_input
+from republic.providers.types import (
+    ANTHROPIC_COMPAT_TRANSPORTS,
+    COMPLETION_TRANSPORTS,
+    OPENAI_TRANSPORTS,
+    OPENROUTER_TRANSPORTS,
+    ProviderBackend,
+    ProviderCapabilities,
+    ProviderContext,
+    ProviderHook,
+)
 
 
 class FakeQueueEmptyError(AssertionError):
@@ -16,11 +29,10 @@ class FakeQueueEmptyError(AssertionError):
         super().__init__(f"No queued {kind} value for provider={provider}")
 
 
-class FakeAnyLLMClient:
-    SUPPORTS_RESPONSES = True
-
+class FakeProviderBackend(ProviderBackend):
     def __init__(self, provider: str) -> None:
         self.provider = provider
+        self.capabilities = _capabilities_for_provider(provider)
         self.calls: list[dict[str, Any]] = []
         self.completion_queue: deque[Any] = deque()
         self.acompletion_queue: deque[Any] = deque()
@@ -47,36 +59,92 @@ class FakeAnyLLMClient:
     def queue_aembedding(self, *items: Any) -> None:
         self.aembedding_queue.extend(items)
 
-    def _next(self, queue: deque[Any], kind: str) -> Any:
-        if not queue:
+    def _next(self, items: deque[Any], kind: str) -> Any:
+        if not items:
             raise FakeQueueEmptyError(self.provider, kind)
-        item = queue.popleft()
+        item = items.popleft()
         if isinstance(item, Exception):
             raise item
         return item
 
-    def completion(self, **kwargs: Any) -> Any:
-        self.calls.append(dict(kwargs))
-        return self._next(self.completion_queue, "completion")
+    def chat(self, request) -> TransportResponse:
+        if request.transport == "responses":
+            instructions, input_items = conversation_to_openai_responses_input(request.conversation)
+            call = {
+                "responses": True,
+                "model": request.model,
+                "input_data": input_items,
+                "instructions": instructions,
+                "tools": request.tools,
+                "stream": request.stream,
+                **dict(request.kwargs),
+            }
+            self.calls.append(call)
+            if request.stream and not self.responses_queue and self.aresponses_queue:
+                response = self._next(self.aresponses_queue, "aresponses")
+                if hasattr(response, "__aiter__"):
+                    response = self._async_iter_to_sync_iter(response)
+            else:
+                response = self._next(self.responses_queue, "responses")
+            return TransportResponse(transport="responses", payload=response)
 
-    async def acompletion(self, **kwargs: Any) -> Any:
-        self.calls.append(dict(kwargs))
-        queue = self.acompletion_queue if self.acompletion_queue else self.completion_queue
-        return self._next(queue, "acompletion")
+        messages = conversation_to_completion_messages(request.conversation)
+        call = {
+            "model": request.model,
+            "messages": messages,
+            "tools": request.tools,
+            "stream": request.stream,
+            "reasoning_effort": request.reasoning_effort,
+            **dict(request.kwargs),
+        }
+        self.calls.append(call)
+        response = self._next(self.completion_queue, "completion")
+        return TransportResponse(transport=request.transport, payload=response)
 
-    def responses(self, **kwargs: Any) -> Any:
-        self.calls.append({"responses": True, **dict(kwargs)})
-        if kwargs.get("stream") and not self.responses_queue and self.aresponses_queue:
-            response = self._next(self.aresponses_queue, "aresponses")
-            if isinstance(response, Response):
-                return response
-            return self._async_iter_to_sync_iter(response)
-        return self._next(self.responses_queue, "responses")
+    async def achat(self, request) -> TransportResponse:
+        if request.transport == "responses":
+            instructions, input_items = conversation_to_openai_responses_input(request.conversation)
+            call = {
+                "responses": True,
+                "model": request.model,
+                "input_data": input_items,
+                "instructions": instructions,
+                "tools": request.tools,
+                "stream": request.stream,
+                **dict(request.kwargs),
+            }
+            self.calls.append(call)
+            queue_items = self.aresponses_queue if self.aresponses_queue else self.responses_queue
+            response = self._next(queue_items, "aresponses")
+            return TransportResponse(transport="responses", payload=response)
 
-    async def aresponses(self, **kwargs: Any) -> Any:
-        self.calls.append({"responses": True, **dict(kwargs)})
-        queue = self.aresponses_queue if self.aresponses_queue else self.responses_queue
-        return self._next(queue, "aresponses")
+        messages = conversation_to_completion_messages(request.conversation)
+        call = {
+            "model": request.model,
+            "messages": messages,
+            "tools": request.tools,
+            "stream": request.stream,
+            "reasoning_effort": request.reasoning_effort,
+            **dict(request.kwargs),
+        }
+        self.calls.append(call)
+        queue_items = self.acompletion_queue if self.acompletion_queue else self.completion_queue
+        response = self._next(queue_items, "acompletion")
+        return TransportResponse(transport=request.transport, payload=response)
+
+    def validate_chat_request(self, request) -> None:
+        normalized_provider = self.provider.strip().lower()
+        normalized_model = request.model.strip().lower()
+        if (
+            request.transport == "responses"
+            and normalized_provider == "openrouter"
+            and normalized_model.startswith("anthropic/")
+            and request.tools
+        ):
+            raise RepublicError(
+                ErrorKind.INVALID_INPUT,
+                f"{self.provider}:{request.model}: responses format is not supported for this model when tools are enabled",
+            )
 
     @staticmethod
     def _async_iter_to_sync_iter(async_iter: AsyncIterator[Any]) -> Iterator[Any]:
@@ -108,27 +176,127 @@ class FakeAnyLLMClient:
         finally:
             thread.join()
 
-    def _embedding(self, **kwargs: Any) -> Any:
-        self.calls.append({"embedding": True, **dict(kwargs)})
+    def embed(self, request) -> Any:
+        self.calls.append({"embedding": True, "model": request.model, "inputs": request.inputs, **dict(request.kwargs)})
         return self._next(self.embedding_queue, "embedding")
 
-    async def aembedding(self, **kwargs: Any) -> Any:
-        self.calls.append({"aembedding": True, **dict(kwargs)})
-        queue = self.aembedding_queue if self.aembedding_queue else self.embedding_queue
-        return self._next(queue, "aembedding")
+    async def aembed(self, request) -> Any:
+        self.calls.append({
+            "aembedding": True,
+            "model": request.model,
+            "inputs": request.inputs,
+            **dict(request.kwargs),
+        })
+        queue_items = self.aembedding_queue if self.aembedding_queue else self.embedding_queue
+        return self._next(queue_items, "aembedding")
+
+    def responses(self, request) -> Any:
+        self.calls.append({
+            "responses": True,
+            "model": request.model,
+            "input_data": request.input_data,
+            **dict(request.kwargs),
+        })
+        return self._next(self.responses_queue, "responses")
+
+    async def aresponses(self, request) -> Any:
+        self.calls.append({
+            "responses": True,
+            "model": request.model,
+            "input_data": request.input_data,
+            **dict(request.kwargs),
+        })
+        queue_items = self.aresponses_queue if self.aresponses_queue else self.responses_queue
+        return self._next(queue_items, "aresponses")
 
 
-class FakeAnyLLMFactory:
+class FakeProviderFactory:
     def __init__(self) -> None:
-        self.clients: dict[str, FakeAnyLLMClient] = {}
+        self.clients: dict[str, FakeProviderBackend] = {}
 
-    def ensure(self, provider: str) -> FakeAnyLLMClient:
+    def ensure(self, provider: str) -> FakeProviderBackend:
         if provider not in self.clients:
-            self.clients[provider] = FakeAnyLLMClient(provider)
+            self.clients[provider] = FakeProviderBackend(provider)
         return self.clients[provider]
 
-    def create(self, provider: str, **_: Any) -> FakeAnyLLMClient:
+    def create(self, provider: str, **_: Any) -> FakeProviderBackend:
         return self.ensure(provider)
+
+
+def _capabilities_for_provider(provider: str) -> ProviderCapabilities:
+    normalized = provider.strip().lower()
+    if normalized == "openai":
+        return ProviderCapabilities(
+            transports=OPENAI_TRANSPORTS,
+            supports_embeddings=True,
+            preserves_responses_extra_headers=True,
+            default_completion_stream_usage=True,
+            completion_max_tokens_arg="max_completion_tokens",
+        )
+    if normalized == "anthropic":
+        return ProviderCapabilities(
+            transports=ANTHROPIC_COMPAT_TRANSPORTS,
+            completion_max_tokens_arg="max_tokens",
+        )
+    if normalized == "openrouter":
+        return ProviderCapabilities(
+            transports=OPENROUTER_TRANSPORTS,
+            completion_max_tokens_arg="max_tokens",
+        )
+    if normalized == "github-copilot":
+        return ProviderCapabilities(
+            transports=COMPLETION_TRANSPORTS,
+            default_completion_stream_usage=True,
+            completion_max_tokens_arg="max_tokens",
+        )
+    return ProviderCapabilities(
+        transports=COMPLETION_TRANSPORTS,
+        completion_max_tokens_arg="max_tokens",
+    )
+
+
+class FakeProviderHook(ProviderHook):
+    name = "fake"
+
+    def __init__(
+        self, factory: FakeProviderFactory, created: list[tuple[str, dict[str, object]]] | None = None
+    ) -> None:
+        self._factory = factory
+        self._created = created
+
+    def matches(self, provider: str) -> bool:
+        return True
+
+    def create_backend(self, context: ProviderContext) -> ProviderBackend:
+        if self._created is not None:
+            self._created.append((
+                context.provider,
+                {
+                    "api_key": context.api_key,
+                    "api_base": context.api_base,
+                    **dict(context.client_args),
+                },
+            ))
+        return self._factory.ensure(context.provider)
+
+
+class FakeProviderRuntime:
+    def __init__(self, hook: FakeProviderHook) -> None:
+        self._hook = hook
+
+    def provider_for(self, provider_name: str) -> FakeProviderHook:
+        return self._hook
+
+
+def install_fake_provider_runtime(
+    monkeypatch, created: list[tuple[str, dict[str, object]]] | None = None
+) -> FakeProviderFactory:
+    import republic.core.execution as execution
+
+    factory = FakeProviderFactory()
+    runtime = FakeProviderRuntime(FakeProviderHook(factory, created))
+    monkeypatch.setattr(execution, "default_provider_runtime", lambda: runtime)
+    return factory
 
 
 def make_tool_call(
@@ -216,7 +384,7 @@ def make_responses_response(
     input_tokens = usage_payload.get("input_tokens", 0)
     output_tokens = usage_payload.get("output_tokens", 0)
     total_tokens = usage_payload.get("total_tokens", input_tokens + output_tokens)
-    return Response.model_validate({
+    return {
         "id": "resp_1",
         "created_at": 1,
         "model": "gpt-5-codex",
@@ -232,7 +400,7 @@ def make_responses_response(
             "output_tokens_details": {"reasoning_tokens": 0},
             "total_tokens": total_tokens,
         },
-    })
+    }
 
 
 def make_responses_reasoning_response(

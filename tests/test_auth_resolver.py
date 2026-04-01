@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-import republic.core.execution as execution
 from republic import (
     LLM,
     github_copilot_oauth_resolver,
@@ -26,21 +25,15 @@ from republic.auth.openai_codex import (
     save_openai_codex_oauth_tokens,
 )
 
-from .fakes import FakeAnyLLMFactory, make_response
+from .fakes import FakeProviderFactory, install_fake_provider_runtime, make_response
 
 _TEST_GITHUB_TOKEN = "gho_token"  # noqa: S105
 _TEST_GITHUB_ACCESS_TOKEN = "gho_access"  # noqa: S105
 
 
-def _setup_anyllm_create(monkeypatch) -> tuple[FakeAnyLLMFactory, list[tuple[str, dict[str, object]]]]:
+def _setup_provider_backend(monkeypatch) -> tuple[FakeProviderFactory, list[tuple[str, dict[str, object]]]]:
     created: list[tuple[str, dict[str, object]]] = []
-    factory = FakeAnyLLMFactory()
-
-    def _create(provider: str, **kwargs: object):
-        created.append((provider, dict(kwargs)))
-        return factory.create(provider, **kwargs)
-
-    monkeypatch.setattr(execution.AnyLLM, "create", _create)
+    factory = install_fake_provider_runtime(monkeypatch, created)
     return factory, created
 
 
@@ -90,7 +83,7 @@ def _save_github_copilot_tokens(
 
 
 def test_llm_uses_api_key_resolver_when_api_key_is_missing(monkeypatch) -> None:
-    factory, created = _setup_anyllm_create(monkeypatch)
+    factory, created = _setup_provider_backend(monkeypatch)
 
     client = factory.ensure("openai")
     client.queue_completion(make_response(text="ok"))
@@ -105,7 +98,7 @@ def test_llm_uses_api_key_resolver_when_api_key_is_missing(monkeypatch) -> None:
 
 
 def test_explicit_api_key_has_priority_over_resolver(monkeypatch) -> None:
-    factory, created = _setup_anyllm_create(monkeypatch)
+    factory, created = _setup_provider_backend(monkeypatch)
 
     client = factory.ensure("openai")
     client.queue_completion(make_response(text="ok"))
@@ -120,7 +113,7 @@ def test_explicit_api_key_has_priority_over_resolver(monkeypatch) -> None:
 
 
 def test_provider_map_falls_back_to_resolver_for_missing_provider(monkeypatch) -> None:
-    factory, created = _setup_anyllm_create(monkeypatch)
+    factory, created = _setup_provider_backend(monkeypatch)
 
     client = factory.ensure("openai")
     client.queue_completion(make_response(text="ok"))

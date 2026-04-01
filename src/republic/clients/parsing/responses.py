@@ -6,7 +6,9 @@ from types import SimpleNamespace
 from typing import Any
 
 from republic.clients.parsing.common import expand_tool_calls, field
-from republic.clients.parsing.types import BaseTransportParser
+from republic.clients.parsing.types import BaseTransportParser, ParsedChunk, ParsedResponse
+
+RESPONSES_METADATA_ONLY_ITEM_TYPES = frozenset({"reasoning", "compaction"})
 
 
 class ResponseTransportParser(BaseTransportParser):
@@ -61,23 +63,40 @@ class ResponseTransportParser(BaseTransportParser):
             )
         ]
 
-    def extract_chunk_tool_call_deltas(self, chunk: Any) -> list[Any]:
+    def parse_chunk(self, chunk: Any) -> ParsedChunk:
         event_type = field(chunk, "type")
+        output_item_type: str | None = None
         if event_type in {"response.function_call_arguments.delta", "response.function_call_arguments.done"}:
-            return self._tool_delta_from_args_event(chunk, event_type)
-        if event_type in {"response.output_item.added", "response.output_item.done"}:
-            return self._tool_delta_from_output_item_event(chunk, event_type)
-        return []
+            tool_call_deltas = self._tool_delta_from_args_event(chunk, event_type)
+        elif event_type in {"response.output_item.added", "response.output_item.done"}:
+            tool_call_deltas = self._tool_delta_from_output_item_event(chunk, event_type)
+            output_item_type = self._output_item_type(chunk)
+        else:
+            tool_call_deltas = []
+            output_item_type = self._output_item_type(chunk)
 
-    def extract_chunk_text(self, chunk: Any) -> str:
-        if field(chunk, "type") != "response.output_text.delta":
-            return ""
-        delta = field(chunk, "delta")
-        if isinstance(delta, str):
-            return delta
-        return ""
+        text_delta = ""
+        if field(chunk, "type") == "response.output_text.delta":
+            delta = field(chunk, "delta")
+            if isinstance(delta, str):
+                text_delta = delta
 
-    def extract_text_from_output(self, output: Any) -> str:
+        return ParsedChunk(
+            text_delta=text_delta,
+            tool_call_deltas=tool_call_deltas,
+            usage=self._extract_usage(chunk),
+            response_completed=field(chunk, "type") == "response.completed",
+            output_item_type=output_item_type,
+        )
+
+    def parse_response(self, response: Any) -> ParsedResponse:
+        usage = self._extract_usage(response)
+        text = self._extract_text(response)
+        tool_calls = self._extract_tool_calls(response)
+        metadata_only = self._metadata_only_response(response)
+        return ParsedResponse(text=text, tool_calls=tool_calls, usage=usage, metadata_only=metadata_only)
+
+    def _extract_text_from_output(self, output: Any) -> str:
         if not isinstance(output, list):
             return ""
         parts: list[str] = []
@@ -92,13 +111,13 @@ class ResponseTransportParser(BaseTransportParser):
                         parts.append(text)
         return "".join(parts)
 
-    def extract_text(self, response: Any) -> str:
+    def _extract_text(self, response: Any) -> str:
         output_text = field(response, "output_text")
         if isinstance(output_text, str):
             return output_text
-        return self.extract_text_from_output(field(response, "output"))
+        return self._extract_text_from_output(field(response, "output"))
 
-    def extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
+    def _extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
         output = response if isinstance(response, list) else field(response, "output")
         if not isinstance(output, list):
             return []
@@ -118,7 +137,7 @@ class ResponseTransportParser(BaseTransportParser):
             calls.append(entry)
         return expand_tool_calls(calls)
 
-    def extract_usage(self, response: Any) -> dict[str, Any] | None:
+    def _extract_usage(self, response: Any) -> dict[str, Any] | None:
         event_type = field(response, "type")
         if event_type in {"response.completed", "response.in_progress", "response.failed", "response.incomplete"}:
             usage = field(field(response, "response"), "usage")
@@ -138,3 +157,23 @@ class ResponseTransportParser(BaseTransportParser):
             if value is not None:
                 data[usage_field] = value
         return data or None
+
+    def _metadata_only_response(self, response: Any) -> bool:
+        if field(response, "status") != "completed":
+            return False
+        if field(response, "incomplete_details") is not None:
+            return False
+        output = field(response, "output")
+        if not isinstance(output, list) or not output:
+            return False
+        return all(
+            isinstance(item_type := field(item, "type"), str) and item_type in RESPONSES_METADATA_ONLY_ITEM_TYPES
+            for item in output
+        )
+
+    @staticmethod
+    def _output_item_type(chunk: Any) -> str | None:
+        if field(chunk, "type") not in {"response.output_item.added", "response.output_item.done"}:
+            return None
+        item_type = field(field(chunk, "item"), "type")
+        return item_type if isinstance(item_type, str) else None

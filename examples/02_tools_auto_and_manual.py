@@ -53,10 +53,7 @@ def main() -> None:
 
     print("== manual tools ==")
     calls = llm.tool_calls("Use get_weather for Berlin.", tools=[get_weather])
-    if calls.error:
-        print("tool call error:", calls.error)
-        return
-    manual = llm.tools.execute(calls.value, tools=[get_weather])
+    manual = llm.tools.execute(calls, tools=[get_weather])
     print(manual.tool_results, manual.error)
 
     print("== pydantic tool ==")
@@ -65,10 +62,7 @@ def main() -> None:
         "Create a ticket with title 'db timeout' and severity 'high'.",
         tools=[ticket_tool],
     )
-    if ticket_calls.error:
-        print("ticket error:", ticket_calls.error)
-        return
-    ticket_exec = llm.tools.execute(ticket_calls.value, tools=[ticket_tool])
+    ticket_exec = llm.tools.execute(ticket_calls, tools=[ticket_tool])
     print(ticket_exec.tool_results, ticket_exec.error)
 
     print("== context tool with tape ==")

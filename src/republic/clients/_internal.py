@@ -7,6 +7,7 @@ from typing import Any
 from republic.core import RepublicError
 from republic.core.errors import ErrorKind
 from republic.core.execution import LLMCore
+from republic.providers.types import ResponsesRequest
 
 
 class InternalOps:
@@ -25,7 +26,7 @@ class InternalOps:
         return provider or self._core.provider
 
     def _error(self, exc: Exception, *, provider: str, model: str | None, operation: str) -> RepublicError:
-        kind = self._core.classify_exception(exc)
+        kind = self._core.classify_exception(exc, provider=provider)
         if isinstance(exc, NotImplementedError):
             kind = ErrorKind.INVALID_INPUT
         message = f"{provider}:{model}: {exc}" if model else f"{provider}: {exc}"
@@ -40,9 +41,9 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name, model_id = self._resolve_provider_model(model, provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
-            value = client.responses(model=model_id, input_data=input_data, **kwargs)
+            value = client.responses(ResponsesRequest(model=model_id, input_data=input_data, kwargs=dict(kwargs)))
         except Exception as exc:
             raise self._error(exc, provider=provider_name, model=model_id, operation="responses") from exc
         return value
@@ -56,16 +57,18 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name, model_id = self._resolve_provider_model(model, provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
-            value = await client.aresponses(model=model_id, input_data=input_data, **kwargs)
+            value = await client.aresponses(
+                ResponsesRequest(model=model_id, input_data=input_data, kwargs=dict(kwargs))
+            )
         except Exception as exc:
             raise self._error(exc, provider=provider_name, model=model_id, operation="responses") from exc
         return value
 
     def list_models(self, *, provider: str | None = None, **kwargs: Any) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = client.list_models(**kwargs)
         except Exception as exc:
@@ -74,7 +77,7 @@ class InternalOps:
 
     async def list_models_async(self, *, provider: str | None = None, **kwargs: Any) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = await client.alist_models(**kwargs)
         except Exception as exc:
@@ -92,7 +95,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = client.create_batch(
                 input_file_path=input_file_path,
@@ -116,7 +119,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = await client.acreate_batch(
                 input_file_path=input_file_path,
@@ -137,7 +140,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = client.retrieve_batch(batch_id=batch_id, **kwargs)
         except Exception as exc:
@@ -152,7 +155,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = await client.aretrieve_batch(batch_id=batch_id, **kwargs)
         except Exception as exc:
@@ -167,7 +170,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = client.cancel_batch(batch_id=batch_id, **kwargs)
         except Exception as exc:
@@ -182,7 +185,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = await client.acancel_batch(batch_id=batch_id, **kwargs)
         except Exception as exc:
@@ -198,7 +201,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = client.list_batches(after=after, limit=limit, **kwargs)
         except Exception as exc:
@@ -214,7 +217,7 @@ class InternalOps:
         **kwargs: Any,
     ) -> Any:
         provider_name = self._resolve_provider(provider)
-        client = self._core.get_client(provider_name)
+        client = self._core.get_backend(provider_name)
         try:
             value = await client.alist_batches(after=after, limit=limit, **kwargs)
         except Exception as exc:

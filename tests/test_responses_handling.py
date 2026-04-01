@@ -6,8 +6,9 @@ from typing import Any
 import pytest
 
 from republic import LLM, tool
-from republic.core.execution import LLMCore
+from republic.conversation import conversation_from_messages
 from republic.core.results import RepublicError
+from republic.providers.codecs import conversation_to_openai_responses_input
 
 from .fakes import (
     make_chunk,
@@ -83,8 +84,8 @@ def _completion_stream_event_items() -> list[Any]:
     ]
 
 
-def test_default_api_format_uses_completion(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_default_api_format_uses_completion(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(text="hello"))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -94,8 +95,8 @@ def test_default_api_format_uses_completion(fake_anyllm) -> None:
     assert client.calls[-1].get("responses") is None
 
 
-def test_responses_api_format_uses_responses(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_responses_api_format_uses_responses(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_responses(make_responses_response(text="hello"))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="responses")
@@ -106,8 +107,8 @@ def test_responses_api_format_uses_responses(fake_anyllm) -> None:
     assert client.calls[-1]["input_data"][0]["role"] == "user"
 
 
-def test_openrouter_responses_works_even_if_provider_flag_is_false(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_openrouter_responses_works_even_if_provider_flag_is_false(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.SUPPORTS_RESPONSES = False
     client.queue_responses(make_responses_response(text="hello"))
 
@@ -118,8 +119,8 @@ def test_openrouter_responses_works_even_if_provider_flag_is_false(fake_anyllm) 
     assert client.calls[-1].get("responses") is True
 
 
-def test_openrouter_anthropic_tools_rejects_responses_format(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_openrouter_anthropic_tools_rejects_responses_format(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.SUPPORTS_RESPONSES = False
     llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="responses")
 
@@ -132,8 +133,8 @@ def test_openrouter_anthropic_tools_rejects_responses_format(fake_anyllm) -> Non
     assert exc_info.value.kind == "invalid_input"
 
 
-def test_messages_format_maps_to_completion(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_messages_format_maps_to_completion(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_completion(make_response(tool_calls=[make_tool_call("echo", '{"text":"tokyo"}')]))
 
     llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
@@ -144,15 +145,15 @@ def test_messages_format_maps_to_completion(fake_anyllm) -> None:
     assert client.calls[-1].get("responses") is None
 
 
-def test_messages_format_rejects_non_anthropic_model(fake_anyllm) -> None:
+def test_messages_format_rejects_non_anthropic_model(fake_provider_factory) -> None:
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="messages")
     with pytest.raises(RepublicError) as exc_info:
         llm.chat("hi")
     assert exc_info.value.kind == "invalid_input"
 
 
-def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_responses_tool_choice_accepts_completion_function_shape(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_responses(
         make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')])
     )
@@ -169,8 +170,8 @@ def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) ->
     assert client.calls[-1]["tool_choice"] == {"type": "function", "name": "echo"}
 
 
-def test_non_stream_completion_splits_concatenated_tool_arguments(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_non_stream_completion_splits_concatenated_tool_arguments(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         make_response(
             tool_calls=[
@@ -191,8 +192,8 @@ def test_non_stream_completion_splits_concatenated_tool_arguments(fake_anyllm) -
     assert result.tool_results == ["TOKYO", "OSAKA"]
 
 
-def test_stream_events_splits_concatenated_tool_arguments(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_stream_events_splits_concatenated_tool_arguments(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         iter([
             make_chunk(
@@ -216,7 +217,7 @@ def test_stream_events_splits_concatenated_tool_arguments(fake_anyllm) -> None:
     assert [call["function"]["arguments"] for call in tool_calls] == ['{"text":"tokyo"}', '{"text":"osaka"}']
 
 
-def test_split_messages_for_responses() -> None:
+def test_conversation_to_openai_responses_input() -> None:
     messages = [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hi"},
@@ -234,7 +235,7 @@ def test_split_messages_for_responses() -> None:
         {"role": "tool", "tool_call_id": "call_1", "content": '{"ok":true}'},
     ]
 
-    instructions, input_items = LLMCore._split_messages_for_responses(messages)
+    instructions, input_items = conversation_to_openai_responses_input(conversation_from_messages(messages))
 
     assert instructions == "sys"
     assert input_items == [
@@ -244,8 +245,8 @@ def test_split_messages_for_responses() -> None:
     ]
 
 
-def test_stream_uses_responses_and_collects_usage(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_stream_uses_responses_and_collects_usage(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(
         iter([
             make_responses_text_delta("Hello"),
@@ -263,8 +264,8 @@ def test_stream_uses_responses_and_collects_usage(fake_anyllm) -> None:
     assert stream.usage == {"total_tokens": 7}
 
 
-def test_sync_stream_uses_client_level_async_responses_bridge(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_sync_stream_uses_client_level_async_responses_bridge(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
 
     async def _unexpected_aresponses(**_: Any) -> Any:
         raise UnexpectedAsyncResponsesCall
@@ -286,8 +287,8 @@ def test_sync_stream_uses_client_level_async_responses_bridge(fake_anyllm) -> No
     assert stream.usage == {"total_tokens": 7}
 
 
-def test_stream_treats_completed_reasoning_only_response_as_success(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_stream_treats_completed_reasoning_only_response_as_success(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(make_responses_reasoning_response())
 
     llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
@@ -325,8 +326,8 @@ def test_stream_treats_completed_reasoning_only_response_as_success(fake_anyllm)
     assert stream.usage == {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}
 
 
-def test_stream_treats_completed_reasoning_only_stream_as_success(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_stream_treats_completed_reasoning_only_stream_as_success(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_aresponses(
         _async_items(
             make_responses_reasoning_item_added(),
@@ -343,8 +344,8 @@ def test_stream_treats_completed_reasoning_only_stream_as_success(fake_anyllm) -
     assert stream.usage == {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129}
 
 
-def test_stream_events_supports_responses_tool_events(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_stream_events_supports_responses_tool_events(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(
         iter([
             make_responses_text_delta("Checking "),
@@ -366,8 +367,8 @@ def test_stream_events_supports_responses_tool_events(fake_anyllm) -> None:
     assert kinds[-1] == "final"
 
 
-def test_stream_events_treat_completed_reasoning_only_response_as_success(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_stream_events_treat_completed_reasoning_only_response_as_success(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(make_responses_reasoning_response())
 
     llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
@@ -415,8 +416,8 @@ def test_stream_events_treat_completed_reasoning_only_response_as_success(fake_a
     ]
 
 
-def test_stream_events_treat_completed_reasoning_only_stream_as_success(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_stream_events_treat_completed_reasoning_only_stream_as_success(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_aresponses(
         _async_items(
             make_responses_reasoning_item_added(),
@@ -443,8 +444,8 @@ def test_stream_events_treat_completed_reasoning_only_stream_as_success(fake_any
     ]
 
 
-def test_sync_stream_events_use_client_level_async_responses_bridge(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_sync_stream_events_use_client_level_async_responses_bridge(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
 
     async def _unexpected_aresponses(**_: Any) -> Any:
         raise UnexpectedAsyncResponsesCall
@@ -487,11 +488,11 @@ def test_sync_stream_events_use_client_level_async_responses_bridge(fake_anyllm)
     ]
 
 
-def test_stream_events_parity_between_completion_and_responses(fake_anyllm) -> None:
-    completion_client = fake_anyllm.ensure("openai")
+def test_stream_events_parity_between_completion_and_responses(fake_provider_factory) -> None:
+    completion_client = fake_provider_factory.ensure("openai")
     completion_client.queue_completion(iter(_completion_stream_event_items()))
 
-    responses_client = fake_anyllm.ensure("openrouter")
+    responses_client = fake_provider_factory.ensure("openrouter")
     responses_client.queue_responses(
         iter([
             make_responses_text_delta("Checking "),
@@ -517,11 +518,11 @@ def test_stream_events_parity_between_completion_and_responses(fake_anyllm) -> N
     assert _compact_stream_events(completion_events) == _compact_stream_events(responses_events)
 
 
-def test_stream_events_parity_between_completion_and_messages(fake_anyllm) -> None:
-    completion_client = fake_anyllm.ensure("openai")
+def test_stream_events_parity_between_completion_and_messages(fake_provider_factory) -> None:
+    completion_client = fake_provider_factory.ensure("openai")
     completion_client.queue_completion(iter(_completion_stream_event_items()))
 
-    messages_client = fake_anyllm.ensure("openrouter")
+    messages_client = fake_provider_factory.ensure("openrouter")
     messages_client.queue_completion(iter(_completion_stream_event_items()))
 
     completion_llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -533,8 +534,8 @@ def test_stream_events_parity_between_completion_and_messages(fake_anyllm) -> No
     assert _compact_stream_events(completion_events) == _compact_stream_events(messages_events)
 
 
-def test_non_stream_responses_tool_calls_converts_tools_payload(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_non_stream_responses_tool_calls_converts_tools_payload(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(
         make_responses_response(tool_calls=[make_responses_function_call("echo", '{"text":"tokyo"}')])
     )
@@ -549,8 +550,8 @@ def test_non_stream_responses_tool_calls_converts_tools_payload(fake_anyllm) -> 
     assert "function" not in sent_tools[0]
 
 
-def test_chat_reasoning_effort_for_responses_is_mapped(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_chat_reasoning_effort_for_responses_is_mapped(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(make_responses_response(text="ready"))
 
     llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
@@ -562,8 +563,8 @@ def test_chat_reasoning_effort_for_responses_is_mapped(fake_anyllm) -> None:
     assert "reasoning_effort" not in call
 
 
-def test_completed_reasoning_only_response_after_tool_result_is_not_retried(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_completed_reasoning_only_response_after_tool_result_is_not_retried(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(make_responses_reasoning_response())
 
     llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
@@ -598,8 +599,8 @@ def test_completed_reasoning_only_response_after_tool_result_is_not_retried(fake
     assert llm.chat(messages=messages, max_tokens=128) == ""
 
 
-def test_run_tools_treats_completed_reasoning_only_response_as_success(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_run_tools_treats_completed_reasoning_only_response_as_success(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(make_responses_reasoning_response())
 
     llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
@@ -610,8 +611,8 @@ def test_run_tools_treats_completed_reasoning_only_response_as_success(fake_anyl
     assert result.error is None
 
 
-def test_completion_preserves_extra_headers(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_completion_preserves_extra_headers(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(text="hello"))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -621,8 +622,8 @@ def test_completion_preserves_extra_headers(fake_anyllm) -> None:
     assert call.get("extra_headers") == {"X-Title": "Republic"}
 
 
-def test_messages_preserves_extra_headers(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_messages_preserves_extra_headers(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_completion(make_response(text="hello"))
 
     llm = LLM(model="openrouter:anthropic/claude-3.5-haiku", api_key="dummy", api_format="messages")
@@ -632,8 +633,8 @@ def test_messages_preserves_extra_headers(fake_anyllm) -> None:
     assert call.get("extra_headers") == {"X-Title": "Republic"}
 
 
-def test_responses_drops_extra_headers(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openrouter")
+def test_responses_drops_extra_headers(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openrouter")
     client.queue_responses(make_responses_response(text="hello"))
 
     llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
@@ -643,8 +644,8 @@ def test_responses_drops_extra_headers(fake_anyllm) -> None:
     assert "extra_headers" not in call
 
 
-def test_stream_completion_defaults_include_usage(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_stream_completion_defaults_include_usage(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(
         iter([
             make_chunk(text="hello"),
@@ -660,8 +661,8 @@ def test_stream_completion_defaults_include_usage(fake_anyllm) -> None:
     assert client.calls[-1].get("stream_options") == {"include_usage": True}
 
 
-def test_openai_completion_uses_max_completion_tokens(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("openai")
+def test_openai_completion_uses_max_completion_tokens(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("openai")
     client.queue_completion(make_response(text="hello"))
 
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
@@ -672,8 +673,8 @@ def test_openai_completion_uses_max_completion_tokens(fake_anyllm) -> None:
     assert "max_tokens" not in call
 
 
-def test_non_openai_completion_uses_max_tokens(fake_anyllm) -> None:
-    client = fake_anyllm.ensure("anthropic")
+def test_non_openai_completion_uses_max_tokens(fake_provider_factory) -> None:
+    client = fake_provider_factory.ensure("anthropic")
     client.queue_completion(make_response(text="hello"))
 
     llm = LLM(model="anthropic:claude-3-5-haiku-latest", api_key="dummy")

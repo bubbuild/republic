@@ -5,32 +5,35 @@ from __future__ import annotations
 from typing import Any
 
 from republic.clients.parsing.common import expand_tool_calls, field
-from republic.clients.parsing.types import BaseTransportParser
+from republic.clients.parsing.types import BaseTransportParser, ParsedChunk, ParsedResponse
 
 
 class CompletionTransportParser(BaseTransportParser):
     def is_non_stream_response(self, response: Any) -> bool:
         return isinstance(response, str) or field(response, "choices") is not None
 
-    def extract_chunk_tool_call_deltas(self, chunk: Any) -> list[Any]:
+    def parse_chunk(self, chunk: Any) -> ParsedChunk:
         choices = field(chunk, "choices")
         if not choices:
-            return []
+            return ParsedChunk()
         delta = field(choices[0], "delta")
         if delta is None:
-            return []
-        return field(delta, "tool_calls") or []
+            return ParsedChunk()
+        return ParsedChunk(
+            text_delta=field(delta, "content", "") or "",
+            tool_call_deltas=field(delta, "tool_calls") or [],
+            usage=self._extract_usage(response=chunk),
+        )
 
-    def extract_chunk_text(self, chunk: Any) -> str:
-        choices = field(chunk, "choices")
-        if not choices:
-            return ""
-        delta = field(choices[0], "delta")
-        if delta is None:
-            return ""
-        return field(delta, "content", "") or ""
+    def parse_response(self, response: Any) -> ParsedResponse:
+        return ParsedResponse(
+            text=self._extract_text(response),
+            tool_calls=self._extract_tool_calls(response),
+            usage=self._extract_usage(response),
+            metadata_only=bool(field(response, "republic_metadata_only", False)),
+        )
 
-    def extract_text(self, response: Any) -> str:
+    def _extract_text(self, response: Any) -> str:
         if isinstance(response, str):
             return response
 
@@ -42,7 +45,7 @@ class CompletionTransportParser(BaseTransportParser):
             return ""
         return field(message, "content", "") or ""
 
-    def extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
+    def _extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
         choices = field(response, "choices")
         if not choices:
             return []
@@ -67,10 +70,12 @@ class CompletionTransportParser(BaseTransportParser):
             call_type = field(tool_call, "type")
             if call_type:
                 entry["type"] = call_type
+            if isinstance(tool_call, dict):
+                entry.update({key: value for key, value in tool_call.items() if key not in {"id", "type", "function"}})
             calls.append(entry)
         return expand_tool_calls(calls)
 
-    def extract_usage(self, response: Any) -> dict[str, Any] | None:
+    def _extract_usage(self, response: Any) -> dict[str, Any] | None:
         usage = field(response, "usage")
         if usage is None:
             return None

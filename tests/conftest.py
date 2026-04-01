@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-import republic.core.execution as execution
-
-from .fakes import FakeAnyLLMFactory
+from .fakes import FakeProviderFactory, install_fake_provider_runtime
 
 
 @pytest.fixture
-def fake_anyllm(monkeypatch: pytest.MonkeyPatch) -> FakeAnyLLMFactory:
-    factory = FakeAnyLLMFactory()
-    monkeypatch.setattr(execution.AnyLLM, "create", lambda provider, **kwargs: factory.create(provider, **kwargs))
-    return factory
+def fake_provider_factory(monkeypatch: pytest.MonkeyPatch) -> FakeProviderFactory:
+    return install_fake_provider_runtime(monkeypatch)
