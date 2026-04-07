@@ -118,8 +118,19 @@ class OpenAICodexProvider(BaseOpenAIProvider):
         tool_calls: dict[str, dict[str, Any]],
         usage: dict[str, Any] | Any | None,
     ) -> Response:
+        # The Codex backend sometimes returns a completed SDK Response with output=[],
+        # even though earlier stream events (output_text.delta etc.) carried the full text.
+        # Only fall through to reconstruction when ALL of these hold:
+        #   1. status == "completed" (non-completed responses are returned as-is to preserve error info)
+        #   2. output is empty
+        #   3. the stream actually collected text or tool_calls
         if isinstance(completed_response, Response):
-            return completed_response
+            if completed_response.output:
+                return completed_response
+            if completed_response.status != "completed":
+                return completed_response
+            if not text and not tool_calls:
+                return completed_response
 
         payload: dict[str, Any] = {
             "id": getattr(completed_response, "id", None) or "resp_codex",

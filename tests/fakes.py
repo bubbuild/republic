@@ -276,6 +276,37 @@ def make_responses_completed(usage: dict[str, Any] | None = None) -> Any:
     return SimpleNamespace(type="response.completed", response=response)
 
 
+def make_responses_completed_with_empty_output(
+    usage: dict[str, Any] | None = None,
+    *,
+    model: str = "gpt-5-codex",
+) -> Any:
+    """Simulate a Codex backend response.completed event with an SDK Response whose output is empty."""
+    full_usage: dict[str, Any] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "input_tokens_details": {"cached_tokens": 0},
+        "output_tokens_details": {"reasoning_tokens": 0},
+    }
+    if usage:
+        full_usage.update(usage)
+    payload: dict[str, Any] = {
+        "id": "resp_empty",
+        "created_at": 0,
+        "model": model,
+        "object": "response",
+        "status": "completed",
+        "output": [],
+        "parallel_tool_calls": False,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": full_usage,
+    }
+    response = Response.model_validate(payload)
+    return SimpleNamespace(type="response.completed", response=response)
+
+
 def make_responses_output_item_added(
     *,
     item_id: str = "fc_1",

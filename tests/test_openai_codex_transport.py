@@ -13,6 +13,7 @@ from republic.auth.openai_codex import extract_openai_codex_account_id
 
 from .fakes import (
     make_responses_completed,
+    make_responses_completed_with_empty_output,
     make_responses_function_done,
     make_responses_text_delta,
 )
@@ -264,3 +265,25 @@ def test_regular_openai_key_still_uses_anyllm(monkeypatch) -> None:
     assert llm.chat("Say hello") == "ok"
     assert created[0][0] == "openai"
     assert created[0][1]["api_key"] == "sk-test"
+
+
+def test_codex_completed_response_with_empty_output_preserves_streamed_text(monkeypatch) -> None:
+    """The Codex backend may return a completed SDK Response with output=[].
+
+    Streamed text collected from earlier events should be preserved instead of
+    returning the empty Response as-is.
+    Regression test: https://github.com/bubbuild/bub/issues/108
+    """
+    llm, _, _ = _build_codex_llm(
+        monkeypatch,
+        _async_items(
+            make_responses_text_delta("hello "),
+            make_responses_text_delta("world"),
+            make_responses_completed_with_empty_output(
+                {"input_tokens": 10, "output_tokens": 8, "total_tokens": 18},
+            ),
+        ),
+    )
+
+    result = llm.chat("say hi")
+    assert result == "hello world"
