@@ -1901,10 +1901,6 @@ class ChatClient:
         usage = self._extract_usage(response, transport=transport)
         state = StreamState(usage=usage)
         tool_results: list[Any] = []
-        try:
-            tool_results = self._execute_tool_calls(prepared, tool_calls, provider_name, model_id)
-        except RepublicError as exc:
-            state.error = exc
         if (
             not text
             and not tool_calls
@@ -1919,6 +1915,10 @@ class ChatClient:
             events.append(StreamEvent("text", {"delta": text}))
         for idx, call in enumerate(tool_calls):
             events.append(StreamEvent("tool_call", {"index": idx, "call": call}))
+        try:
+            tool_results = self._execute_tool_calls(prepared, tool_calls, provider_name, model_id)
+        except RepublicError as exc:
+            state.error = exc
         for idx, result in enumerate(tool_results):
             events.append(StreamEvent("tool_result", {"index": idx, "result": result}))
         if state.error is not None:
@@ -1967,10 +1967,6 @@ class ChatClient:
 
         async def _iterator() -> AsyncIterator[StreamEvent]:
             nonlocal tool_results
-            try:
-                tool_results = await self._execute_tool_calls_async(prepared, tool_calls, provider_name, model_id)
-            except RepublicError as exc:
-                state.error = exc
             if (
                 not text
                 and not tool_calls
@@ -1985,6 +1981,10 @@ class ChatClient:
                 yield StreamEvent("text", {"delta": text})
             for idx, call in enumerate(tool_calls):
                 yield StreamEvent("tool_call", {"index": idx, "call": call})
+            try:
+                tool_results = await self._execute_tool_calls_async(prepared, tool_calls, provider_name, model_id)
+            except RepublicError as exc:
+                state.error = exc
             for idx, result in enumerate(tool_results):
                 yield StreamEvent("tool_result", {"index": idx, "result": result})
             if state.error is not None:
