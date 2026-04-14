@@ -47,7 +47,7 @@ class _AwaitableMessages:
     def __init__(self, messages: list[dict[str, str]]) -> None:
         self._messages = messages
 
-    def __await__(self):  # type: ignore[no-untyped-def]
+    def __await__(self):
         async def _resolve() -> list[dict[str, str]]:
             return self._messages
 
@@ -55,7 +55,7 @@ class _AwaitableMessages:
 
 
 def test_sync_manager_rejects_async_context_selector(manager) -> None:
-    def select(entries, context):  # type: ignore[no-untyped-def]
+    def select(entries, context):
         return _AwaitableMessages([{"role": "assistant", "content": str(len(list(entries)))}])
 
     context = TapeContext(anchor=LAST_ANCHOR, select=select)
@@ -73,7 +73,7 @@ async def test_async_manager_awaits_context_selector_after_anchor_slice() -> Non
 
     seen: dict[str, object] = {}
 
-    async def select(entries, context):  # type: ignore[no-untyped-def]
+    async def select(entries, context):
         entry_list = list(entries)
         seen["contents"] = [entry.payload["content"] for entry in entry_list]
         seen["state"] = dict(context.state)
