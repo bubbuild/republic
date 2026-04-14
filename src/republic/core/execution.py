@@ -518,7 +518,7 @@ class LLMCore:
                 stream=request.stream,
                 reasoning_effort=request.reasoning_effort,
                 **completion_kwargs,
-            ),
+            ),  # ty: ignore[no-matching-overload]
         )
 
     async def _call_responses_async(
