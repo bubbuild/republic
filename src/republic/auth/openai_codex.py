@@ -13,6 +13,7 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,20 @@ _DEFAULT_CODEX_OAUTH_ORIGINATOR = "codex_cli_rs"
 
 class CodexOAuthResponseError(TypeError):
     """Raised when Codex OAuth token response is malformed."""
+
+
+def _unix_to_rfc3339(ts: int) -> str:
+    """Convert a Unix timestamp to an RFC 3339 formatted string."""
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _rfc3339_to_unix(value: str) -> int:
+    """Parse an RFC 3339 formatted string and return a Unix timestamp."""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return int(dt.timestamp())
+    except (ValueError, AttributeError):
+        return int(time.time())
 
 
 class CodexOAuthLoginError(RuntimeError):
@@ -117,11 +132,18 @@ def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
     expires_raw = tokens.get("expires_at")
     if isinstance(expires_raw, (int, float)):
         expires_at = int(expires_raw)
+    elif isinstance(expires_raw, str):
+        expires_at = _rfc3339_to_unix(expires_raw)
     else:
         # Codex CLI file may not persist explicit expiry.
         # Use last_refresh + 1h or "now + 1h" as best-effort fallback.
         last_refresh_raw = payload.get("last_refresh")
-        last_refresh = int(last_refresh_raw) if isinstance(last_refresh_raw, (int, float)) else int(time.time())
+        if isinstance(last_refresh_raw, (int, float)):
+            last_refresh = int(last_refresh_raw)
+        elif isinstance(last_refresh_raw, str):
+            last_refresh = _rfc3339_to_unix(last_refresh_raw)
+        else:
+            last_refresh = int(time.time())
         expires_at = last_refresh + 3600
 
     account_id = tokens.get("account_id")
@@ -165,12 +187,12 @@ def save_openai_codex_oauth_tokens(
     tokens_node.update({
         "access_token": tokens.access_token,
         "refresh_token": tokens.refresh_token,
-        "expires_at": tokens.expires_at,
+        "expires_at": _unix_to_rfc3339(tokens.expires_at),
     })
     if tokens.account_id:
         tokens_node["account_id"] = tokens.account_id
     payload["tokens"] = tokens_node
-    payload["last_refresh"] = int(time.time())
+    payload["last_refresh"] = _unix_to_rfc3339(int(time.time()))
 
     auth_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
     with suppress(OSError):
