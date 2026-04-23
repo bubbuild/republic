@@ -9,11 +9,11 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from datetime import datetime, timezone
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -35,7 +35,7 @@ class CodexOAuthResponseError(TypeError):
 
 def _unix_to_rfc3339(ts: int) -> str:
     """Convert a Unix timestamp to an RFC 3339 formatted string."""
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _rfc3339_to_unix(value: str) -> int:
