@@ -6,8 +6,9 @@ import inspect
 from typing import Any, cast
 
 from republic.core.results import RepublicError
-from republic.tape.context import TapeContext, build_messages
+from republic.tape.context import TapeContext, build_messages, select_context_entries
 from republic.tape.entries import TapeEntry
+from republic.tape.format import DEFAULT_TAPE_FORMAT, TapeFormat
 from republic.tape.query import TapeQuery
 from republic.tape.store import (
     AsyncTapeStore,
@@ -26,9 +27,11 @@ class TapeManager:
         *,
         store: TapeStore | None = None,
         default_context: TapeContext | None = None,
+        tape_format: TapeFormat = DEFAULT_TAPE_FORMAT,
     ) -> None:
         self._tape_store = store or InMemoryTapeStore()
         self._global_context = default_context or TapeContext()
+        self._tape_format = tape_format
 
     @property
     def default_context(self) -> TapeContext:
@@ -43,9 +46,9 @@ class TapeManager:
 
     def read_messages(self, tape: str, *, context: TapeContext | None = None) -> list[dict[str, Any]]:
         active_context = context or self._global_context
-        query = self.query_tape(tape)
-        query = active_context.build_query(query)
-        messages = build_messages(self._tape_store.fetch_all(query), active_context)
+        entries = self._tape_store.fetch_all(self.query_tape(tape))
+        entries = select_context_entries(entries, active_context, self._tape_format)
+        messages = build_messages(entries, active_context, self._tape_format)
         if inspect.isawaitable(messages):
             raise ValueError(  # noqa: TRY003
                 "Context selector returned a coroutine, but TapeManager is sync. Use AsyncTapeManager for async support."
@@ -56,7 +59,7 @@ class TapeManager:
         self._tape_store.append(tape, entry)
 
     def query_tape(self, tape: str) -> TapeQuery[TapeStore]:
-        return TapeQuery(tape=tape, store=self._tape_store)
+        return TapeQuery(tape=tape, store=self._tape_store, tape_format=self._tape_format)
 
     def reset_tape(self, tape: str) -> None:
         self._tape_store.reset(tape)
@@ -69,13 +72,12 @@ class TapeManager:
         state: dict[str, Any] | None = None,
         **meta: Any,
     ) -> list[TapeEntry]:
-        entry = TapeEntry.anchor(name, state=state, **meta)
-        event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
-        self._tape_store.append(tape, entry)
-        self._tape_store.append(tape, event)
-        return [entry, event]
+        entries = _handoff_entries(self._tape_format, name, state=state, **meta)
+        for entry in entries:
+            self._tape_store.append(tape, entry)
+        return entries
 
-    def record_chat(  # noqa: C901
+    def record_chat(
         self,
         *,
         tape: str,
@@ -92,38 +94,22 @@ class TapeManager:
         model: str | None = None,
         usage: dict[str, Any] | None = None,
     ) -> None:
-        meta = {"run_id": run_id}
-        if system_prompt:
-            self._tape_store.append(tape, TapeEntry.system(system_prompt, **meta))
-        if context_error is not None:
-            self._tape_store.append(tape, TapeEntry.error(context_error, **meta))
-
-        for message in new_messages:
-            self._tape_store.append(tape, TapeEntry.message(message, **meta))
-
-        if tool_calls:
-            self._tape_store.append(tape, TapeEntry.tool_call(tool_calls, **meta))
-        if tool_results is not None:
-            self._tape_store.append(tape, TapeEntry.tool_result(tool_results, **meta))
-
-        if error is not None and error is not context_error:
-            self._tape_store.append(tape, TapeEntry.error(error, **meta))
-
-        if response_text is not None:
-            self._tape_store.append(
-                tape,
-                TapeEntry.message({"role": "assistant", "content": response_text}, **meta),
-            )
-
-        data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
-        resolved_usage = usage or self._extract_usage(response)
-        if resolved_usage is not None:
-            data["usage"] = resolved_usage
-        if provider:
-            data["provider"] = provider
-        if model:
-            data["model"] = model
-        self._tape_store.append(tape, TapeEntry.event("run", data, **meta))
+        for entry in _chat_entries(
+            self._tape_format,
+            run_id=run_id,
+            system_prompt=system_prompt,
+            context_error=context_error,
+            new_messages=new_messages,
+            response_text=response_text,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            error=error,
+            response=response,
+            provider=provider,
+            model=model,
+            usage=usage,
+        ):
+            self._tape_store.append(tape, entry)
 
     @staticmethod
     def _extract_usage(response: Any) -> dict[str, Any] | None:
@@ -147,6 +133,7 @@ class AsyncTapeManager:
         *,
         store: AsyncTapeStore | TapeStore | None = None,
         default_context: TapeContext | None = None,
+        tape_format: TapeFormat = DEFAULT_TAPE_FORMAT,
     ) -> None:
         if store is None:
             sync_store = InMemoryTapeStore()
@@ -156,6 +143,7 @@ class AsyncTapeManager:
         else:
             self._tape_store = AsyncTapeStoreAdapter(cast(TapeStore, store))
         self._global_context = default_context or TapeContext()
+        self._tape_format = tape_format
 
     @property
     def default_context(self) -> TapeContext:
@@ -166,17 +154,16 @@ class AsyncTapeManager:
         self._global_context = value
 
     def query_tape(self, tape: str) -> TapeQuery[AsyncTapeStore]:
-        return TapeQuery(tape=tape, store=self._tape_store)
+        return TapeQuery(tape=tape, store=self._tape_store, tape_format=self._tape_format)
 
     async def list_tapes(self) -> list[str]:
         return await self._tape_store.list_tapes()
 
     async def read_messages(self, tape: str, *, context: TapeContext | None = None) -> list[dict[str, Any]]:
         active_context = context or self._global_context
-        query = self.query_tape(tape)
-        query = active_context.build_query(query)
-        entries = await self._tape_store.fetch_all(query)
-        messages = build_messages(entries, active_context)
+        entries = await self._tape_store.fetch_all(self.query_tape(tape))
+        entries = select_context_entries(entries, active_context, self._tape_format)
+        messages = build_messages(entries, active_context, self._tape_format)
         if inspect.isawaitable(messages):
             messages = await messages
         return messages
@@ -195,13 +182,12 @@ class AsyncTapeManager:
         state: dict[str, Any] | None = None,
         **meta: Any,
     ) -> list[TapeEntry]:
-        entry = TapeEntry.anchor(name, state=state, **meta)
-        event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
-        await self._tape_store.append(tape, entry)
-        await self._tape_store.append(tape, event)
-        return [entry, event]
+        entries = _handoff_entries(self._tape_format, name, state=state, **meta)
+        for entry in entries:
+            await self._tape_store.append(tape, entry)
+        return entries
 
-    async def record_chat(  # noqa: C901
+    async def record_chat(
         self,
         *,
         tape: str,
@@ -218,35 +204,85 @@ class AsyncTapeManager:
         model: str | None = None,
         usage: dict[str, Any] | None = None,
     ) -> None:
-        meta = {"run_id": run_id}
-        if system_prompt:
-            await self._tape_store.append(tape, TapeEntry.system(system_prompt, **meta))
-        if context_error is not None:
-            await self._tape_store.append(tape, TapeEntry.error(context_error, **meta))
+        for entry in _chat_entries(
+            self._tape_format,
+            run_id=run_id,
+            system_prompt=system_prompt,
+            context_error=context_error,
+            new_messages=new_messages,
+            response_text=response_text,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            error=error,
+            response=response,
+            provider=provider,
+            model=model,
+            usage=usage,
+        ):
+            await self._tape_store.append(tape, entry)
 
-        for message in new_messages:
-            await self._tape_store.append(tape, TapeEntry.message(message, **meta))
 
-        if tool_calls:
-            await self._tape_store.append(tape, TapeEntry.tool_call(tool_calls, **meta))
-        if tool_results is not None:
-            await self._tape_store.append(tape, TapeEntry.tool_result(tool_results, **meta))
+def _handoff_entries(
+    tape_format: TapeFormat,
+    name: str,
+    *,
+    state: dict[str, Any] | None = None,
+    **meta: Any,
+) -> list[TapeEntry]:
+    return [
+        tape_format.anchor(name, state=state, **meta),
+        tape_format.event("handoff", {"name": name, "state": state or {}}, **meta),
+    ]
 
-        if error is not None and error is not context_error:
-            await self._tape_store.append(tape, TapeEntry.error(error, **meta))
 
-        if response_text is not None:
-            await self._tape_store.append(
-                tape,
-                TapeEntry.message({"role": "assistant", "content": response_text}, **meta),
-            )
+def _chat_entries(
+    tape_format: TapeFormat,
+    *,
+    run_id: str,
+    system_prompt: str | None,
+    context_error: RepublicError | None,
+    new_messages: list[dict[str, Any]],
+    response_text: str | None,
+    tool_calls: list[dict[str, Any]] | None = None,
+    tool_results: list[Any] | None = None,
+    error: RepublicError | None = None,
+    response: Any | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    usage: dict[str, Any] | None = None,
+) -> list[TapeEntry]:
+    meta = {"run_id": run_id}
+    entries: list[TapeEntry] = []
+    if system_prompt:
+        entries.append(tape_format.system(system_prompt, **meta))
+    if context_error is not None:
+        entries.append(tape_format.error(context_error, **meta))
+    entries.extend(tape_format.message(message, **meta) for message in new_messages)
+    if tool_calls:
+        entries.append(tape_format.tool_call(tool_calls, **meta))
+    if tool_results is not None:
+        entries.append(tape_format.tool_result(tool_results, **meta))
+    if error is not None and error is not context_error:
+        entries.append(tape_format.error(error, **meta))
+    if response_text is not None:
+        entries.append(tape_format.message({"role": "assistant", "content": response_text}, **meta))
+    entries.append(tape_format.event("run", _run_event_data(error, response, provider, model, usage), **meta))
+    return entries
 
-        data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
-        resolved_usage = usage or TapeManager._extract_usage(response)
-        if resolved_usage is not None:
-            data["usage"] = resolved_usage
-        if provider:
-            data["provider"] = provider
-        if model:
-            data["model"] = model
-        await self._tape_store.append(tape, TapeEntry.event("run", data, **meta))
+
+def _run_event_data(
+    error: RepublicError | None,
+    response: Any | None,
+    provider: str | None,
+    model: str | None,
+    usage: dict[str, Any] | None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
+    resolved_usage = usage or TapeManager._extract_usage(response)
+    if resolved_usage is not None:
+        data["usage"] = resolved_usage
+    if provider:
+        data["provider"] = provider
+    if model:
+        data["model"] = model
+    return data

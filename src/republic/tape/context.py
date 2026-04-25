@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine, Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
+from republic.core.errors import ErrorKind
+from republic.core.results import RepublicError
 from republic.tape.entries import TapeEntry
+from republic.tape.format import DEFAULT_TAPE_FORMAT, SelectedMessages, TapeFormat
 from republic.tape.query import TapeQuery
 
 
@@ -17,7 +20,6 @@ class _LastAnchor:
 
 LAST_ANCHOR = _LastAnchor()
 AnchorSelector: TypeAlias = str | None | _LastAnchor
-SelectedMessages: TypeAlias = list[dict[str, Any]] | Coroutine[Any, Any, list[dict[str, Any]]]
 ContextSelector: TypeAlias = Callable[[Iterable[TapeEntry], "TapeContext"], SelectedMessages]
 
 
@@ -42,19 +44,42 @@ class TapeContext:
         return query.after_anchor(self.anchor)
 
 
-def build_messages(entries: Iterable[TapeEntry], context: TapeContext) -> SelectedMessages:
+def build_messages(
+    entries: Iterable[TapeEntry],
+    context: TapeContext,
+    tape_format: TapeFormat = DEFAULT_TAPE_FORMAT,
+) -> SelectedMessages:
     if context.select is not None:
         return context.select(entries, context)
-    return _default_messages(entries)
+    return tape_format.select_messages(entries, context)
 
 
-def _default_messages(entries: Iterable[TapeEntry]) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = []
-    for entry in entries:
-        if entry.kind != "message":
+def select_context_entries(
+    entries: Iterable[TapeEntry],
+    context: TapeContext,
+    tape_format: TapeFormat = DEFAULT_TAPE_FORMAT,
+) -> list[TapeEntry]:
+    entry_list = list(entries)
+    if context.anchor is None:
+        return entry_list
+    if isinstance(context.anchor, _LastAnchor):
+        anchor_index = _find_anchor(entry_list, None, tape_format)
+        if anchor_index < 0:
+            raise RepublicError(ErrorKind.NOT_FOUND, "No anchors found in tape.")
+        return entry_list[anchor_index + 1 :]
+
+    anchor_index = _find_anchor(entry_list, context.anchor, tape_format)
+    if anchor_index < 0:
+        raise RepublicError(ErrorKind.NOT_FOUND, f"Anchor '{context.anchor}' was not found.")
+    return entry_list[anchor_index + 1 :]
+
+
+def _find_anchor(entries: list[TapeEntry], name: str | None, tape_format: TapeFormat) -> int:
+    for index in range(len(entries) - 1, -1, -1):
+        anchor_name = tape_format.anchor_name(entries[index])
+        if anchor_name is None:
             continue
-        payload = entry.payload
-        if not isinstance(payload, dict):
+        if name is not None and anchor_name != name:
             continue
-        messages.append(dict(payload))
-    return messages
+        return index
+    return -1

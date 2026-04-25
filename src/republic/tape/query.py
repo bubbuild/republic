@@ -8,6 +8,7 @@ from datetime import date as date_type
 from typing import Generic, Self, TypeVar, overload
 
 from republic.tape.entries import TapeEntry
+from republic.tape.format import DEFAULT_TAPE_FORMAT, TapeFormat
 from republic.tape.store import AsyncTapeStore, TapeStore
 
 T = TypeVar("T", bound="TapeStore | AsyncTapeStore", covariant=True)
@@ -17,6 +18,7 @@ T = TypeVar("T", bound="TapeStore | AsyncTapeStore", covariant=True)
 class TapeQuery(Generic[T]):
     tape: str
     store: T
+    tape_format: TapeFormat = DEFAULT_TAPE_FORMAT
     _query: str | None = None
     _after_anchor: str | None = None
     _after_last: bool = False

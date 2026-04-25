@@ -8,6 +8,7 @@ from republic.core.errors import ErrorKind
 from republic.core.results import RepublicError
 from republic.tape.context import LAST_ANCHOR, TapeContext
 from republic.tape.entries import TapeEntry
+from republic.tape.format import RepublicTapeFormat
 from republic.tape.manager import AsyncTapeManager, TapeManager
 from republic.tape.query import TapeQuery
 from republic.tape.store import AsyncTapeStoreAdapter, InMemoryTapeStore
@@ -64,6 +65,123 @@ def test_sync_manager_rejects_async_context_selector(manager) -> None:
         manager.read_messages("test_tape", context=context)
 
 
+class EventTapeFormat(RepublicTapeFormat):
+    name = "test.events"
+    version = "1"
+
+    def message(self, message: dict, **meta) -> TapeEntry:
+        return TapeEntry.event("chat.message", {"message": dict(message)}, **meta)
+
+    def anchor(self, name: str, state: dict | None = None, **meta) -> TapeEntry:
+        return TapeEntry.event("chat.anchor", {"name": name, "state": state or {}}, **meta)
+
+    def anchor_name(self, entry: TapeEntry) -> str | None:
+        name = _event_data(entry, "chat.anchor").get("name")
+        return name if isinstance(name, str) else None
+
+    def entry_kind(self, entry: TapeEntry) -> str:
+        if entry.kind != "event":
+            return entry.kind
+        match entry.payload.get("name"):
+            case "chat.message":
+                return "message"
+            case "chat.anchor":
+                return "anchor"
+            case _:
+                return "event"
+
+    def matches(self, entry: TapeEntry, query: str) -> bool:
+        message = _event_data(entry, "chat.message").get("message")
+        if isinstance(message, dict):
+            return query.casefold() in str(message.get("content", "")).casefold()
+        return super().matches(entry, query)
+
+    def select_messages(self, entries, context):
+        del context
+        messages = []
+        for entry in entries:
+            message = _event_data(entry, "chat.message").get("message")
+            if isinstance(message, dict):
+                messages.append(dict(message))
+        return messages
+
+
+def _event_data(entry: TapeEntry, name: str) -> dict:
+    if entry.kind != "event" or entry.payload.get("name") != name:
+        return {}
+    data = entry.payload.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def _record_chat(manager: TapeManager, content: str, *, tape: str = "custom", run_id: str = "run") -> None:
+    manager.record_chat(
+        tape=tape,
+        run_id=run_id,
+        system_prompt=None,
+        context_error=None,
+        new_messages=[{"role": "user", "content": content}],
+        response_text=None,
+    )
+
+
+async def _record_chat_async(manager: AsyncTapeManager, content: str, *, tape: str = "custom") -> None:
+    await manager.record_chat(
+        tape=tape,
+        run_id="run",
+        system_prompt=None,
+        context_error=None,
+        new_messages=[{"role": "user", "content": content}],
+        response_text=None,
+    )
+
+
+def test_tape_format_owns_entry_shape_and_default_injection() -> None:
+    store = InMemoryTapeStore()
+    manager = TapeManager(store=store, default_context=TapeContext(anchor=None), tape_format=EventTapeFormat())
+
+    manager.record_chat(
+        tape="custom",
+        run_id="run_1",
+        system_prompt=None,
+        context_error=None,
+        new_messages=[{"role": "user", "content": "hello"}],
+        response_text="hi",
+    )
+
+    entries = store.read("custom") or []
+    assert [entry.kind for entry in entries] == ["event", "event", "event"]
+    assert entries[0].payload["name"] == "chat.message"
+    assert manager.read_messages("custom") == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi"},
+    ]
+
+
+def test_tape_format_owns_anchor_shape_for_context_injection() -> None:
+    store = InMemoryTapeStore()
+    manager = TapeManager(store=store, tape_format=EventTapeFormat())
+
+    _record_chat(manager, "before", run_id="run_1")
+    manager.handoff("custom", "phase")
+    _record_chat(manager, "after", run_id="run_2")
+
+    assert manager.read_messages("custom") == [{"role": "user", "content": "after"}]
+
+
+def test_tape_query_uses_format_for_anchor_kind_and_text() -> None:
+    store = InMemoryTapeStore()
+    manager = TapeManager(store=store, tape_format=EventTapeFormat())
+
+    _record_chat(manager, "before", run_id="run_1")
+    manager.handoff("custom", "phase")
+    _record_chat(manager, "after", run_id="run_2")
+
+    entries = list(manager.query_tape("custom").last_anchor().kinds("message").query("after").all())
+
+    assert len(entries) == 1
+    assert entries[0].payload["data"]["message"]["content"] == "after"
+
+
 @pytest.mark.asyncio
 async def test_async_manager_awaits_context_selector_after_anchor_slice() -> None:
     sync_store = InMemoryTapeStore()
@@ -87,6 +205,22 @@ async def test_async_manager_awaits_context_selector_after_anchor_slice() -> Non
         "contents": ["task 2"],
         "state": {"prefix": "summary"},
     }
+
+
+@pytest.mark.asyncio
+async def test_async_tape_format_owns_entry_shape_and_default_injection() -> None:
+    store = InMemoryTapeStore()
+    manager = AsyncTapeManager(
+        store=AsyncTapeStoreAdapter(store),
+        default_context=TapeContext(anchor=None),
+        tape_format=EventTapeFormat(),
+    )
+
+    await _record_chat_async(manager, "hello")
+
+    entries = store.read("custom") or []
+    assert [entry.kind for entry in entries] == ["event", "event"]
+    assert await manager.read_messages("custom") == [{"role": "user", "content": "hello"}]
 
 
 def test_query_between_anchors_and_limit() -> None:

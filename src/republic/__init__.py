@@ -19,22 +19,36 @@ from republic.core.results import (
     ToolAutoResult,
 )
 from republic.llm import LLM
-from republic.tape import AsyncTapeManager, AsyncTapeStore, Tape, TapeContext, TapeEntry, TapeManager, TapeQuery
+from republic.tape import (
+    DEFAULT_TAPE_FORMAT,
+    AsyncTapeManager,
+    AsyncTapeStore,
+    RepublicTapeFormat,
+    Tape,
+    TapeContext,
+    TapeEntry,
+    TapeFormat,
+    TapeManager,
+    TapeQuery,
+)
 from republic.tools import Tool, ToolContext, ToolSet, schema_from_model, tool, tool_from_model
 
 __all__ = [
+    "DEFAULT_TAPE_FORMAT",
     "LLM",
     "AsyncStreamEvents",
     "AsyncTapeManager",
     "AsyncTapeStore",
     "AsyncTextStream",
     "RepublicError",
+    "RepublicTapeFormat",
     "StreamEvent",
     "StreamEvents",
     "StreamState",
     "Tape",
     "TapeContext",
     "TapeEntry",
+    "TapeFormat",
     "TapeManager",
     "TapeQuery",
     "TextStream",

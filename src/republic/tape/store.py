@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, time
 from datetime import date as date_type
@@ -15,8 +14,8 @@ from republic.core.results import RepublicError
 from republic.tape.entries import TapeEntry
 
 if TYPE_CHECKING:
+    from republic.tape.format import TapeFormat
     from republic.tape.query import TapeQuery
-
 
 class TapeStore(Protocol):
     """Append-only tape storage interface."""
@@ -29,7 +28,6 @@ class TapeStore(Protocol):
 
     def append(self, tape: str, entry: TapeEntry) -> None: ...
 
-
 class AsyncTapeStore(Protocol):
     """Async append-only tape storage interface."""
 
@@ -41,14 +39,13 @@ class AsyncTapeStore(Protocol):
 
     async def append(self, tape: str, entry: TapeEntry) -> None: ...
 
-
 def is_async_tape_store(store: TapeStore | AsyncTapeStore) -> TypeGuard[AsyncTapeStore]:
     return hasattr(store, "append") and inspect.iscoroutinefunction(store.append)
-
 
 def _anchor_index(
     entries: Sequence[TapeEntry],
     name: str | None,
+    tape_format: TapeFormat,
     *,
     default: int,
     forward: bool,
@@ -57,13 +54,13 @@ def _anchor_index(
     rng = range(start, len(entries)) if forward else range(len(entries) - 1, start - 1, -1)
     for idx in rng:
         entry = entries[idx]
-        if entry.kind != "anchor":
+        anchor_name = tape_format.anchor_name(entry)
+        if anchor_name is None:
             continue
-        if name is not None and entry.payload.get("name") != name:
+        if name is not None and anchor_name != name:
             continue
         return idx
     return default
-
 
 def _parse_datetime_boundary(value: str, *, is_end: bool) -> datetime:
     if "T" not in value and " " not in value:
@@ -87,26 +84,9 @@ def _parse_datetime_boundary(value: str, *, is_end: bool) -> datetime:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
 
-
 def _entry_in_datetime_range(entry: TapeEntry, start_dt: datetime, end_dt: datetime) -> bool:
     entry_dt = _parse_datetime_boundary(entry.date, is_end=False)
     return start_dt <= entry_dt <= end_dt
-
-
-def _entry_matches_query(entry: TapeEntry, query: str) -> bool:
-    needle = query.casefold()
-    haystack = json.dumps(
-        {
-            "kind": entry.kind,
-            "date": entry.date,
-            "payload": entry.payload,
-            "meta": entry.meta,
-        },
-        sort_keys=True,
-        default=str,
-    ).casefold()
-    return needle in haystack
-
 
 class InMemoryQueryMixin:
     """Mixin to implement query() in-memory for simple stores."""
@@ -121,21 +101,21 @@ class InMemoryQueryMixin:
 
         if query._between_anchors is not None:
             start_name, end_name = query._between_anchors
-            start_idx = _anchor_index(entries, start_name, default=-1, forward=False)
+            start_idx = _anchor_index(entries, start_name, query.tape_format, default=-1, forward=False)
             if start_idx < 0:
                 raise RepublicError(ErrorKind.NOT_FOUND, f"Anchor '{start_name}' was not found.")
-            end_idx = _anchor_index(entries, end_name, default=-1, forward=True, start=start_idx + 1)
+            end_idx = _anchor_index(entries, end_name, query.tape_format, default=-1, forward=True, start=start_idx + 1)
             if end_idx < 0:
                 raise RepublicError(ErrorKind.NOT_FOUND, f"Anchor '{end_name}' was not found.")
             start_index = min(start_idx + 1, len(entries))
             end_index = min(max(start_index, end_idx), len(entries))
         elif query._after_last:
-            anchor_index = _anchor_index(entries, None, default=-1, forward=False)
+            anchor_index = _anchor_index(entries, None, query.tape_format, default=-1, forward=False)
             if anchor_index < 0:
                 raise RepublicError(ErrorKind.NOT_FOUND, "No anchors found in tape.")
             start_index = min(anchor_index + 1, len(entries))
         elif query._after_anchor is not None:
-            anchor_index = _anchor_index(entries, query._after_anchor, default=-1, forward=False)
+            anchor_index = _anchor_index(entries, query._after_anchor, query.tape_format, default=-1, forward=False)
             if anchor_index < 0:
                 raise RepublicError(ErrorKind.NOT_FOUND, f"Anchor '{query._after_anchor}' was not found.")
             start_index = min(anchor_index + 1, len(entries))
@@ -149,13 +129,12 @@ class InMemoryQueryMixin:
                 raise RepublicError(ErrorKind.INVALID_INPUT, "Start date must be earlier than or equal to end date.")
             sliced = [entry for entry in sliced if _entry_in_datetime_range(entry, start_dt, end_dt)]
         if query._query:
-            sliced = [entry for entry in sliced if _entry_matches_query(entry, query._query)]
+            sliced = [entry for entry in sliced if query.tape_format.matches(entry, query._query)]
         if query._kinds:
-            sliced = [entry for entry in sliced if entry.kind in query._kinds]
+            sliced = [entry for entry in sliced if query.tape_format.entry_kind(entry) in query._kinds]
         if query._limit is not None:
             sliced = sliced[: query._limit]
         return sliced
-
 
 class InMemoryTapeStore(InMemoryQueryMixin):
     """In-memory tape storage (not thread-safe)."""
@@ -183,7 +162,6 @@ class InMemoryTapeStore(InMemoryQueryMixin):
         stored = TapeEntry(next_id, entry.kind, dict(entry.payload), dict(entry.meta), entry.date)
         self._tapes.setdefault(tape, []).append(stored)
 
-
 class AsyncTapeStoreAdapter:
     """Adapt a sync TapeStore to AsyncTapeStore."""
 
@@ -201,7 +179,6 @@ class AsyncTapeStoreAdapter:
 
     async def append(self, tape: str, entry: TapeEntry) -> None:
         await asyncio.to_thread(self._store.append, tape, entry)
-
 
 class UnavailableTapeStore:
     """Sync TapeStore sentinel that always fails with a clear message."""

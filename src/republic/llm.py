@@ -22,12 +22,14 @@ from republic.core.results import (
     ToolAutoResult,
 )
 from republic.tape import (
+    DEFAULT_TAPE_FORMAT,
     AsyncTapeManager,
     AsyncTapeStore,
     AsyncTapeStoreAdapter,
     InMemoryTapeStore,
     Tape,
     TapeContext,
+    TapeFormat,
     TapeManager,
     TapeStore,
 )
@@ -54,6 +56,7 @@ class LLM:
         verbose: int = 0,
         tape_store: TapeStore | AsyncTapeStore | None = None,
         context: TapeContext | None = None,
+        tape_format: TapeFormat = DEFAULT_TAPE_FORMAT,
         error_classifier: Callable[[Exception], ErrorKind | None] | None = None,
     ) -> None:
         if verbose not in (0, 1, 2):
@@ -100,8 +103,8 @@ class LLM:
             sync_tape_store = tape_store
             async_tape_store = AsyncTapeStoreAdapter(tape_store)
 
-        self._tape = TapeManager(store=sync_tape_store, default_context=context)
-        self._async_tape = AsyncTapeManager(store=async_tape_store, default_context=context)
+        self._tape = TapeManager(store=sync_tape_store, default_context=context, tape_format=tape_format)
+        self._async_tape = AsyncTapeManager(store=async_tape_store, default_context=context, tape_format=tape_format)
         self._chat_client = ChatClient(
             self._core,
             tool_executor,
