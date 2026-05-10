@@ -1,6 +1,6 @@
 [project]
 name = "republic"
-version = "0.5.7"
+version = "0.5.8"
 description = "Build LLM workflows like normal Python while keeping a full audit trail by default."
 authors = [
     { name = "Chojan Shang", email = "psiace@apache.org" },
