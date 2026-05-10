@@ -6,7 +6,6 @@ import warnings
 from collections.abc import Callable
 from typing import Any, Literal, cast
 
-from republic.__about__ import DEFAULT_MODEL
 from republic.auth import APIKeyResolver
 from republic.clients._internal import InternalOps
 from republic.clients.chat import ChatClient
@@ -34,6 +33,8 @@ from republic.tape import (
 from republic.tape.store import UnavailableTapeStore, is_async_tape_store
 from republic.tools.executor import ToolExecutor
 from republic.tools.schema import ToolInput
+
+DEFAULT_MODEL = "openrouter:free"
 
 
 class LLM:

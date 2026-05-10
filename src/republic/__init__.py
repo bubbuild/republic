@@ -1,5 +1,9 @@
 """Republic public API."""
 
+from importlib import import_module
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as metadata_version
+
 from republic.auth import (
     github_copilot_oauth_resolver,
     load_openai_codex_oauth_tokens,
@@ -52,3 +56,11 @@ __all__ = [
     "tool",
     "tool_from_model",
 ]
+
+try:
+    __version__ = import_module("republic._version").version
+except ModuleNotFoundError:
+    try:
+        __version__ = metadata_version("republic")
+    except PackageNotFoundError:
+        __version__ = "0.0.0"
