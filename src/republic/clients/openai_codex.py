@@ -135,7 +135,7 @@ class OpenAICodexProvider(BaseOpenAIProvider):
         payload: dict[str, Any] = {
             "id": getattr(completed_response, "id", None) or "resp_codex",
             "created_at": getattr(completed_response, "created_at", None) or 0,
-            "model": getattr(completed_response, "model", None) or "gpt-5-codex",
+            "model": getattr(completed_response, "model", None) or "gpt-5.3-codex",
             "object": getattr(completed_response, "object", None) or "response",
             "output": OpenAICodexProvider._build_response_output(
                 completed_response=completed_response,

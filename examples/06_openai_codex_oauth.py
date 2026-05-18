@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("REPUBLIC_CODEX_MODEL", "openai:gpt-5-codex"),
+        default=os.getenv("REPUBLIC_CODEX_MODEL", "openai:gpt-5.3-codex"),
         help="Model to use after login.",
     )
     parser.add_argument(
@@ -48,13 +48,15 @@ def prompt_for_redirect(authorize_url: str) -> str:
 def main() -> None:
     args = parse_args()
 
+    resolver = openai_codex_oauth_resolver()
     tokens = load_openai_codex_oauth_tokens()
-    if tokens is None or args.force_login:
+    if args.force_login or resolver("openai") is None:
         tokens = login_openai_codex_oauth(
             prompt_for_redirect=None,
         )
         print("login: ok")
     else:
+        tokens = load_openai_codex_oauth_tokens()
         print("login: reused")
     print("account_id:", tokens.account_id or "-")
 
@@ -63,7 +65,7 @@ def main() -> None:
 
     llm = LLM(
         model=args.model,
-        api_key_resolver=openai_codex_oauth_resolver(),
+        api_key_resolver=resolver,
     )
     out = llm.chat(args.prompt)
     print("text:", out)

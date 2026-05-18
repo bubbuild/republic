@@ -121,14 +121,14 @@ def _run_mock(model: str) -> None:
     import republic.core.execution as execution_module
 
     original_http_client = auth_module.httpx.Client
-    original_anyllm_create = execution_module.AnyLLM.create
+    original_create_anyllm_client = execution_module.create_anyllm_client
 
     def _create_mock_client(provider: str, **kwargs: Any) -> FakeGitHubModelsClient:
         del provider, kwargs
         return FakeGitHubModelsClient()
 
     auth_module.httpx.Client = FakeHTTPClient
-    execution_module.AnyLLM.create = _create_mock_client
+    execution_module.create_anyllm_client = _create_mock_client
 
     try:
         with tempfile.TemporaryDirectory(prefix="republic-copilot-smoke-") as temp_dir:
@@ -151,7 +151,7 @@ def _run_mock(model: str) -> None:
             print("mock chat:", text)
     finally:
         auth_module.httpx.Client = original_http_client
-        execution_module.AnyLLM.create = original_anyllm_create
+        execution_module.create_anyllm_client = original_create_anyllm_client
 
 
 def _run_live(model: str, prompt: str) -> None:

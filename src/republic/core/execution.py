@@ -128,13 +128,17 @@ class LLMCore:
                 )
             return provider, model
 
-        if ":" not in model:
-            raise RepublicError(ErrorKind.INVALID_INPUT, "Model must be in 'provider:model' format.")
+        try:
+            provider_name, model_id = AnyLLM.split_model_provider(model)
+        except Exception as exc:
+            if ":" not in model:
+                raise RepublicError(ErrorKind.INVALID_INPUT, "Model must be in 'provider:model' format.") from exc
+            provider_name, model_id = model.split(":", 1)
 
-        provider_name, model_id = model.split(":", 1)
-        if not provider_name or not model_id:
+        provider_value = getattr(provider_name, "value", provider_name)
+        if not provider_value or not model_id:
             raise RepublicError(ErrorKind.INVALID_INPUT, "Model must be in 'provider:model' format.")
-        return provider_name, model_id
+        return str(provider_value), model_id
 
     def resolve_fallback(self, model: str) -> tuple[str, str]:
         if ":" in model:
@@ -369,10 +373,9 @@ class LLMCore:
         self, provider: str, max_tokens: int | None, kwargs: dict[str, Any]
     ) -> dict[str, Any]:
         clean_kwargs = dict(kwargs)
-        max_tokens_arg = provider_policies.completion_max_tokens_arg(provider)
-        if max_tokens_arg in clean_kwargs:
+        if "max_tokens" in clean_kwargs or max_tokens is None:
             return clean_kwargs
-        return {**clean_kwargs, max_tokens_arg: max_tokens}
+        return {**clean_kwargs, "max_tokens": max_tokens}
 
     def _decide_responses_kwargs(
         self,
@@ -461,14 +464,13 @@ class LLMCore:
             ):
                 raise RepublicError(
                     ErrorKind.INVALID_INPUT,
-                    f"{provider_name}:{model_id}: messages format is only valid for Anthropic models",
+                    f"{provider_name}:{model_id}: messages format is not supported by this provider",
                 )
             return "messages"
 
         reason = provider_policies.responses_rejection_reason(
             provider_name=provider_name,
             model_id=model_id,
-            has_tools=bool(tools_payload),
             supports_responses=bool(getattr(client, "SUPPORTS_RESPONSES", False)),
         )
         if reason is not None:

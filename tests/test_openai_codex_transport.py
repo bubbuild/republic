@@ -90,7 +90,7 @@ def _async_items(*items: Any):
 def _build_codex_llm(
     monkeypatch,
     *queued_responses: Any,
-    model: str = "openai:gpt-5-codex",
+    model: str = "openai:gpt-5.3-codex",
 ) -> tuple[LLM, list[dict[str, Any]], list[dict[str, Any]]]:
     init_calls: list[dict[str, Any]] = []
     api_calls: list[dict[str, Any]] = []

@@ -219,7 +219,7 @@ def make_responses_response(
     return Response.model_validate({
         "id": "resp_1",
         "created_at": 1,
-        "model": "gpt-5-codex",
+        "model": "gpt-5.3-codex",
         "object": "response",
         "output": output,
         "parallel_tool_calls": False,
@@ -279,7 +279,7 @@ def make_responses_completed(usage: dict[str, Any] | None = None) -> Any:
 def make_responses_completed_with_empty_output(
     usage: dict[str, Any] | None = None,
     *,
-    model: str = "gpt-5-codex",
+    model: str = "gpt-5.3-codex",
 ) -> Any:
     """Simulate a Codex backend response.completed event with an SDK Response whose output is empty."""
     full_usage: dict[str, Any] = {

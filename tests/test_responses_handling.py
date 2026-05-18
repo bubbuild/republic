@@ -106,16 +106,15 @@ def test_responses_api_format_uses_responses(fake_anyllm) -> None:
     assert client.calls[-1]["input_data"][0]["role"] == "user"
 
 
-def test_openrouter_responses_works_even_if_provider_flag_is_false(fake_anyllm) -> None:
+def test_openrouter_responses_follows_sdk_metadata(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openrouter")
     client.SUPPORTS_RESPONSES = False
-    client.queue_responses(make_responses_response(text="hello"))
 
     llm = LLM(model="openrouter:openrouter/free", api_key="dummy", api_format="responses")
-    result = llm.chat("hi")
 
-    assert result == "hello"
-    assert client.calls[-1].get("responses") is True
+    with pytest.raises(RepublicError) as exc_info:
+        llm.chat("hi")
+    assert exc_info.value.kind == "invalid_input"
 
 
 def test_openrouter_anthropic_tools_rejects_responses_format(fake_anyllm) -> None:
@@ -144,11 +143,12 @@ def test_messages_format_maps_to_completion(fake_anyllm) -> None:
     assert client.calls[-1].get("responses") is None
 
 
-def test_messages_format_rejects_non_anthropic_model(fake_anyllm) -> None:
+def test_messages_format_uses_sdk_metadata(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(text="hello"))
+
     llm = LLM(model="openai:gpt-4o-mini", api_key="dummy", api_format="messages")
-    with pytest.raises(RepublicError) as exc_info:
-        llm.chat("hi")
-    assert exc_info.value.kind == "invalid_input"
+    assert llm.chat("hi") == "hello"
 
 
 def test_responses_tool_choice_accepts_completion_function_shape(fake_anyllm) -> None:
@@ -660,7 +660,7 @@ def test_stream_completion_defaults_include_usage(fake_anyllm) -> None:
     assert client.calls[-1].get("stream_options") == {"include_usage": True}
 
 
-def test_openai_completion_uses_max_completion_tokens(fake_anyllm) -> None:
+def test_openai_completion_passes_max_tokens_to_anyllm(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openai")
     client.queue_completion(make_response(text="hello"))
 
@@ -668,8 +668,8 @@ def test_openai_completion_uses_max_completion_tokens(fake_anyllm) -> None:
     assert llm.chat("Say hello", max_tokens=11) == "hello"
 
     call = client.calls[-1]
-    assert call.get("max_completion_tokens") == 11
-    assert "max_tokens" not in call
+    assert call.get("max_tokens") == 11
+    assert "max_completion_tokens" not in call
 
 
 def test_non_openai_completion_uses_max_tokens(fake_anyllm) -> None:

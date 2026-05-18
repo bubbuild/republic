@@ -1,34 +1,48 @@
-"""Provider policy decisions shared across request paths."""
+"""Provider capability decisions shared across request paths."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from any_llm import AnyLLM
+from any_llm.exceptions import UnsupportedProviderError
+from any_llm.types.provider import ProviderMetadata
+
 
 @dataclass(frozen=True)
 class ProviderPolicy:
-    enable_responses_without_capability: bool = False
     include_usage_in_completion_stream: bool = False
-    completion_max_tokens_arg: str = "max_tokens"
-    responses_tools_blocked_model_prefixes: tuple[str, ...] = ()
+    metadata: ProviderMetadata | None = None
 
 
 _DEFAULT_POLICY = ProviderPolicy()
 _POLICIES: dict[str, ProviderPolicy] = {
     "github-copilot": ProviderPolicy(
         include_usage_in_completion_stream=True,
-        completion_max_tokens_arg="max_tokens",
+        metadata=ProviderMetadata(
+            name="github-copilot",
+            env_key="GITHUB_TOKEN",
+            env_api_base=None,
+            doc_url="https://docs.github.com/en/copilot",
+            streaming=True,
+            reasoning=False,
+            completion=True,
+            embedding=False,
+            responses=False,
+            image=True,
+            pdf=True,
+            class_name="GitHubCopilotProvider",
+            list_models=False,
+            messages=True,
+            batch_completion=False,
+        ),
     ),
+    # Stream usage is not represented in any-llm provider metadata. Keep this as
+    # a narrow default for providers whose SDK path accepts OpenAI stream_options.
     "openai": ProviderPolicy(
         include_usage_in_completion_stream=True,
-        completion_max_tokens_arg="max_completion_tokens",
     ),
-    # any-llm supports OpenRouter responses in practice but still reports SUPPORTS_RESPONSES=False.
-    "openrouter": ProviderPolicy(
-        enable_responses_without_capability=True,
-        include_usage_in_completion_stream=True,
-        responses_tools_blocked_model_prefixes=("anthropic/",),
-    ),
+    "openrouter": ProviderPolicy(include_usage_in_completion_stream=True),
 }
 
 
@@ -40,37 +54,37 @@ def provider_policy(provider_name: str) -> ProviderPolicy:
     return _POLICIES.get(_normalize_provider_name(provider_name), _DEFAULT_POLICY)
 
 
-def _responses_tools_blocked_for_model(provider_name: str, model_id: str) -> bool:
-    policy = provider_policy(provider_name)
-    lowered_model = model_id.strip().lower()
-    return any(lowered_model.startswith(prefix) for prefix in policy.responses_tools_blocked_model_prefixes)
+def provider_metadata(provider_name: str) -> ProviderMetadata | None:
+    normalized_provider = _normalize_provider_name(provider_name)
+    local_metadata = provider_policy(normalized_provider).metadata
+    if local_metadata is not None:
+        return local_metadata
+    try:
+        return AnyLLM.get_provider_class(normalized_provider).get_provider_metadata()
+    except (AttributeError, ImportError, UnsupportedProviderError):
+        return None
 
 
 def responses_rejection_reason(
     *,
     provider_name: str,
     model_id: str,
-    has_tools: bool,
     supports_responses: bool,
 ) -> str | None:
-    if has_tools and _responses_tools_blocked_for_model(provider_name, model_id):
-        return "responses format is not supported for this model when tools are enabled"
     if supports_responses:
         return None
-    if provider_policy(provider_name).enable_responses_without_capability:
+    metadata = provider_metadata(provider_name)
+    if metadata is not None and metadata.responses:
         return None
     return "responses format is not supported by this provider"
 
 
 def supports_messages_format(*, provider_name: str, model_id: str) -> bool:
-    normalized_provider = _normalize_provider_name(provider_name)
-    normalized_model = model_id.strip().lower()
-    return normalized_provider == "anthropic" or normalized_model.startswith("anthropic/")
+    metadata = provider_metadata(provider_name)
+    if metadata is not None:
+        return metadata.messages
+    return model_id.strip().lower().startswith("anthropic/")
 
 
 def should_include_completion_stream_usage(provider_name: str) -> bool:
     return provider_policy(provider_name).include_usage_in_completion_stream
-
-
-def completion_max_tokens_arg(provider_name: str) -> str:
-    return provider_policy(provider_name).completion_max_tokens_arg
