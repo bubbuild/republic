@@ -17,6 +17,7 @@ class GitHubCopilotProvider(BaseOpenAIProvider):
     API_BASE = DEFAULT_GITHUB_COPILOT_API_BASE
     SUPPORTS_RESPONSES = False
     SUPPORTS_EMBEDDING = False
+    SUPPORTS_MODERATION = False
     SUPPORTS_LIST_MODELS = False
     SUPPORTS_BATCH = False
 

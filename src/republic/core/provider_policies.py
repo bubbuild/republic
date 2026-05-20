@@ -8,6 +8,8 @@ from any_llm import AnyLLM
 from any_llm.exceptions import UnsupportedProviderError
 from any_llm.types.provider import ProviderMetadata
 
+from republic.clients.github_copilot import GitHubCopilotProvider
+
 
 @dataclass(frozen=True)
 class ProviderPolicy:
@@ -19,23 +21,7 @@ _DEFAULT_POLICY = ProviderPolicy()
 _POLICIES: dict[str, ProviderPolicy] = {
     "github-copilot": ProviderPolicy(
         include_usage_in_completion_stream=True,
-        metadata=ProviderMetadata(
-            name="github-copilot",
-            env_key="GITHUB_TOKEN",
-            env_api_base=None,
-            doc_url="https://docs.github.com/en/copilot",
-            streaming=True,
-            reasoning=False,
-            completion=True,
-            embedding=False,
-            responses=False,
-            image=True,
-            pdf=True,
-            class_name="GitHubCopilotProvider",
-            list_models=False,
-            messages=True,
-            batch_completion=False,
-        ),
+        metadata=GitHubCopilotProvider.get_provider_metadata(),
     ),
     # Stream usage is not represented in any-llm provider metadata. Keep this as
     # a narrow default for providers whose SDK path accepts OpenAI stream_options.
