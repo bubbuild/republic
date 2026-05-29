@@ -5,25 +5,27 @@
 ## if_
 
 ```python
-from republic import LLM
+from republic import LLM, RepublicError
 
 llm = LLM(model="openrouter:openai/gpt-4o-mini", api_key="<API_KEY>")
-decision = llm.if_("The release is blocked by a migration failure.", "Should we page on-call now?")
-
-print(decision.value)  # bool | None
-print(decision.error)
+try:
+    decision = llm.if_("The release is blocked by a migration failure.", "Should we page on-call now?")
+    print(decision)  # bool
+except RepublicError as error:
+    print(error.kind, error.message)
 ```
 
 ## classify
 
 ```python
-label = llm.classify(
-    "User asks for invoice and tax receipt.",
-    ["sales", "support", "finance"],
-)
-
-print(label.value)     # one of choices | None
-print(label.error)
+try:
+    label = llm.classify(
+        "User asks for invoice and tax receipt.",
+        ["sales", "support", "finance"],
+    )
+    print(label)  # one of choices
+except RepublicError as error:
+    print(error.kind, error.message)
 ```
 
 ## Usage Tips

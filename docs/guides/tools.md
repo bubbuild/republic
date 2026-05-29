@@ -31,10 +31,16 @@ print(out.error)
 ## Manual Execution (More Control)
 
 ```python
-calls = llm.tool_calls("Use get_weather for Berlin.", tools=[get_weather])
-execution = llm.tools.execute(calls, tools=[get_weather])
-print(execution.tool_results)
-print(execution.error)
+from republic import RepublicError
+
+try:
+    calls = llm.tool_calls("Use get_weather for Berlin.", tools=[get_weather])
+    execution = llm.tools.execute(calls, tools=[get_weather])
+except RepublicError as error:
+    print(error.kind, error.message)
+else:
+    print(execution.tool_results)
+    print(execution.error)
 ```
 
 ## Tools with Context

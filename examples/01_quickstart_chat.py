@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from republic import LLM
+from republic import LLM, RepublicError
 
 
 class MissingEnvVarError(RuntimeError):
@@ -22,12 +22,12 @@ def main() -> None:
     model = os.getenv("REPUBLIC_CHAT_MODEL", "openrouter:openrouter/free")
 
     llm = LLM(model=model, api_key=api_key)
-    out = llm.chat("Explain tape-first in one sentence.", max_tokens=48)
-
-    if out.error:
-        print("error:", out.error.kind, out.error.message)
+    try:
+        out = llm.chat("Explain tape-first in one sentence.", max_tokens=48)
+    except RepublicError as error:
+        print("error:", error.kind, error.message)
         return
-    print("text:", out.value)
+    print("text:", out)
 
 
 if __name__ == "__main__":
