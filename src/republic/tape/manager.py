@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import copy
 import inspect
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any, cast
 
 import republic.tape.anchor as tape_anchor
+from republic.core.errors import ErrorKind
 from republic.core.results import RepublicError
 from republic.tape.context import LAST_ANCHOR, TapeContext, build_messages
 from republic.tape.entries import TapeEntry
@@ -19,7 +21,99 @@ from republic.tape.store import (
     TapeStore,
     is_async_tape_store,
 )
-from republic.tape.stream import AsyncTapeStream, TapeStream
+from republic.tape.view import (
+    TAPE_NOW,
+    TAPE_START,
+    TapeInfo,
+    TapeView,
+    entry_offset,
+    offset_id,
+)
+
+
+def _validate_record_kind(kind: str) -> None:
+    if not isinstance(kind, str) or not kind:
+        raise RepublicError(ErrorKind.INVALID_INPUT, "Tape entry kind must be a non-empty string.")
+    if kind in tape_anchor.STRUCTURAL_ENTRY_KINDS:
+        raise RepublicError(ErrorKind.INVALID_INPUT, f"'{kind}' is reserved for structural tape entries.")
+
+
+def _read_view(entries: list[TapeEntry], query: TapeQuery[Any]) -> TapeView:
+    offset = _tail_offset(entries) if query.offset == TAPE_NOW else query.offset
+    start_id = offset_id(offset)
+    closed = _closed_entry(entries)
+    closed_id = closed.id if closed is not None and query.stops_at_close else None
+    view_entries: list[TapeEntry] = []
+    next_offset = offset
+
+    for entry in entries:
+        if entry.id <= start_id:
+            continue
+        if closed_id is not None and entry.id > closed_id:
+            break
+        if _is_anchor_entry(entry):
+            if query.includes_anchors:
+                view_entries.append(entry.copy())
+            next_offset = entry_offset(entry)
+            if query.stops_at_close and _is_close_entry(entry):
+                return TapeView(tuple(view_entries), next_offset, up_to_date=True, closed=True)
+            continue
+        view_entries.append(entry.copy())
+        next_offset = entry_offset(entry)
+        if query.limit_value is not None and len(view_entries) >= query.limit_value:
+            return TapeView(tuple(view_entries), next_offset, up_to_date=False, closed=False)
+
+    return TapeView(
+        entries=tuple(view_entries),
+        next_offset=next_offset,
+        up_to_date=True,
+        closed=closed is not None,
+    )
+
+
+def _is_anchor_entry(entry: TapeEntry) -> bool:
+    return entry.kind == tape_anchor.TAPE_ANCHOR_KIND
+
+
+def _is_close_entry(entry: TapeEntry) -> bool:
+    return tape_anchor.name(entry) == tape_anchor.TAPE_CLOSE_ANCHOR
+
+
+def _closed_entry(entries: Sequence[TapeEntry]) -> TapeEntry | None:
+    for entry in entries:
+        if _is_close_entry(entry):
+            return entry
+    return None
+
+
+def _visible_entries(entries: Sequence[TapeEntry]) -> list[TapeEntry]:
+    closed = _closed_entry(entries)
+    boundary = closed.id if closed is not None else None
+    return [entry for entry in entries if not _is_anchor_entry(entry) and (boundary is None or entry.id < boundary)]
+
+
+def _tail_offset(entries: Sequence[TapeEntry]) -> str:
+    visible = _visible_entries(entries)
+    if visible:
+        return entry_offset(visible[-1])
+    closed = _closed_entry(entries)
+    if closed is not None:
+        return entry_offset(closed)
+    return TAPE_START
+
+
+def _is_close_offset(entries: Sequence[TapeEntry], entry_id: int) -> bool:
+    return len(entries) == 1 and entries[0].id == entry_id and _is_close_entry(entries[0])
+
+
+def _tape_info(entries: Sequence[TapeEntry]) -> TapeInfo:
+    closed = _closed_entry(entries)
+    return TapeInfo(
+        tail_offset=_tail_offset(entries),
+        entry_count=len(_visible_entries(entries)),
+        closed=closed is not None,
+        closed_offset=entry_offset(closed) if closed is not None else None,
+    )
 
 
 def _anchor_state(entry: TapeEntry) -> dict[str, Any]:
@@ -95,8 +189,57 @@ class TapeManager:
     def query_tape(self, tape: str) -> TapeQuery[TapeStore]:
         return TapeQuery(tape=tape, store=self._tape_store)
 
-    def stream_tape(self, tape: str) -> TapeStream:
-        return TapeStream(self._tape_store, tape)
+    def append_record(
+        self,
+        tape: str,
+        payload: Any,
+        *,
+        kind: str = "record",
+        content_type: str | None = None,
+        **meta: Any,
+    ) -> str:
+        _validate_record_kind(kind)
+        if self.tape_info(tape).closed:
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Cannot append to a closed tape.")
+        stored = self._tape_store.append(
+            tape,
+            TapeEntry.record(payload, kind=kind, content_type=content_type, **meta),
+        )
+        return entry_offset(stored)
+
+    def append_anchor(self, tape: str, name: str, payload: Any | None = None, **meta: Any) -> str:
+        tape_anchor.validate(name, custom=True)
+        if self.tape_info(tape).closed:
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Cannot append anchor entries to a closed tape.")
+        stored = self._tape_store.append(tape, TapeEntry.anchor(name, payload, **meta))
+        return entry_offset(stored)
+
+    def read_view(self, tape: str, query: TapeQuery[Any] | None = None) -> TapeView:
+        active_query = query or TapeQuery()
+        if active_query.offset == TAPE_NOW:
+            entries = self._tape_store.read(tape)
+        else:
+            start_id = offset_id(active_query.offset)
+            entries = self._tape_store.read(tape, after=start_id)
+            if (
+                not entries
+                and start_id > 0
+                and active_query.stops_at_close
+                and _is_close_offset(self._tape_store.read(tape, after=start_id - 1, limit=1), start_id)
+            ):
+                return TapeView((), active_query.offset, up_to_date=True, closed=True)
+        return _read_view(entries, active_query)
+
+    def close_tape(self, tape: str, payload: Any | None = None) -> str:
+        entries = self._tape_store.read(tape)
+        closed = _closed_entry(entries)
+        if closed is not None:
+            return entry_offset(closed)
+        stored = self._tape_store.append(tape, TapeEntry.anchor(tape_anchor.TAPE_CLOSE_ANCHOR, payload))
+        return entry_offset(stored)
+
+    def tape_info(self, tape: str) -> TapeInfo:
+        return _tape_info(self._tape_store.read(tape))
 
     def handoff(
         self,
@@ -201,11 +344,57 @@ class AsyncTapeManager:
     def query_tape(self, tape: str) -> TapeQuery[AsyncTapeStore]:
         return TapeQuery(tape=tape, store=self._tape_store)
 
-    def stream_tape(self, tape: str) -> AsyncTapeStream:
-        return AsyncTapeStream(self._tape_store, tape)
-
     async def list_tapes(self) -> list[str]:
         return await self._tape_store.list_tapes()
+
+    async def append_record(
+        self,
+        tape: str,
+        payload: Any,
+        *,
+        kind: str = "record",
+        content_type: str | None = None,
+        **meta: Any,
+    ) -> str:
+        _validate_record_kind(kind)
+        if (await self.tape_info(tape)).closed:
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Cannot append to a closed tape.")
+        stored = await self._tape_store.append(
+            tape,
+            TapeEntry.record(payload, kind=kind, content_type=content_type, **meta),
+        )
+        return entry_offset(stored)
+
+    async def append_anchor(self, tape: str, name: str, payload: Any | None = None, **meta: Any) -> str:
+        tape_anchor.validate(name, custom=True)
+        if (await self.tape_info(tape)).closed:
+            raise RepublicError(ErrorKind.INVALID_INPUT, "Cannot append anchor entries to a closed tape.")
+        stored = await self._tape_store.append(tape, TapeEntry.anchor(name, payload, **meta))
+        return entry_offset(stored)
+
+    async def read_view(self, tape: str, query: TapeQuery[Any] | None = None) -> TapeView:
+        active_query = query or TapeQuery()
+        if active_query.offset == TAPE_NOW:
+            entries = await self._tape_store.read(tape)
+        else:
+            start_id = offset_id(active_query.offset)
+            entries = await self._tape_store.read(tape, after=start_id)
+            if not entries and start_id > 0:
+                current = await self._tape_store.read(tape, after=start_id - 1, limit=1)
+                if active_query.stops_at_close and _is_close_offset(current, start_id):
+                    return TapeView((), active_query.offset, up_to_date=True, closed=True)
+        return _read_view(entries, active_query)
+
+    async def close_tape(self, tape: str, payload: Any | None = None) -> str:
+        entries = await self._tape_store.read(tape)
+        closed = _closed_entry(entries)
+        if closed is not None:
+            return entry_offset(closed)
+        stored = await self._tape_store.append(tape, TapeEntry.anchor(tape_anchor.TAPE_CLOSE_ANCHOR, payload))
+        return entry_offset(stored)
+
+    async def tape_info(self, tape: str) -> TapeInfo:
+        return _tape_info(await self._tape_store.read(tape))
 
     async def resolve_context(self, tape: str, *, context: TapeContext | None = None) -> TapeContext:
         active_context = context or self._global_context
