@@ -9,7 +9,7 @@ Tape is an append-only execution log. It stores `TapeEntry` records and provides
 - `entries.append(...)`: Append a schemaless record and receive its stored offset.
 - `entries.anchor(...)`: Append a downstream-defined anchor.
 - `entries.close(...)`: Append the built-in close anchor.
-- `entries.read(TapeStreamQuery().after_offset(...))`: Resume from an opaque tape offset.
+- `entries.read(TapeQuery().after_offset(...))`: Resume from an opaque tape offset.
 - `query.after_offset(...)`: Build a view from a stored stream offset.
 - `query.all()`: Read all entries.
 - `query.*()`: Run slice queries.
@@ -52,12 +52,12 @@ resumed = tape.query.after_offset(saved_offset).all()
 Tape entries are not limited to chat messages. Use `tape.entries` for payloads owned by a downstream system, such as events, artifacts, labels, or binary data.
 
 ```python
-from republic import TapeStreamQuery
+from republic import TapeQuery
 
 image_offset = tape.entries.append(b"...png bytes...", content_type="image/png", modality="image")
 label_offset = tape.entries.append({"event": "label", "target": image_offset, "value": "diagram"})
 
-view = tape.entries.read(TapeStreamQuery().after_offset(image_offset))
+view = tape.entries.read(TapeQuery().after_offset(image_offset))
 print(view.next_offset)
 print([entry.payload for entry in view.entries])
 
@@ -65,7 +65,7 @@ done = tape.entries.close({"status": "complete"})
 print(done, tape.entries.info().closed)
 ```
 
-Offsets are opaque strings derived from stored tape entries. Store returned offsets and pass them back to `TapeStreamQuery().after_offset(...)`; do not construct offsets from entry ids.
+Offsets are opaque strings derived from stored tape entries. Store returned offsets and pass them back to `TapeQuery().after_offset(...)`; do not construct offsets from entry ids.
 
 ## Entry Model
 
@@ -83,7 +83,7 @@ Every stored item is a `TapeEntry`:
 from republic import TAPE_ANCHOR_NAME_KEY
 
 checkpoint = tape.entries.anchor("checkpoint", {"consumer": "indexer"})
-view = tape.entries.read(TapeStreamQuery().include_anchors())
+view = tape.entries.read(TapeQuery().include_anchors())
 
 entry = view.entries[-1]
 assert entry.kind == "anchor"
@@ -95,9 +95,9 @@ Schemaless records cannot use `kind="anchor"` through `entries.append(...)`; use
 
 ## Stream Boundary
 
-`TapeStream` is the durable stream contract for one named tape. It is not a file format or storage implementation. Storage backends implement the append-only `TapeStore` protocol; Republic core only assumes that stored entries can be listed, read by id, and appended.
+`TapeStream` is the durable stream object for one named tape. It is not a file format or storage backend. Storage backends implement the append-only `TapeStore` protocol: list tapes, read by id, execute `TapeQuery`, and append entries. Simple stores can inherit `InMemoryQueryMixin` to get the standard in-memory query behavior from `read(...)`.
 
-Stream read rules live in `TapeStreamQuery`. A view hides anchors by default, because anchors normally mark structure rather than user data. Use `include_anchors()` when a consumer needs to interpret anchors. `stop_at_close(False)` only changes read paging; appending through `TapeStream` still rejects later record and anchor writes after the built-in close anchor.
+Read rules live in `TapeQuery` for both `tape.query.all()` and `tape.entries.read(...)`. A `TapeView` hides anchors by default, because anchors normally mark structure rather than user data. Use `include_anchors()` when a consumer needs to interpret anchors. `stop_at_close(False)` only changes read paging; appending through `TapeStream` still rejects later record and anchor writes after the built-in close anchor.
 
 Downstream systems can define their own anchor names, such as `reset`, `checkpoint`, or `compact`. Republic records those anchors but does not prescribe their effects. A consumer that treats `reset` as a new logical epoch owns that interpretation.
 
@@ -107,7 +107,8 @@ A tape does not have to be produced by calling `tape.entries.append(...)`. A `Ta
 
 - the telemetry backend owns the raw events;
 - the `TapeStore` adapter maps those events to `TapeEntry`;
-- `TapeQuery`, `TapeContext`, and `TapeStreamQuery` decide which entries become a model-facing view.
+- `InMemoryQueryMixin` can provide standard query execution for projected entries;
+- `TapeQuery` and `TapeContext` decide which entries become a model-facing view.
 
 This keeps debug spans, tool traces, usage, and provider metadata available for replay without forcing all of it into prompt context. See `examples/09_otel_tape_view.py` for a local OTel-shaped example.
 

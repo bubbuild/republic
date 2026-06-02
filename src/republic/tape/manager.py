@@ -19,7 +19,7 @@ from republic.tape.store import (
     TapeStore,
     is_async_tape_store,
 )
-from republic.tape.stream import AsyncTapeStream, TapeStream, _AsyncTapeStreamHandle, _TapeStreamHandle
+from republic.tape.stream import AsyncTapeStream, TapeStream
 
 
 def _anchor_state(entry: TapeEntry) -> dict[str, Any]:
@@ -96,7 +96,7 @@ class TapeManager:
         return TapeQuery(tape=tape, store=self._tape_store)
 
     def stream_tape(self, tape: str) -> TapeStream:
-        return _TapeStreamHandle(self._tape_store, tape)
+        return TapeStream(self._tape_store, tape)
 
     def handoff(
         self,
@@ -202,7 +202,7 @@ class AsyncTapeManager:
         return TapeQuery(tape=tape, store=self._tape_store)
 
     def stream_tape(self, tape: str) -> AsyncTapeStream:
-        return _AsyncTapeStreamHandle(self._tape_store, tape)
+        return AsyncTapeStream(self._tape_store, tape)
 
     async def list_tapes(self) -> list[str]:
         return await self._tape_store.list_tapes()

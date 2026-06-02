@@ -11,8 +11,8 @@ from republic.tape.context import LAST_ANCHOR, TapeContext
 from republic.tape.entries import TapeEntry
 from republic.tape.manager import AsyncTapeManager, TapeManager
 from republic.tape.query import TapeQuery
-from republic.tape.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from republic.tape.stream import entry_offset
+from republic.tape.store import AsyncTapeStoreAdapter, InMemoryQueryMixin, InMemoryTapeStore
+from republic.tape.view import entry_offset
 
 
 def _seed_entries() -> list[TapeEntry]:
@@ -134,8 +134,8 @@ def test_handoff_appends_one_anchor_entry() -> None:
     assert entries[0] == anchor
 
 
-def test_query_executes_against_minimal_tape_store_read_contract() -> None:
-    class MinimalTapeStore:
+def test_query_executes_against_minimal_store_with_in_memory_query_mixin() -> None:
+    class MinimalTapeStore(InMemoryQueryMixin):
         def __init__(self) -> None:
             self.entries: list[TapeEntry] = []
 
@@ -172,6 +172,19 @@ def test_query_can_resume_after_stored_offset() -> None:
     entries = list(TapeQuery(tape=tape, store=store).after_offset(entry_offset(first)).all())
 
     assert [entry.payload for entry in entries] == [{"step": 2}]
+
+
+def test_in_memory_query_mixin_uses_tape_query_semantics() -> None:
+    store = InMemoryTapeStore()
+    tape = "events"
+
+    store.append(tape, TapeEntry.anchor("a1"))
+    store.append(tape, TapeEntry.record({"step": 1}, kind="event"))
+    store.append(tape, TapeEntry.record({"step": 2}, kind="event"))
+
+    query = TapeQuery(tape=tape, store=store).after_anchor("a1").kinds("event").limit(1)
+
+    assert [entry.payload for entry in store.fetch_all(query)] == [{"step": 1}]
 
 
 def test_query_rejects_invalid_offset_and_limit() -> None:

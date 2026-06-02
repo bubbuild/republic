@@ -12,7 +12,7 @@ from republic.tape import (
     AsyncTapeManager,
     TapeEntry,
     TapeManager,
-    TapeStreamQuery,
+    TapeQuery,
     entry_offset,
 )
 from republic.tape.store import InMemoryTapeStore
@@ -37,7 +37,7 @@ def test_tape_session_exposes_entries_stream() -> None:
     tape = LLM(model="openai:gpt-4o-mini", api_key="dummy").tape("artifacts")
 
     offset = tape.entries.append({"event": "created"})
-    view = tape.entries.read(TapeStreamQuery().after_offset(offset))
+    view = tape.entries.read(TapeQuery().after_offset(offset))
 
     assert view.entries == ()
     assert view.next_offset == offset
@@ -50,7 +50,7 @@ def test_tape_entries_resume_from_opaque_offset() -> None:
     offset = entries.append({"step": 1})
     entries.append({"step": 2})
 
-    view = entries.read(TapeStreamQuery().after_offset(offset))
+    view = entries.read(TapeQuery().after_offset(offset))
 
     assert [entry.payload for entry in view.entries] == [{"step": 2}]
 
@@ -80,7 +80,7 @@ def test_tape_entries_resume_uses_store_offset_read() -> None:
     store.append("events", TapeEntry.record({"step": 2}))
     entries = TapeManager(store=store).stream_tape("events")
 
-    view = entries.read(TapeStreamQuery().after_offset(entry_offset(first)))
+    view = entries.read(TapeQuery().after_offset(entry_offset(first)))
 
     assert [entry.payload for entry in view.entries] == [{"step": 2}]
     assert store.read_calls == [(first.id, None)]
@@ -102,13 +102,13 @@ def test_tape_entries_close_is_append_only_lifecycle_entry() -> None:
     assert [entry.payload for entry in view.entries] == [{"step": 1}]
     assert view.closed is True
 
-    anchor_view = entries.read(TapeStreamQuery().include_anchors())
+    anchor_view = entries.read(TapeQuery().include_anchors())
     close_entry = anchor_view.entries[-1]
     assert close_entry.kind == TAPE_ANCHOR_KIND
     assert close_entry.payload == {"status": "done"}
     assert close_entry.meta[TAPE_ANCHOR_NAME_KEY] == TAPE_CLOSE_ANCHOR
 
-    after_close = entries.read(TapeStreamQuery().after_offset(close_offset))
+    after_close = entries.read(TapeQuery().after_offset(close_offset))
     assert after_close.entries == ()
     assert after_close.next_offset == close_offset
     assert after_close.closed is True
@@ -122,7 +122,7 @@ def test_tape_entries_can_append_custom_anchors() -> None:
     entries = TapeManager().stream_tape("events")
 
     offset = entries.anchor("checkpoint", {"consumer": "indexer"}, consumer="search")
-    view = entries.read(TapeStreamQuery().include_anchors())
+    view = entries.read(TapeQuery().include_anchors())
 
     assert view.next_offset == offset
     assert [(entry.kind, entry.payload, entry.meta) for entry in view.entries] == [
@@ -134,7 +134,7 @@ def test_tape_entries_anchor_can_have_empty_payload() -> None:
     entries = TapeManager().stream_tape("events")
 
     entries.anchor("checkpoint")
-    view = entries.read(TapeStreamQuery().include_anchors())
+    view = entries.read(TapeQuery().include_anchors())
 
     assert view.entries[0].kind == TAPE_ANCHOR_KIND
     assert view.entries[0].payload is None
@@ -167,7 +167,7 @@ def test_tape_entries_now_starts_at_current_tail() -> None:
 
     first = entries.append({"step": 1})
 
-    view = entries.read(TapeStreamQuery().now())
+    view = entries.read(TapeQuery().now())
 
     assert view.entries == ()
     assert view.next_offset == first
@@ -199,20 +199,31 @@ async def test_async_tape_entries_append_and_read() -> None:
     assert view.next_offset == offset
 
 
-def test_tape_stream_query_can_include_anchor_entries() -> None:
+@pytest.mark.asyncio
+async def test_async_tape_query_now_is_awaitable() -> None:
+    manager = AsyncTapeManager()
+    entries = manager.stream_tape("events")
+
+    await entries.append({"step": 1})
+    selected = await manager.query_tape("events").now().all()
+
+    assert selected == []
+
+
+def test_tape_query_can_include_anchor_entries_in_stream_views() -> None:
     manager = TapeManager()
     entries = manager.stream_tape("events")
 
     entries.append({"step": 1})
     entries.close({"status": "done"})
 
-    view = entries.read(TapeStreamQuery().include_anchors())
+    view = entries.read(TapeQuery().include_anchors())
 
     assert [entry.kind for entry in view.entries] == ["record", TAPE_ANCHOR_KIND]
     assert view.closed is True
 
 
-def test_tape_stream_query_can_read_past_close_when_requested() -> None:
+def test_tape_query_can_read_past_close_when_requested() -> None:
     store = InMemoryTapeStore()
     entries = TapeManager(store=store).stream_tape("events")
 
@@ -221,7 +232,7 @@ def test_tape_stream_query_can_read_past_close_when_requested() -> None:
     after_close = store.append("events", TapeEntry.record({"step": 2}))
 
     default_view = entries.read()
-    full_view = entries.read(TapeStreamQuery().stop_at_close(False))
+    full_view = entries.read(TapeQuery().stop_at_close(False))
 
     assert [entry.payload for entry in default_view.entries] == [{"step": 1}]
     assert [entry.payload for entry in full_view.entries] == [{"step": 1}, {"step": 2}]

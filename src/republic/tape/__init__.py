@@ -13,19 +13,15 @@ from republic.tape.session import Tape
 from republic.tape.store import (
     AsyncTapeStore,
     AsyncTapeStoreAdapter,
+    InMemoryQueryMixin,
     InMemoryTapeStore,
     TapeStore,
 )
 from republic.tape.stream import (
-    TAPE_NOW,
-    TAPE_START,
     AsyncTapeStream,
     TapeStream,
-    TapeStreamInfo,
-    TapeStreamQuery,
-    TapeStreamView,
-    entry_offset,
 )
+from republic.tape.view import TAPE_NOW, TAPE_START, TapeInfo, TapeView, entry_offset
 
 __all__ = [
     "TAPE_ANCHOR_KIND",
@@ -37,16 +33,16 @@ __all__ = [
     "AsyncTapeStore",
     "AsyncTapeStoreAdapter",
     "AsyncTapeStream",
+    "InMemoryQueryMixin",
     "InMemoryTapeStore",
     "Tape",
     "TapeContext",
     "TapeEntry",
+    "TapeInfo",
     "TapeManager",
     "TapeQuery",
     "TapeStore",
     "TapeStream",
-    "TapeStreamInfo",
-    "TapeStreamQuery",
-    "TapeStreamView",
+    "TapeView",
     "entry_offset",
 ]

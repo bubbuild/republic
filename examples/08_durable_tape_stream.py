@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from republic import TAPE_ANCHOR_NAME_KEY, TAPE_START, TapeManager, TapeStreamQuery
-from republic.tape.stream import TapeStream
+from republic import TAPE_ANCHOR_NAME_KEY, TAPE_START, TapeManager, TapeQuery, TapeStream
 
 
 def build_stream() -> TapeStream:
@@ -24,7 +23,7 @@ def consume_visible_entries(stream: TapeStream) -> dict[str, Any]:
     offsets: list[str] = []
 
     while True:
-        view = stream.read(TapeStreamQuery().after_offset(cursor).limit(1))
+        view = stream.read(TapeQuery().after_offset(cursor).limit(1))
         payloads.extend(entry.payload for entry in view.entries)
         offsets.append(view.next_offset)
         cursor = view.next_offset
@@ -44,7 +43,7 @@ def consume_visible_entries(stream: TapeStream) -> dict[str, Any]:
 
 
 def inspect_anchor_names(stream: TapeStream) -> list[str]:
-    view = stream.read(TapeStreamQuery().include_anchors())
+    view = stream.read(TapeQuery().include_anchors())
     return [entry.meta[TAPE_ANCHOR_NAME_KEY] for entry in view.entries if entry.kind == "anchor"]
 
 

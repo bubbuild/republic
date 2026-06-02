@@ -7,6 +7,7 @@ from typing import Any
 from republic import TAPE_ANCHOR_NAME_KEY, TapeContext, TapeEntry, TapeManager
 from republic.core.errors import ErrorKind
 from republic.core.results import RepublicError
+from republic.tape.store import InMemoryQueryMixin
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,7 @@ def record_incident_trace() -> OTelCollector:
     return collector
 
 
-class OTelTapeStore:
+class OTelTapeStore(InMemoryQueryMixin):
     """TapeStore view over events produced by an OTel collector."""
 
     def __init__(self, collector: OTelCollector) -> None:
