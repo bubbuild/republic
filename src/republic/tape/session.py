@@ -15,6 +15,7 @@ from republic.tape.context import TapeContext
 from republic.tape.entries import TapeEntry
 from republic.tape.query import TapeQuery
 from republic.tape.store import AsyncTapeStore, TapeStore
+from republic.tape.stream import AsyncTapeStream, TapeStream
 from republic.tools.schema import ToolInput
 
 if TYPE_CHECKING:
@@ -56,18 +57,16 @@ class Tape(_TapeBase):
         active_context = context or self.context
         return self._client._tape.read_messages(self._name, context=active_context)
 
-    def append(self, entry: TapeEntry) -> None:
-        self._client._tape.append_entry(self._name, entry)
+    @property
+    def entries(self) -> TapeStream:
+        return self._client._tape.stream_tape(self._name)
 
     @property
     def query(self) -> TapeQuery[TapeStore]:
         return self._client._tape.query_tape(self._name)
 
-    def reset(self) -> None:
-        self._client._tape.reset_tape(self._name)
-
-    def handoff(self, name: str, *, state: dict[str, Any] | None = None, **meta: Any) -> list[TapeEntry]:
-        return self._client._tape.handoff(self._name, name, state=state, **meta)
+    def handoff(self, name: str, payload: Any | None = None, **meta: Any) -> TapeEntry:
+        return self._client._tape.handoff(self._name, name, payload, **meta)
 
     def chat(
         self,
@@ -198,14 +197,12 @@ class Tape(_TapeBase):
         active_context = context or self.context
         return await self._client._async_tape.read_messages(self._name, context=active_context)
 
-    async def append_async(self, entry: TapeEntry) -> None:
-        await self._client._async_tape.append_entry(self._name, entry)
+    @property
+    def entries_async(self) -> AsyncTapeStream:
+        return self._client._async_tape.stream_tape(self._name)
 
-    async def reset_async(self) -> None:
-        await self._client._async_tape.reset_tape(self._name)
-
-    async def handoff_async(self, name: str, *, state: dict[str, Any] | None = None, **meta: Any) -> list[TapeEntry]:
-        return await self._client._async_tape.handoff(self._name, name, state=state, **meta)
+    async def handoff_async(self, name: str, payload: Any | None = None, **meta: Any) -> TapeEntry:
+        return await self._client._async_tape.handoff(self._name, name, payload, **meta)
 
     async def chat_async(
         self,

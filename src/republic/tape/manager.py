@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
+from dataclasses import replace
 from typing import Any, cast
 
+import republic.tape.anchor as tape_anchor
 from republic.core.results import RepublicError
-from republic.tape.context import TapeContext, build_messages
+from republic.tape.context import LAST_ANCHOR, TapeContext, build_messages
 from republic.tape.entries import TapeEntry
 from republic.tape.query import TapeQuery
 from republic.tape.store import (
@@ -16,6 +19,38 @@ from republic.tape.store import (
     TapeStore,
     is_async_tape_store,
 )
+from republic.tape.stream import AsyncTapeStream, TapeStream, _AsyncTapeStreamHandle, _TapeStreamHandle
+
+
+def _anchor_state(entry: TapeEntry) -> dict[str, Any]:
+    data = tape_anchor.data(entry)
+    if not isinstance(data, dict):
+        return {}
+    return copy.deepcopy(data)
+
+
+def _selected_anchor_state(entries: list[TapeEntry], context: TapeContext) -> dict[str, Any]:
+    if context.anchor is None:
+        return {}
+    if context.anchor is LAST_ANCHOR:
+        for entry in reversed(entries):
+            state = _anchor_state(entry)
+            if state:
+                return state
+            if tape_anchor.name(entry) is not None:
+                return {}
+        return {}
+    for entry in reversed(entries):
+        if tape_anchor.name(entry) == context.anchor:
+            return _anchor_state(entry)
+    return {}
+
+
+def _context_with_anchor_state(entries: list[TapeEntry], context: TapeContext) -> TapeContext:
+    anchor_state = _selected_anchor_state(entries, context)
+    if not anchor_state:
+        return context
+    return replace(context, state={**anchor_state, **copy.deepcopy(context.state)})
 
 
 class TapeManager:
@@ -41,39 +76,37 @@ class TapeManager:
     def list_tapes(self) -> list[str]:
         return self._tape_store.list_tapes()
 
-    def read_messages(self, tape: str, *, context: TapeContext | None = None) -> list[dict[str, Any]]:
+    def resolve_context(self, tape: str, *, context: TapeContext | None = None) -> TapeContext:
         active_context = context or self._global_context
+        entries = list(self.query_tape(tape).all())
+        return _context_with_anchor_state(entries, active_context)
+
+    def read_messages(self, tape: str, *, context: TapeContext | None = None) -> list[dict[str, Any]]:
+        active_context = self.resolve_context(tape, context=context)
         query = self.query_tape(tape)
         query = active_context.build_query(query)
-        messages = build_messages(self._tape_store.fetch_all(query), active_context)
+        messages = build_messages(query.all(), active_context)
         if inspect.isawaitable(messages):
             raise ValueError(  # noqa: TRY003
                 "Context selector returned a coroutine, but TapeManager is sync. Use AsyncTapeManager for async support."
             )
         return messages
 
-    def append_entry(self, tape: str, entry: TapeEntry) -> None:
-        self._tape_store.append(tape, entry)
-
     def query_tape(self, tape: str) -> TapeQuery[TapeStore]:
         return TapeQuery(tape=tape, store=self._tape_store)
 
-    def reset_tape(self, tape: str) -> None:
-        self._tape_store.reset(tape)
+    def stream_tape(self, tape: str) -> TapeStream:
+        return _TapeStreamHandle(self._tape_store, tape)
 
     def handoff(
         self,
         tape: str,
         name: str,
-        *,
-        state: dict[str, Any] | None = None,
+        payload: Any | None = None,
         **meta: Any,
-    ) -> list[TapeEntry]:
-        entry = TapeEntry.anchor(name, state=state, **meta)
-        event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
-        self._tape_store.append(tape, entry)
-        self._tape_store.append(tape, event)
-        return [entry, event]
+    ) -> TapeEntry:
+        entry = TapeEntry.anchor(name, payload, **meta)
+        return self._tape_store.append(tape, entry)
 
     def record_chat(  # noqa: C901
         self,
@@ -168,38 +201,36 @@ class AsyncTapeManager:
     def query_tape(self, tape: str) -> TapeQuery[AsyncTapeStore]:
         return TapeQuery(tape=tape, store=self._tape_store)
 
+    def stream_tape(self, tape: str) -> AsyncTapeStream:
+        return _AsyncTapeStreamHandle(self._tape_store, tape)
+
     async def list_tapes(self) -> list[str]:
         return await self._tape_store.list_tapes()
 
-    async def read_messages(self, tape: str, *, context: TapeContext | None = None) -> list[dict[str, Any]]:
+    async def resolve_context(self, tape: str, *, context: TapeContext | None = None) -> TapeContext:
         active_context = context or self._global_context
+        entries = list(await self.query_tape(tape).all())
+        return _context_with_anchor_state(entries, active_context)
+
+    async def read_messages(self, tape: str, *, context: TapeContext | None = None) -> list[dict[str, Any]]:
+        active_context = await self.resolve_context(tape, context=context)
         query = self.query_tape(tape)
         query = active_context.build_query(query)
-        entries = await self._tape_store.fetch_all(query)
+        entries = await query.all()
         messages = build_messages(entries, active_context)
         if inspect.isawaitable(messages):
             messages = await messages
         return messages
 
-    async def append_entry(self, tape: str, entry: TapeEntry) -> None:
-        await self._tape_store.append(tape, entry)
-
-    async def reset_tape(self, tape: str) -> None:
-        await self._tape_store.reset(tape)
-
     async def handoff(
         self,
         tape: str,
         name: str,
-        *,
-        state: dict[str, Any] | None = None,
+        payload: Any | None = None,
         **meta: Any,
-    ) -> list[TapeEntry]:
-        entry = TapeEntry.anchor(name, state=state, **meta)
-        event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
-        await self._tape_store.append(tape, entry)
-        await self._tape_store.append(tape, event)
-        return [entry, event]
+    ) -> TapeEntry:
+        entry = TapeEntry.anchor(name, payload, **meta)
+        return await self._tape_store.append(tape, entry)
 
     async def record_chat(  # noqa: C901
         self,

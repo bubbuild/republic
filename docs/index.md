@@ -5,7 +5,7 @@ Use LLM capabilities like regular Python components, with auditable execution tr
 Republic is not a bigger framework. It is a small set of composable primitives:
 
 - `LLM`: One entry point for chat, tools, stream, and embeddings.
-- `Tape`: Append-only records with anchor/handoff/context/query.
+- `Tape`: Append-only entries with anchors, durable stream views, context, and query.
 - `ToolExecutor`: Tool calls can be automatic or manual.
 
 ## 30-Second Preview

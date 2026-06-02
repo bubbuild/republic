@@ -39,7 +39,7 @@ print(result)
 - **Plain Python**: The main flow is regular functions and branches, no extra DSL.
 - **Structured error handling**: Errors are explicit and typed, so retry and fallback logic stays deterministic.
 - **Tools without magic**: Supports both automatic and manual tool execution with clear debugging and auditing.
-- **Tape-first memory**: Use anchor/handoff to bound context windows and replay full evidence.
+- **Tape-first memory**: Use anchors, durable stream views, and selectors to bound context while retaining evidence.
 - **Event streaming**: Subscribe to text deltas, tool calls, tool results, usage, and final state.
 
 ## Authentication

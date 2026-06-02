@@ -28,11 +28,11 @@ print("text:", out)
 
 ## Step 3: Add an auditable trace to the session
 
-`tape` organizes context around anchors by default, so start with one `handoff`.
+`tape` stores entries in an append-only log. Start a context window by appending one named anchor.
 
 ```python
 tape = llm.tape("release-notes")
-tape.handoff("draft_v1", state={"owner": "assistant"})
+tape.handoff("draft_v1", {"owner": "assistant"})
 
 reply = tape.chat("Summarize the version changes in three bullets.", system_prompt="Keep it concise.")
 print(reply)

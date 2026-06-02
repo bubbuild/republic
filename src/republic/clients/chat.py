@@ -335,7 +335,7 @@ class ChatClient:
         tape: str | None,
         messages: list[MessageInput] | None,
         context: TapeContext | None = None,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], TapeContext | None]:
         self._validate_chat_input(
             prompt=prompt,
             messages=messages,
@@ -345,7 +345,7 @@ class ChatClient:
 
         if messages is not None:
             payload = [dict(message) for message in messages]
-            return payload, []
+            return payload, [], context
 
         if prompt is None:
             raise RepublicError(ErrorKind.INVALID_INPUT, "prompt is required when messages is not provided")
@@ -357,15 +357,16 @@ class ChatClient:
             if system_prompt:
                 payload.append({"role": "system", "content": system_prompt})
             payload.append(user_message)
-            return payload, []
+            return payload, [], context
 
-        history = self._tape.read_messages(tape, context=context)
+        active_context = self._tape.resolve_context(tape, context=context)
+        history = self._tape.read_messages(tape, context=active_context)
         payload = []
         if system_prompt:
             payload.append({"role": "system", "content": system_prompt})
         payload.extend(history)
         payload.append(user_message)
-        return payload, [user_message]
+        return payload, [user_message], active_context
 
     async def _prepare_messages_async(
         self,
@@ -374,7 +375,7 @@ class ChatClient:
         tape: str | None,
         messages: list[MessageInput] | None,
         context: TapeContext | None = None,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], TapeContext | None]:
         self._validate_chat_input(
             prompt=prompt,
             messages=messages,
@@ -384,7 +385,7 @@ class ChatClient:
 
         if messages is not None:
             payload = [dict(message) for message in messages]
-            return payload, []
+            return payload, [], context
 
         if prompt is None:
             raise RepublicError(ErrorKind.INVALID_INPUT, "prompt is required when messages is not provided")
@@ -396,15 +397,16 @@ class ChatClient:
             if system_prompt:
                 payload.append({"role": "system", "content": system_prompt})
             payload.append(user_message)
-            return payload, []
+            return payload, [], context
 
-        history = await self._async_tape.read_messages(tape, context=context)
+        active_context = await self._async_tape.resolve_context(tape, context=context)
+        history = await self._async_tape.read_messages(tape, context=active_context)
         payload = []
         if system_prompt:
             payload.append({"role": "system", "content": system_prompt})
         payload.extend(history)
         payload.append(user_message)
-        return payload, [user_message]
+        return payload, [user_message], active_context
 
     def _prepare_request(
         self,
@@ -421,8 +423,9 @@ class ChatClient:
         context_error: RepublicError | None = None
         payload: list[dict[str, Any]] = []
         new_messages: list[dict[str, Any]] = []
+        active_context = context
         try:
-            payload, new_messages = self._prepare_messages(
+            payload, new_messages, active_context = self._prepare_messages(
                 prompt,
                 system_prompt,
                 tape,
@@ -453,7 +456,7 @@ class ChatClient:
             context_error=context_error,
             run_id=run_id,
             system_prompt=system_prompt,
-            context=context,
+            context=active_context,
         )
 
     async def _prepare_request_async(
@@ -471,8 +474,9 @@ class ChatClient:
         context_error: RepublicError | None = None
         payload: list[dict[str, Any]] = []
         new_messages: list[dict[str, Any]] = []
+        active_context = context
         try:
-            payload, new_messages = await self._prepare_messages_async(
+            payload, new_messages, active_context = await self._prepare_messages_async(
                 prompt,
                 system_prompt,
                 tape,
@@ -503,7 +507,7 @@ class ChatClient:
             context_error=context_error,
             run_id=run_id,
             system_prompt=system_prompt,
-            context=context,
+            context=active_context,
         )
 
     @staticmethod

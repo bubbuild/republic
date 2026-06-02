@@ -4,9 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from republic import LLM, TapeContext, tool
+from republic import LLM, TapeContext, ToolContext, tool
 from republic.core.errors import ErrorKind
 from republic.core.results import RepublicError
+from republic.tape import TAPE_ANCHOR_KIND, TAPE_ANCHOR_NAME_KEY
 from republic.tape.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 
 from .fakes import make_chunk, make_response, make_tool_call
@@ -136,7 +137,7 @@ def test_tape_requires_anchor_then_records_full_run(fake_anyllm) -> None:
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
     assert len(client.calls) == 0
 
-    tape.handoff("incident_42", state={"owner": "tier1"})
+    tape.handoff("incident_42", {"owner": "tier1"})
     first = llm.chat("Investigate DB timeout", tape="ops")
     second = llm.chat("Include rollback criteria", tape="ops")
     assert first == "step one"
@@ -149,7 +150,9 @@ def test_tape_requires_anchor_then_records_full_run(fake_anyllm) -> None:
     kinds = [entry.kind for entry in entries]
     assert kinds[0] == "error"
     assert entries[0].payload["kind"] == ErrorKind.NOT_FOUND.value
-    assert "anchor" in kinds
+    anchor = next(entry for entry in entries if entry.kind == TAPE_ANCHOR_KIND)
+    assert anchor.payload == {"owner": "tier1"}
+    assert anchor.meta[TAPE_ANCHOR_NAME_KEY] == "incident_42"
     assert kinds[-1] == "event"
 
     run_event = entries[-1]
@@ -247,6 +250,45 @@ def test_stream_events_merges_tool_deltas_without_id_or_index(fake_anyllm) -> No
     assert stream.usage == {"total_tokens": 9}
 
 
+def test_run_tools_uses_tape_anchor_state_as_tool_context(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(tool_calls=[make_tool_call("owner", "{}")]))
+
+    @tool(context=True)
+    def owner(context: ToolContext) -> str:
+        return context.state["owner"]
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    llm.tape("ops").handoff("incident", {"owner": "tier1"})
+
+    result = llm.run_tools("Who owns this?", tape="ops", tools=[owner])
+
+    assert result.error is None
+    assert result.tool_results == ["tier1"]
+
+
+def test_explicit_tool_context_state_overrides_tape_anchor_state(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(tool_calls=[make_tool_call("owner", "{}")]))
+
+    @tool(context=True)
+    def owner(context: ToolContext) -> str:
+        return context.state["owner"]
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    llm.tape("ops").handoff("incident", {"owner": "tier1"})
+
+    result = llm.run_tools(
+        "Who owns this?",
+        tape="ops",
+        tools=[owner],
+        context=TapeContext(state={"owner": "manual"}),
+    )
+
+    assert result.error is None
+    assert result.tool_results == ["manual"]
+
+
 @pytest.mark.asyncio
 async def test_run_tools_async_executes_async_tool_handler(fake_anyllm) -> None:
     client = fake_anyllm.ensure("openai")
@@ -258,6 +300,24 @@ async def test_run_tools_async_executes_async_tool_handler(fake_anyllm) -> None:
     assert result.kind == "tools"
     assert result.tool_results == ["TOKYO"]
     assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_run_tools_async_uses_tape_anchor_state_as_tool_context(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(tool_calls=[make_tool_call("owner", "{}")]))
+
+    @tool(context=True)
+    async def owner(context: ToolContext) -> str:
+        return context.state["owner"]
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    llm.tape("ops").handoff("incident", {"owner": "tier1"})
+
+    result = await llm.run_tools_async("Who owns this?", tape="ops", tools=[owner])
+
+    assert result.error is None
+    assert result.tool_results == ["tier1"]
 
 
 @pytest.mark.asyncio

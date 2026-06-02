@@ -25,14 +25,14 @@ def main() -> None:
     tape = llm.tape("support-session")
 
     # Tape default context uses the latest anchor, so handoff first.
-    tape.handoff("network_issue", state={"owner": "tier1"})
+    tape.handoff("network_issue", {"owner": "tier1"})
     out1 = tape.chat("Customer cannot connect to VPN. Give triage steps.", max_tokens=64)
     print("reply1:", out1)
 
     out2 = tape.chat("Also include DNS checks.", max_tokens=64)
     print("reply2:", out2)
 
-    tape.handoff("billing_issue", state={"owner": "tier2"})
+    tape.handoff("billing_issue", {"owner": "tier2"})
     out3 = tape.chat("Customer asks for refund process.", max_tokens=64)
     print("reply3:", out3)
 
