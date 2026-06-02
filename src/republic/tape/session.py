@@ -15,7 +15,6 @@ from republic.tape.context import TapeContext
 from republic.tape.entries import TapeEntry
 from republic.tape.query import TapeQuery
 from republic.tape.store import AsyncTapeStore, TapeStore
-from republic.tape.view import TapeInfo, TapeView
 from republic.tools.schema import ToolInput
 
 if TYPE_CHECKING:
@@ -61,33 +60,8 @@ class Tape(_TapeBase):
     def query(self) -> TapeQuery[TapeStore]:
         return self._client._tape.query_tape(self._name)
 
-    def append(
-        self,
-        payload: Any,
-        *,
-        kind: str = "record",
-        content_type: str | None = None,
-        **meta: Any,
-    ) -> str:
-        return self._client._tape.append_record(
-            self._name,
-            payload,
-            kind=kind,
-            content_type=content_type,
-            **meta,
-        )
-
-    def anchor(self, name: str, payload: Any | None = None, **meta: Any) -> str:
-        return self._client._tape.append_anchor(self._name, name, payload, **meta)
-
-    def read(self, query: TapeQuery[Any] | None = None) -> TapeView:
-        return self._client._tape.read_view(self._name, query)
-
-    def close(self, payload: Any | None = None) -> str:
-        return self._client._tape.close_tape(self._name, payload)
-
-    def info(self) -> TapeInfo:
-        return self._client._tape.tape_info(self._name)
+    def append(self, entry: TapeEntry) -> TapeEntry:
+        return self._client._tape.append_entry(self._name, entry)
 
     def handoff(self, name: str, payload: Any | None = None, **meta: Any) -> TapeEntry:
         return self._client._tape.handoff(self._name, name, payload, **meta)
@@ -224,33 +198,8 @@ class Tape(_TapeBase):
     async def handoff_async(self, name: str, payload: Any | None = None, **meta: Any) -> TapeEntry:
         return await self._client._async_tape.handoff(self._name, name, payload, **meta)
 
-    async def append_async(
-        self,
-        payload: Any,
-        *,
-        kind: str = "record",
-        content_type: str | None = None,
-        **meta: Any,
-    ) -> str:
-        return await self._client._async_tape.append_record(
-            self._name,
-            payload,
-            kind=kind,
-            content_type=content_type,
-            **meta,
-        )
-
-    async def anchor_async(self, name: str, payload: Any | None = None, **meta: Any) -> str:
-        return await self._client._async_tape.append_anchor(self._name, name, payload, **meta)
-
-    async def read_async(self, query: TapeQuery[Any] | None = None) -> TapeView:
-        return await self._client._async_tape.read_view(self._name, query)
-
-    async def close_async(self, payload: Any | None = None) -> str:
-        return await self._client._async_tape.close_tape(self._name, payload)
-
-    async def info_async(self) -> TapeInfo:
-        return await self._client._async_tape.tape_info(self._name)
+    async def append_async(self, entry: TapeEntry) -> TapeEntry:
+        return await self._client._async_tape.append_entry(self._name, entry)
 
     async def chat_async(
         self,

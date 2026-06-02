@@ -54,14 +54,14 @@ This branch also finalizes:
 
 - `ContextSelection` removed. `read_messages(...)` now returns `list[dict[str, Any]]`.
 - `QueryResult` removed. `TapeQuery.all()` now returns `list[TapeEntry]`, and errors are raised as `RepublicError`.
-- `read_entries()` is removed. Use `tape.query.all()` for entry queries or `tape.read(TapeQuery().after_offset(...))` for offset reads.
+- `read_entries()` is removed. Use `tape.query.all()` for entry queries or `tape.query.after_offset(...).view()` for offset reads.
 - `reset()` is removed from core tape APIs. Tapes are append-only; logical reset can be modeled as a downstream-defined anchor, while backend-specific deletion or truncation belongs outside the core `TapeStore` contract.
 - `TapeStore` implementations now expose stream reads through `read(...)` and query execution through `fetch_all(query)`. Simple stores can inherit `InMemoryQueryMixin` for the standard in-memory query behavior.
-- `append(TapeEntry)` is removed from tape sessions. Use `tape.append(payload, ...)`, `tape.handoff(...)`, or LLM calls that record their own entries.
+- `append(TapeEntry)` remains the tape-session write path. Schemaless records use explicit factories such as `TapeEntry.record(...)`.
 - `handoff(...)` now appends and returns one `anchor` entry. The anchor payload is stored directly on `TapeEntry.payload`; the anchor name lives in `TapeEntry.meta["anchor"]`.
 - `TapeStreamPage` and `TapeStreamView` are replaced by `TapeView`; `read(...)` returns a view over the stream, not a separate paging concept.
 - `TapeStreamInfo` is replaced by `TapeInfo`.
-- `TapeStream` and `AsyncTapeStream` are removed. `TapeStore` is the durable streamable boundary; `TapeManager` and `Tape` expose scoped operations directly.
+- `TapeStream` and `AsyncTapeStream` are removed. `TapeStore` is the durable streamable boundary; `TapeManager` and `Tape` keep the existing scoped orchestration shape.
 - `TapeStreamQuery` is removed. Use `TapeQuery().after_offset(...)`, `TapeQuery().include_anchors()`, and `TapeQuery().stop_at_close(...)` for offset reads.
 
 The tape core no longer exposes a separate control-entry envelope. Anchors are ordinary `TapeEntry` records with `kind="anchor"`. Downstream systems can define names such as `checkpoint`, `reset`, or `compact`, but Republic does not assign those names destructive behavior.
