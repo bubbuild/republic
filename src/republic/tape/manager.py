@@ -18,6 +18,13 @@ from republic.tape.store import (
 )
 
 
+def _assistant_message(parts: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    if not parts:
+        return None
+
+    return {"role": "assistant", "parts": [dict(part) for part in parts]}
+
+
 class TapeManager:
     """Global tape manager that owns storage and default context."""
 
@@ -83,7 +90,7 @@ class TapeManager:
         system_prompt: str | None,
         context_error: RepublicError | None,
         new_messages: list[dict[str, Any]],
-        response_text: str | None,
+        parts: list[dict[str, Any]] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: RepublicError | None = None,
@@ -109,10 +116,11 @@ class TapeManager:
         if error is not None and error is not context_error:
             self._tape_store.append(tape, TapeEntry.error(error, **meta))
 
-        if response_text is not None:
+        assistant_message = _assistant_message(parts)
+        if assistant_message is not None:
             self._tape_store.append(
                 tape,
-                TapeEntry.message({"role": "assistant", "content": response_text}, **meta),
+                TapeEntry.message(assistant_message, **meta),
             )
 
         data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
@@ -209,7 +217,7 @@ class AsyncTapeManager:
         system_prompt: str | None,
         context_error: RepublicError | None,
         new_messages: list[dict[str, Any]],
-        response_text: str | None,
+        parts: list[dict[str, Any]] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: RepublicError | None = None,
@@ -235,10 +243,11 @@ class AsyncTapeManager:
         if error is not None and error is not context_error:
             await self._tape_store.append(tape, TapeEntry.error(error, **meta))
 
-        if response_text is not None:
+        assistant_message = _assistant_message(parts)
+        if assistant_message is not None:
             await self._tape_store.append(
                 tape,
-                TapeEntry.message({"role": "assistant", "content": response_text}, **meta),
+                TapeEntry.message(assistant_message, **meta),
             )
 
         data: dict[str, Any] = {"status": "error" if error is not None else "ok"}

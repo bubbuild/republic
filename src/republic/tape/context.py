@@ -19,6 +19,7 @@ LAST_ANCHOR = _LastAnchor()
 AnchorSelector: TypeAlias = str | None | _LastAnchor
 SelectedMessages: TypeAlias = list[dict[str, Any]] | Coroutine[Any, Any, list[dict[str, Any]]]
 ContextSelector: TypeAlias = Callable[[Iterable[TapeEntry], "TapeContext"], SelectedMessages]
+MESSAGE_PART_TEXT = "text"
 
 
 @dataclass(frozen=True)
@@ -56,5 +57,37 @@ def _default_messages(entries: Iterable[TapeEntry]) -> list[dict[str, Any]]:
         payload = entry.payload
         if not isinstance(payload, dict):
             continue
-        messages.append(dict(payload))
+        message = _model_message_from_tape_payload(payload)
+        if message is not None:
+            messages.append(message)
     return messages
+
+
+def _model_message_from_tape_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    message = dict(payload)
+    if "parts" not in message:
+        return message
+
+    parts = message.pop("parts", None)
+    content = _text_content_from_parts(parts)
+    if content:
+        message["content"] = content
+        return message
+    if message.get("tool_calls"):
+        return message
+    return None
+
+
+def _text_content_from_parts(parts: Any) -> str:
+    if not isinstance(parts, list):
+        return ""
+    text_parts: list[str] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") != MESSAGE_PART_TEXT:
+            continue
+        content = part.get("content")
+        if isinstance(content, str):
+            text_parts.append(content)
+    return "".join(text_parts)

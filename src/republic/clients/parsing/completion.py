@@ -30,6 +30,28 @@ class CompletionTransportParser(BaseTransportParser):
             return ""
         return field(delta, "content", "") or ""
 
+    def extract_chunk_thinking(self, chunk: Any) -> str:
+        choices = field(chunk, "choices")
+        if not choices:
+            return ""
+        delta = field(choices[0], "delta")
+        if delta is None:
+            return ""
+        reasoning = field(delta, "reasoning")
+        content = field(reasoning, "content")
+        return content if isinstance(content, str) else ""
+
+    def extract_thinking(self, response: Any) -> str:
+        choices = field(response, "choices")
+        if not choices:
+            return ""
+        message = field(choices[0], "message")
+        if message is None:
+            return ""
+        reasoning = field(message, "reasoning")
+        content = field(reasoning, "content")
+        return content if isinstance(content, str) else ""
+
     def extract_text(self, response: Any) -> str:
         if isinstance(response, str):
             return response

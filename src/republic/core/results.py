@@ -53,6 +53,7 @@ class AsyncTextStream:
 class StreamEvent:
     kind: Literal[
         "text",
+        "thinking",
         "tool_call",
         "tool_result",
         "usage",

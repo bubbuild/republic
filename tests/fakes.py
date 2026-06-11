@@ -148,10 +148,11 @@ def make_tool_call(
 def make_response(
     *,
     text: str = "",
+    reasoning: str = "",
     tool_calls: list[Any] | None = None,
     usage: dict[str, Any] | None = None,
 ) -> Any:
-    message = SimpleNamespace(content=text, tool_calls=tool_calls or [])
+    message = SimpleNamespace(content=text, reasoning=SimpleNamespace(content=reasoning), tool_calls=tool_calls or [])
     choice = SimpleNamespace(message=message)
     return SimpleNamespace(choices=[choice], usage=usage)
 

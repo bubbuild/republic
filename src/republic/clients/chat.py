@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 from republic.clients.parsing import BaseTransportParser, TransportKind, parser_for_transport
 from republic.clients.parsing.common import expand_tool_calls
@@ -29,6 +29,10 @@ from republic.tools.executor import ToolExecutor
 from republic.tools.schema import ToolInput, ToolSet, normalize_tools
 
 MessageInput = dict[str, Any]
+PartType = Literal["reasoning", "text"]
+Part = dict[str, str]
+PART_REASONING: PartType = "reasoning"
+PART_TEXT: PartType = "text"
 RESPONSES_METADATA_ONLY_ITEM_TYPES = frozenset({"reasoning", "compaction"})
 
 
@@ -580,11 +584,39 @@ class ChatClient:
         except (ValueError, TypeError) as exc:
             raise RepublicError(ErrorKind.INVALID_INPUT, str(exc)) from exc
 
+    @staticmethod
+    def _append_part(
+        parts: list[Part],
+        part_type: PartType,
+        content: str | None,
+    ) -> str:
+        if not content:
+            return ""
+        if parts and parts[-1]["type"] == part_type:
+            parts[-1]["content"] += content
+        else:
+            parts.append({"type": part_type, "content": content})
+        return content
+
+    @staticmethod
+    def _parts_from_text(text: str | None, reasoning_text: str | None) -> list[Part] | None:
+        parts: list[Part] = []
+        ChatClient._append_part(parts, PART_REASONING, reasoning_text)
+        ChatClient._append_part(parts, PART_TEXT, text)
+        return parts or None
+
+    @staticmethod
+    def _text_from_parts(parts: list[Part] | None) -> str | None:
+        if not parts:
+            return None
+        text = "".join(part["content"] for part in parts if part["type"] == PART_TEXT)
+        return text or None
+
     def _update_tape(
         self,
         prepared: PreparedChat,
-        response_text: str | None,
         *,
+        parts: list[Part] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: RepublicError | None = None,
@@ -603,7 +635,7 @@ class ChatClient:
             system_prompt=prepared.system_prompt,
             context_error=prepared.context_error,
             new_messages=prepared.new_messages,
-            response_text=response_text,
+            parts=parts,
             tool_calls=tool_calls,
             tool_results=tool_results,
             error=error,
@@ -616,8 +648,8 @@ class ChatClient:
     async def _update_tape_async(
         self,
         prepared: PreparedChat,
-        response_text: str | None,
         *,
+        parts: list[Part] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: RepublicError | None = None,
@@ -636,7 +668,7 @@ class ChatClient:
             system_prompt=prepared.system_prompt,
             context_error=prepared.context_error,
             new_messages=prepared.new_messages,
-            response_text=response_text,
+            parts=parts,
             tool_calls=tool_calls,
             tool_results=tool_results,
             error=error,
@@ -656,15 +688,15 @@ class ChatClient:
             yield ""
 
     def _stream_error_result(self, prepared: PreparedChat, error: RepublicError) -> TextStream:
-        self._update_tape(prepared, None, error=error)
+        self._update_tape(prepared, error=error)
         return TextStream(self._empty_iterator(), state=StreamState(error=error))
 
     async def _stream_async_error_result(self, prepared: PreparedChat, error: RepublicError) -> AsyncTextStream:
-        await self._update_tape_async(prepared, None, error=error)
+        await self._update_tape_async(prepared, error=error)
         return AsyncTextStream(self._empty_async_iterator(), state=StreamState(error=error))
 
     def _event_error_result(self, prepared: PreparedChat, error: RepublicError) -> StreamEvents:
-        self._update_tape(prepared, None, error=error)
+        self._update_tape(prepared, error=error)
         state = StreamState(error=error)
         events = [
             StreamEvent("error", error.as_dict()),
@@ -682,7 +714,7 @@ class ChatClient:
         return StreamEvents(iter(events), state=state)
 
     async def _event_async_error_result(self, prepared: PreparedChat, error: RepublicError) -> AsyncStreamEvents:
-        await self._update_tape_async(prepared, None, error=error)
+        await self._update_tape_async(prepared, error=error)
         state = StreamState(error=error)
 
         async def _iterator() -> AsyncIterator[StreamEvent]:
@@ -721,7 +753,7 @@ class ChatClient:
         self,
         prepared: PreparedChat,
         *,
-        text: str | None,
+        parts: list[Part] | None = None,
         tool_calls: list[dict[str, Any]],
         state: StreamState,
         provider_name: str,
@@ -733,7 +765,7 @@ class ChatClient:
         completed_metadata_only: bool = False,
     ) -> None:
         if (
-            not text
+            not parts
             and not tool_calls
             and state.error is None
             and not completed_metadata_only
@@ -746,7 +778,7 @@ class ChatClient:
         state.usage = usage
         self._update_tape(
             prepared,
-            text or None,
+            parts=parts,
             tool_calls=tool_calls or None,
             tool_results=None,
             error=state.error,
@@ -760,7 +792,7 @@ class ChatClient:
         self,
         prepared: PreparedChat,
         *,
-        text: str | None,
+        parts: list[Part] | None = None,
         tool_calls: list[dict[str, Any]],
         state: StreamState,
         provider_name: str,
@@ -772,7 +804,7 @@ class ChatClient:
         completed_metadata_only: bool = False,
     ) -> None:
         if (
-            not text
+            not parts
             and not tool_calls
             and state.error is None
             and not completed_metadata_only
@@ -785,7 +817,7 @@ class ChatClient:
         state.usage = usage
         await self._update_tape_async(
             prepared,
-            text or None,
+            parts=parts,
             tool_calls=tool_calls or None,
             tool_results=None,
             error=state.error,
@@ -799,7 +831,7 @@ class ChatClient:
         self,
         prepared: PreparedChat,
         *,
-        parts: list[str],
+        parts: list[Part],
         tool_calls: list[dict[str, Any]],
         state: StreamState,
         provider_name: str,
@@ -840,7 +872,7 @@ class ChatClient:
             StreamEvent(
                 "final",
                 self._final_event_data(
-                    text="".join(parts) if parts else None,
+                    text=self._text_from_parts(parts),
                     tool_calls=tool_calls,
                     tool_results=tool_results,
                     usage=usage,
@@ -854,7 +886,7 @@ class ChatClient:
         self,
         prepared: PreparedChat,
         *,
-        parts: list[str],
+        parts: list[Part],
         tool_calls: list[dict[str, Any]],
         state: StreamState,
         provider_name: str,
@@ -896,7 +928,7 @@ class ChatClient:
             StreamEvent(
                 "final",
                 self._final_event_data(
-                    text="".join(parts) if parts else None,
+                    text=self._text_from_parts(parts),
                     tool_calls=tool_calls,
                     tool_results=tool_results,
                     usage=usage,
@@ -910,7 +942,7 @@ class ChatClient:
         self,
         prepared: PreparedChat,
         *,
-        parts: list[str],
+        parts: list[Part],
         tool_calls: list[dict[str, Any]] | None,
         tool_results: list[Any],
         state: StreamState,
@@ -923,7 +955,7 @@ class ChatClient:
         final_calls = tool_calls or assembler.finalize()
         self._update_tape(
             prepared,
-            "".join(parts) if parts else None,
+            parts=parts or None,
             tool_calls=final_calls or None,
             tool_results=tool_results or None,
             error=state.error,
@@ -937,7 +969,7 @@ class ChatClient:
         self,
         prepared: PreparedChat,
         *,
-        parts: list[str],
+        parts: list[Part],
         tool_calls: list[dict[str, Any]] | None,
         tool_results: list[Any],
         state: StreamState,
@@ -950,7 +982,7 @@ class ChatClient:
         final_calls = tool_calls or assembler.finalize()
         await self._update_tape_async(
             prepared,
-            "".join(parts) if parts else None,
+            parts=parts or None,
             tool_calls=final_calls or None,
             tool_results=tool_results or None,
             error=state.error,
@@ -963,7 +995,7 @@ class ChatClient:
     def _error_event_sequence(
         self,
         *,
-        parts: list[str],
+        parts: list[Part],
         tool_calls: list[dict[str, Any]],
         tool_results: list[Any],
         usage: dict[str, Any] | None,
@@ -974,7 +1006,7 @@ class ChatClient:
             StreamEvent(
                 "final",
                 self._final_event_data(
-                    text="".join(parts) if parts else None,
+                    text=self._text_from_parts(parts),
                     tool_calls=tool_calls,
                     tool_results=tool_results,
                     usage=usage,
@@ -993,10 +1025,11 @@ class ChatClient:
     ) -> str:
         payload, transport = self._unwrap_response(response)
         text = self._extract_text(payload, transport=transport)
-        if text:
+        reasoning_text = self._extract_thinking(payload, transport=transport)
+        if text or reasoning_text:
             self._update_tape(
                 prepared,
-                text,
+                parts=self._parts_from_text(text, reasoning_text),
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1005,7 +1038,6 @@ class ChatClient:
         if self._is_completed_responses_metadata_only(payload, transport=transport):
             self._update_tape(
                 prepared,
-                None,
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1023,10 +1055,11 @@ class ChatClient:
     ) -> str:
         payload, transport = self._unwrap_response(response)
         text = self._extract_text(payload, transport=transport)
-        if text:
+        reasoning_text = self._extract_thinking(payload, transport=transport)
+        if text or reasoning_text:
             await self._update_tape_async(
                 prepared,
-                text,
+                parts=self._parts_from_text(text, reasoning_text),
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1035,7 +1068,6 @@ class ChatClient:
         if self._is_completed_responses_metadata_only(payload, transport=transport):
             await self._update_tape_async(
                 prepared,
-                None,
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1055,7 +1087,6 @@ class ChatClient:
         calls = self._extract_tool_calls(payload, transport=transport)
         self._update_tape(
             prepared,
-            None,
             tool_calls=calls,
             tool_results=[],
             response=payload,
@@ -1076,7 +1107,6 @@ class ChatClient:
         calls = self._extract_tool_calls(payload, transport=transport)
         await self._update_tape_async(
             prepared,
-            None,
             tool_calls=calls,
             tool_results=[],
             response=payload,
@@ -1103,7 +1133,6 @@ class ChatClient:
             )
             self._update_tape(
                 prepared,
-                None,
                 tool_calls=execution.tool_calls,
                 tool_results=execution.tool_results,
                 response=payload,
@@ -1113,10 +1142,11 @@ class ChatClient:
             return ToolAutoResult.tools_result(execution.tool_calls, execution.tool_results)
 
         text = self._extract_text(payload, transport=transport)
-        if text:
+        reasoning_text = self._extract_thinking(payload, transport=transport)
+        if text or reasoning_text:
             self._update_tape(
                 prepared,
-                text,
+                parts=self._parts_from_text(text, reasoning_text),
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1125,7 +1155,6 @@ class ChatClient:
         if self._is_completed_responses_metadata_only(payload, transport=transport):
             self._update_tape(
                 prepared,
-                None,
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1152,7 +1181,6 @@ class ChatClient:
             )
             await self._update_tape_async(
                 prepared,
-                None,
                 tool_calls=execution.tool_calls,
                 tool_results=execution.tool_results,
                 response=payload,
@@ -1162,10 +1190,11 @@ class ChatClient:
             return ToolAutoResult.tools_result(execution.tool_calls, execution.tool_results)
 
         text = self._extract_text(payload, transport=transport)
-        if text:
+        reasoning_text = self._extract_thinking(payload, transport=transport)
+        if text or reasoning_text:
             await self._update_tape_async(
                 prepared,
-                text,
+                parts=self._parts_from_text(text, reasoning_text),
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1174,7 +1203,6 @@ class ChatClient:
         if self._is_completed_responses_metadata_only(payload, transport=transport):
             await self._update_tape_async(
                 prepared,
-                None,
                 response=payload,
                 provider=provider_name,
                 model=model_id,
@@ -1216,7 +1244,7 @@ class ChatClient:
                 on_response=partial(self._handle_create_response, prepared),
             )
         except RepublicError as error:
-            self._update_tape(prepared, None, error=error)
+            self._update_tape(prepared, error=error)
             raise
 
     def tool_calls(
@@ -1254,7 +1282,7 @@ class ChatClient:
                 on_response=partial(self._handle_tool_calls_response, prepared),
             )
         except RepublicError as error:
-            self._update_tape(prepared, None, error=error)
+            self._update_tape(prepared, error=error)
             raise
 
     def run_tools(
@@ -1293,7 +1321,7 @@ class ChatClient:
                 on_response=partial(self._handle_tools_auto_response, prepared),
             )
         except RepublicError as error:
-            self._update_tape(prepared, None, error=error)
+            self._update_tape(prepared, error=error)
             return ToolAutoResult.error_result(error)
 
     async def chat_async(
@@ -1329,7 +1357,7 @@ class ChatClient:
                 on_response=partial(self._handle_create_response_async, prepared),
             )
         except RepublicError as error:
-            await self._update_tape_async(prepared, None, error=error)
+            await self._update_tape_async(prepared, error=error)
             raise
 
     async def tool_calls_async(
@@ -1367,7 +1395,7 @@ class ChatClient:
                 on_response=partial(self._handle_tool_calls_response_async, prepared),
             )
         except RepublicError as error:
-            await self._update_tape_async(prepared, None, error=error)
+            await self._update_tape_async(prepared, error=error)
             raise
 
     async def run_tools_async(
@@ -1406,7 +1434,7 @@ class ChatClient:
                 on_response=partial(self._handle_tools_auto_response_async, prepared),
             )
         except RepublicError as error:
-            await self._update_tape_async(prepared, None, error=error)
+            await self._update_tape_async(prepared, error=error)
             return ToolAutoResult.error_result(error)
 
     def stream(
@@ -1562,11 +1590,12 @@ class ChatClient:
         payload, transport = self._unwrap_response(response)
         if self._is_non_stream_response(payload, transport=transport):
             text = self._extract_text(payload, transport=transport)
+            reasoning_text = self._extract_thinking(payload, transport=transport)
             tool_calls = self._extract_tool_calls(payload, transport=transport)
             state = StreamState()
             self._finalize_text_stream(
                 prepared,
-                text=text or None,
+                parts=self._parts_from_text(text or None, reasoning_text),
                 tool_calls=tool_calls,
                 state=state,
                 provider_name=provider_name,
@@ -1579,7 +1608,7 @@ class ChatClient:
             return TextStream(iter([text]) if text else self._empty_iterator(), state=state)
 
         state = StreamState()
-        parts: list[str] = []
+        parts: list[Part] = []
         assembler = ToolCallAssembler()
 
         usage: dict[str, Any] | None = None
@@ -1597,9 +1626,10 @@ class ChatClient:
                     deltas = self._extract_chunk_tool_call_deltas(chunk, transport=transport)
                     if deltas:
                         assembler.add_deltas(deltas)
+                    self._append_chunk_thinking(parts, chunk, transport=transport)
                     text = self._extract_chunk_text(chunk, transport=transport)
                     if text:
-                        parts.append(text)
+                        self._append_part(parts, PART_TEXT, text)
                         yield text
                     usage = self._extract_usage(chunk, transport=transport) or usage
             except Exception as exc:
@@ -1608,7 +1638,7 @@ class ChatClient:
                 tool_calls = assembler.finalize()
                 self._finalize_text_stream(
                     prepared,
-                    text="".join(parts) if parts else None,
+                    parts=parts or None,
                     tool_calls=tool_calls,
                     state=state,
                     provider_name=provider_name,
@@ -1635,11 +1665,12 @@ class ChatClient:
         payload, transport = self._unwrap_response(response)
         if self._is_non_stream_response(payload, transport=transport):
             text = self._extract_text(payload, transport=transport)
+            reasoning_text = self._extract_thinking(payload, transport=transport)
             tool_calls = self._extract_tool_calls(payload, transport=transport)
             state = StreamState()
             await self._finalize_text_stream_async(
                 prepared,
-                text=text or None,
+                parts=self._parts_from_text(text or None, reasoning_text),
                 tool_calls=tool_calls,
                 state=state,
                 provider_name=provider_name,
@@ -1657,7 +1688,7 @@ class ChatClient:
             return AsyncTextStream(_single(), state=state)
 
         state = StreamState()
-        parts: list[str] = []
+        parts: list[Part] = []
         usage: dict[str, Any] | None = None
         assembler = ToolCallAssembler()
         response_completed = False
@@ -1674,9 +1705,10 @@ class ChatClient:
                     deltas = self._extract_chunk_tool_call_deltas(chunk, transport=transport)
                     if deltas:
                         assembler.add_deltas(deltas)
+                    self._append_chunk_thinking(parts, chunk, transport=transport)
                     text = self._extract_chunk_text(chunk, transport=transport)
                     if text:
-                        parts.append(text)
+                        self._append_part(parts, PART_TEXT, text)
                         yield text
                     usage = self._extract_usage(chunk, transport=transport) or usage
             except Exception as exc:
@@ -1685,7 +1717,7 @@ class ChatClient:
                 tool_calls = assembler.finalize()
                 await self._finalize_text_stream_async(
                     prepared,
-                    text="".join(parts) if parts else None,
+                    parts=parts or None,
                     tool_calls=tool_calls,
                     state=state,
                     provider_name=provider_name,
@@ -1719,6 +1751,36 @@ class ChatClient:
         parser = ChatClient._parser_for_payload(chunk, transport=transport)
         return parser.extract_chunk_text(chunk)
 
+    @staticmethod
+    def _extract_chunk_thinking(
+        chunk: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> str:
+        parser = ChatClient._parser_for_payload(chunk, transport=transport)
+        return parser.extract_chunk_thinking(chunk)
+
+    @staticmethod
+    def _append_chunk_thinking(
+        parts: list[Part],
+        chunk: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> str:
+        thinking = ChatClient._extract_chunk_thinking(chunk, transport=transport)
+        if thinking:
+            ChatClient._append_part(parts, PART_REASONING, thinking)
+        return thinking
+
+    @staticmethod
+    def _extract_thinking(
+        response: Any,
+        *,
+        transport: TransportKind | None = None,
+    ) -> str:
+        parser = ChatClient._parser_for_payload(response, transport=transport)
+        return parser.extract_thinking(response)
+
     def _build_event_stream(
         self,
         prepared: PreparedChat,
@@ -1739,7 +1801,7 @@ class ChatClient:
 
         state = StreamState()
         usage: dict[str, Any] | None = None
-        parts: list[str] = []
+        parts: list[Part] = []
         tool_calls: list[dict[str, Any]] | None = None
         tool_results: list[Any] = []
         assembler = ToolCallAssembler()
@@ -1756,9 +1818,12 @@ class ChatClient:
                         output_item_types.add(output_item_type)
                     usage = self._extract_usage(chunk, transport=transport) or usage
                     assembler.add_deltas(self._extract_chunk_tool_call_deltas(chunk, transport=transport))
+                    thinking = self._append_chunk_thinking(parts, chunk, transport=transport)
+                    if thinking:
+                        yield StreamEvent("thinking", {"delta": thinking})
                     text = self._extract_chunk_text(chunk, transport=transport)
                     if text:
-                        parts.append(text)
+                        self._append_part(parts, PART_TEXT, text)
                         yield StreamEvent("text", {"delta": text})
 
                 tool_calls = assembler.finalize()
@@ -1822,7 +1887,7 @@ class ChatClient:
 
         state = StreamState()
         usage: dict[str, Any] | None = None
-        parts: list[str] = []
+        parts: list[Part] = []
         tool_calls: list[dict[str, Any]] | None = None
         tool_results: list[Any] = []
         assembler = ToolCallAssembler()
@@ -1839,9 +1904,12 @@ class ChatClient:
                         output_item_types.add(output_item_type)
                     usage = self._extract_usage(chunk, transport=transport) or usage
                     assembler.add_deltas(self._extract_chunk_tool_call_deltas(chunk, transport=transport))
+                    thinking = self._append_chunk_thinking(parts, chunk, transport=transport)
+                    if thinking:
+                        yield StreamEvent("thinking", {"delta": thinking})
                     text = self._extract_chunk_text(chunk, transport=transport)
                     if text:
-                        parts.append(text)
+                        self._append_part(parts, PART_TEXT, text)
                         yield StreamEvent("text", {"delta": text})
 
                 tool_calls = assembler.finalize()
@@ -1897,12 +1965,14 @@ class ChatClient:
         transport: TransportKind | None = None,
     ) -> StreamEvents:
         text = self._extract_text(response, transport=transport)
+        reasoning_text = self._extract_thinking(response, transport=transport)
         tool_calls = self._extract_tool_calls(response, transport=transport)
         usage = self._extract_usage(response, transport=transport)
         state = StreamState(usage=usage)
         tool_results: list[Any] = []
         if (
             not text
+            and not reasoning_text
             and not tool_calls
             and state.error is None
             and not self._is_completed_responses_metadata_only(response, transport=transport)
@@ -1911,6 +1981,8 @@ class ChatClient:
             self._core.log_error(empty, provider_name, model_id, 0)
             state.error = RepublicError(empty.kind, empty.message)
         events: list[StreamEvent] = []
+        if reasoning_text:
+            events.append(StreamEvent("thinking", {"delta": reasoning_text}))
         if text:
             events.append(StreamEvent("text", {"delta": text}))
         for idx, call in enumerate(tool_calls):
@@ -1939,7 +2011,7 @@ class ChatClient:
         )
         self._update_tape(
             prepared,
-            text or None,
+            parts=self._parts_from_text(text or None, reasoning_text),
             tool_calls=tool_calls or None,
             tool_results=tool_results or None,
             error=state.error,
@@ -1960,6 +2032,7 @@ class ChatClient:
         transport: TransportKind | None = None,
     ) -> AsyncStreamEvents:
         text = self._extract_text(response, transport=transport)
+        reasoning_text = self._extract_thinking(response, transport=transport)
         tool_calls = self._extract_tool_calls(response, transport=transport)
         usage = self._extract_usage(response, transport=transport)
         state = StreamState(usage=usage)
@@ -1969,6 +2042,7 @@ class ChatClient:
             nonlocal tool_results
             if (
                 not text
+                and not reasoning_text
                 and not tool_calls
                 and state.error is None
                 and not self._is_completed_responses_metadata_only(response, transport=transport)
@@ -1977,6 +2051,8 @@ class ChatClient:
                 self._core.log_error(empty, provider_name, model_id, 0)
                 state.error = RepublicError(empty.kind, empty.message)
 
+            if reasoning_text:
+                yield StreamEvent("thinking", {"delta": reasoning_text})
             if text:
                 yield StreamEvent("text", {"delta": text})
             for idx, call in enumerate(tool_calls):
@@ -2004,7 +2080,7 @@ class ChatClient:
 
             await self._update_tape_async(
                 prepared,
-                text or None,
+                parts=self._parts_from_text(text or None, reasoning_text),
                 tool_calls=tool_calls or None,
                 tool_results=tool_results or None,
                 error=state.error,

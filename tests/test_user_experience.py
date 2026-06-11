@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from any_llm.types.completion import ChatCompletionChunk
 
 from republic import LLM, TapeContext, tool
 from republic.core.errors import ErrorKind
@@ -10,6 +11,22 @@ from republic.core.results import RepublicError
 from republic.tape.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 
 from .fakes import make_chunk, make_response, make_tool_call
+
+
+def make_reasoning_chunk(text: str) -> ChatCompletionChunk:
+    return ChatCompletionChunk.model_validate({
+        "id": "chunk_reasoning",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-4o-mini",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"reasoning": {"content": text}},
+                "finish_reason": None,
+            }
+        ],
+    })
 
 
 def test_chat_retries_and_returns_text(fake_anyllm) -> None:
@@ -212,6 +229,86 @@ def test_stream_events_carries_text_tools_usage_and_final(fake_anyllm) -> None:
     assert tool_result.data["result"] == "TOKYO"
     assert stream.error is None
     assert stream.usage == {"total_tokens": 12}
+
+
+def test_stream_events_carries_completion_reasoning_as_thinking(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(iter([make_reasoning_chunk("plan "), make_chunk(text="answer")]))
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    events = list(llm.stream_events("Reply with answer"))
+
+    assert [(event.kind, event.data.get("delta")) for event in events[:-1]] == [
+        ("thinking", "plan "),
+        ("text", "answer"),
+    ]
+    assert events[-1].kind == "final"
+
+
+def test_stream_events_records_reasoning_parts_in_tape(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(
+        iter([make_reasoning_chunk("plan "), make_reasoning_chunk("done"), make_chunk(text="answer")]),
+        make_response(text="next"),
+    )
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    tape = llm.tape("ops")
+    tape.handoff("start")
+
+    events = list(llm.stream_events("Reply with answer", tape="ops"))
+
+    assert [event.kind for event in events] == ["thinking", "thinking", "text", "final"]
+    messages = [entry.payload for entry in tape.query.kinds("message").all()]
+    assert messages[-1] == {
+        "role": "assistant",
+        "parts": [
+            {"type": "reasoning", "content": "plan done"},
+            {"type": "text", "content": "answer"},
+        ],
+    }
+
+    assert llm.chat("Continue", tape="ops") == "next"
+    assistant_history = client.calls[-1]["messages"][1]
+    assert assistant_history == {"role": "assistant", "content": "answer"}
+
+
+def test_stream_events_records_reasoning_only_parts_in_tape(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(iter([make_reasoning_chunk("plan only")]))
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    tape = llm.tape("ops")
+    tape.handoff("start")
+
+    events = list(llm.stream_events("Think through it", tape="ops"))
+
+    assert [(event.kind, event.data.get("delta")) for event in events[:-1]] == [("thinking", "plan only")]
+    assert events[-1].kind == "final"
+    assert events[-1].data["ok"] is True
+    messages = [entry.payload for entry in tape.query.kinds("message").all()]
+    assert messages[-1] == {
+        "role": "assistant",
+        "parts": [{"type": "reasoning", "content": "plan only"}],
+    }
+    assert tape.read_messages() == [{"role": "user", "content": "Think through it"}]
+
+
+def test_chat_records_non_stream_reasoning_only_parts_in_tape(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openai")
+    client.queue_completion(make_response(reasoning="plan only"))
+
+    llm = LLM(model="openai:gpt-4o-mini", api_key="dummy")
+    tape = llm.tape("ops")
+    tape.handoff("start")
+
+    assert llm.chat("Think through it", tape="ops") == ""
+    messages = [entry.payload for entry in tape.query.kinds("message").all()]
+    assert messages[-1] == {
+        "role": "assistant",
+        "parts": [{"type": "reasoning", "content": "plan only"}],
+    }
+    assert tape.read_messages() == [{"role": "user", "content": "Think through it"}]
 
 
 def test_stream_events_merges_tool_deltas_without_id_or_index(fake_anyllm) -> None:

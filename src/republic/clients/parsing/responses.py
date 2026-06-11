@@ -5,6 +5,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+from openai.types.responses.response_reasoning_summary_text_delta_event import ResponseReasoningSummaryTextDeltaEvent
+from openai.types.responses.response_reasoning_text_delta_event import ResponseReasoningTextDeltaEvent
+
 from republic.clients.parsing.common import expand_tool_calls, field
 from republic.clients.parsing.types import BaseTransportParser
 
@@ -76,6 +79,30 @@ class ResponseTransportParser(BaseTransportParser):
         if isinstance(delta, str):
             return delta
         return ""
+
+    def extract_chunk_thinking(self, chunk: Any) -> str:
+        if not isinstance(chunk, ResponseReasoningTextDeltaEvent | ResponseReasoningSummaryTextDeltaEvent):
+            return ""
+        return chunk.delta
+
+    def extract_thinking(self, response: Any) -> str:
+        output = response if isinstance(response, list) else field(response, "output")
+        if not isinstance(output, list):
+            return ""
+
+        parts: list[str] = []
+        for item in output:
+            if field(item, "type") != "reasoning":
+                continue
+            content = field(item, "content")
+            if isinstance(content, str):
+                parts.append(content)
+            summary = field(item, "summary") or []
+            for entry in summary:
+                text = field(entry, "text") or field(entry, "content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
 
     def extract_text_from_output(self, output: Any) -> str:
         if not isinstance(output, list):

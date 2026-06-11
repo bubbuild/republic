@@ -37,6 +37,33 @@ def test_build_messages_uses_last_anchor_slice(manager) -> None:
     assert [message["content"] for message in messages] == ["task 2"]
 
 
+def test_build_messages_strips_recorded_reasoning_parts() -> None:
+    store = InMemoryTapeStore()
+    store.append("test_tape", TapeEntry.anchor("a1"))
+    store.append(
+        "test_tape",
+        TapeEntry.message({
+            "role": "assistant",
+            "parts": [
+                {"type": "reasoning", "content": "plan"},
+                {"type": "text", "content": "answer"},
+            ],
+        }),
+    )
+    store.append(
+        "test_tape",
+        TapeEntry.message({
+            "role": "assistant",
+            "parts": [{"type": "reasoning", "content": "reasoning only"}],
+        }),
+    )
+    manager = TapeManager(store=store)
+
+    messages = manager.read_messages("test_tape", context=TapeContext(anchor=LAST_ANCHOR))
+
+    assert messages == [{"role": "assistant", "content": "answer"}]
+
+
 def test_build_messages_reports_missing_anchor(manager) -> None:
     with pytest.raises(RepublicError) as exc_info:
         manager.read_messages("test_tape", context=TapeContext(anchor="missing"))

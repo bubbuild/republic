@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+from openai.types.responses.response_reasoning_summary_text_delta_event import ResponseReasoningSummaryTextDeltaEvent
 
 from republic import LLM, tool
 from republic.core.execution import LLMCore
@@ -42,6 +43,8 @@ def _compact_stream_events(events: list[Any]) -> list[tuple[str, Any]]:
     for event in events:
         if event.kind == "text":
             compact.append(("text", event.data["delta"]))
+        elif event.kind == "thinking":
+            compact.append(("thinking", event.data["delta"]))
         elif event.kind == "tool_call":
             call = event.data["call"]
             compact.append(("tool_call", (call.get("id"), call["function"]["name"], call["function"]["arguments"])))
@@ -70,6 +73,17 @@ def _compact_stream_events(events: list[Any]) -> list[tuple[str, Any]]:
 async def _async_items(*items: Any) -> AsyncIterator[Any]:
     for item in items:
         yield item
+
+
+def make_responses_reasoning_summary_delta(delta: str) -> ResponseReasoningSummaryTextDeltaEvent:
+    return ResponseReasoningSummaryTextDeltaEvent.model_validate({
+        "type": "response.reasoning_summary_text.delta",
+        "delta": delta,
+        "item_id": "rs_1",
+        "output_index": 0,
+        "sequence_number": 1,
+        "summary_index": 0,
+    })
 
 
 def _completion_stream_event_items() -> list[Any]:
@@ -437,6 +451,36 @@ def test_stream_events_treat_completed_reasoning_only_stream_as_success(fake_any
                 "tool_calls": [],
                 "tool_results": [],
                 "usage": {"input_tokens": 1, "output_tokens": 128, "total_tokens": 129},
+                "error": None,
+            },
+        ),
+    ]
+
+
+def test_stream_events_carries_responses_reasoning_summary_as_thinking(fake_anyllm) -> None:
+    client = fake_anyllm.ensure("openrouter")
+    client.queue_aresponses(
+        _async_items(
+            make_responses_reasoning_summary_delta("plan "),
+            make_responses_text_delta("answer"),
+            make_responses_completed({"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}),
+        )
+    )
+
+    llm = LLM(model="openrouter:openai/gpt-5.4-pro", api_key="dummy", api_format="responses", max_retries=0)
+    events = list(llm.stream_events("Reply with answer", max_tokens=128))
+
+    assert _compact_stream_events(events) == [
+        ("thinking", "plan "),
+        ("text", "answer"),
+        ("usage", {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}),
+        (
+            "final",
+            {
+                "text": "answer",
+                "tool_calls": [],
+                "tool_results": [],
+                "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
                 "error": None,
             },
         ),

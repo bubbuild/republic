@@ -22,6 +22,14 @@ class BaseTransportParser(ABC):
         """Extract text from a response chunk."""
 
     @abstractmethod
+    def extract_chunk_thinking(self, chunk: Any) -> str:
+        """Extract thinking/reasoning text from a response chunk."""
+
+    @abstractmethod
+    def extract_thinking(self, response: Any) -> str:
+        """Extract thinking/reasoning text from a response."""
+
+    @abstractmethod
     def extract_text(self, response: Any) -> str:
         """Extract text from a response."""
 
