@@ -1,5 +1,8 @@
 # Republic
 
+> [!WARNING]
+> This project is currently "archived/maintained"; the main work was implemented in [bub v0.4.x](https://github.com/bubbuild/bub/releases/tag/0.4.0).
+
 [![Release](https://img.shields.io/github/v/release/bubbuild/republic)](https://img.shields.io/github/v/release/bubbuild/republic)
 [![Build status](https://img.shields.io/github/actions/workflow/status/bubbuild/republic/main.yml?branch=main)](https://github.com/bubbuild/republic/actions/workflows/main.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/bubbuild/republic/branch/main/graph/badge.svg)](https://codecov.io/gh/bubbuild/republic)
