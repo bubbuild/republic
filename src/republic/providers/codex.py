@@ -12,7 +12,7 @@ from republic.api import stream
 from republic.auth.codex import CodexAuthError, CodexTokens
 from republic.errors import IncompleteStreamError, ProviderError, UnsupportedRequestError
 from republic.providers import _openai_responses as responses
-from republic.providers._openai_client import OpenAIClient
+from republic.providers._openai_client import OpenAIClient, oauth_client, oauth_error
 from republic.providers._openai_responses_stream import ResponsesStream
 from republic.types import Request, Response
 
@@ -50,15 +50,6 @@ def _payload(request: Request) -> dict[str, Any]:
     return payload
 
 
-def _failure(exc: Exception) -> ProviderError:
-    status = getattr(exc, "status_code", None)
-    codes = {401: "unauthorized", 403: "forbidden", 429: "rate_limit"}
-    code = codes.get(status, "request_failed")
-    if isinstance(exc, ProviderError):
-        code = "invalid_response" if exc.code == "invalid_response" else "stream_error"
-    return ProviderError(f"Codex request: {code}", provider="codex", status_code=status, code=code)
-
-
 class OpenAICodex(OpenAIClient):
     """Codex-only bearer tokens; generate aggregates one streaming wire request.
 
@@ -71,36 +62,10 @@ class OpenAICodex(OpenAIClient):
     def __init__(self, tokens: CodexTokens, *, client: openai.AsyncOpenAI | None = None) -> None:
         if tokens.account_id is None:
             raise CodexAuthError("missing_account")
-        if client is not None and client._client.follow_redirects:
-            raise UnsupportedRequestError(
-                "client.follow_redirects", "disable redirects for a single Codex HTTP attempt"
-            )
         self._tokens = tokens
         headers = {"chatgpt-account-id": tokens.account_id, "originator": "republic"}
-        if client is None:
-            owned = openai.AsyncOpenAI(
-                api_key=tokens.access_token,
-                base_url=_BASE_URL,
-                max_retries=0,
-                default_headers=headers,
-                http_client=openai.DefaultAsyncHttpxClient(follow_redirects=False),
-            )
-            super().__init__(client=owned)
-            self._owns_client = True
-        else:
-            super().__init__(
-                client=client.with_options(
-                    api_key=tokens.access_token,
-                    base_url=_BASE_URL,
-                    set_default_headers=headers,
-                    set_default_query={},
-                    max_retries=0,
-                )
-            )
-        # SDK copy() inherits these even when None is passed explicitly. Only
-        # our private copy is changed; API account routing does not apply here.
-        self._client.organization = None
-        self._client.project = None
+        self._client, self._owns_client = oauth_client(tokens.access_token, _BASE_URL, headers, client)
+        self._closed = False
 
     def _ensure_open(self) -> None:
         if self._closed:
@@ -138,7 +103,7 @@ class OpenAICodex(OpenAIClient):
                         break
                 terminal = state.end()
         except (openai.OpenAIError, httpx.HTTPError, ProviderError) as exc:
-            failure = _failure(exc)
+            failure = oauth_error(exc, provider="codex")
         except (ValueError, TypeError, KeyError, AttributeError):
             failure = ProviderError("invalid_response", provider="codex", code="invalid_response")
         else:

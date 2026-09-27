@@ -95,3 +95,63 @@ secret-safe error mapping and explicit atomic token files, and reuses the existi
 Responses wire conversion/parser for single-request Codex SSE generation. Native
 reasoning items are retained. No claim of live account access or unchanged upstream
 API/behavior compatibility is made.
+
+Step 6 adapts concrete GitHub device-flow and Copilot editor-protocol semantics
+from official Microsoft sources inspected 2026-09-28:
+- https://github.com/microsoft/vscode
+  Revision: 216fe2adc8e0f4436829e40004307e4098fcb478
+  extensions/github-authentication/src/config.ts, flows.ts
+- https://github.com/microsoft/vscode-copilot-chat
+  Revision: 5863f5a7088958050792b5dccbe8b46c6e13eccc
+  src/platform/authentication/common/authentication.ts, copilotToken.ts;
+  authentication/vscode-node/session.ts; authentication/node/copilotTokenManager.ts;
+  networking/common/fetch.ts, networking.ts; endpoint/node/chatEndpoint.ts;
+  src/extension/prompt/node/chatMLFetcher.ts.
+These inform src/republic/auth/github_copilot.py,
+src/republic/providers/github_copilot.py and their rewritten HTTP fixture tests.
+No agent/runtime, telemetry, profile lookup, credential discovery, automatic
+renewal/retry, editor UX or model-specific history repair is included. Standard
+OAuth uses Authlib; polling validation, explicit deadlines, trusted endpoint
+origins, secret-safe errors and persistence are Republic changes. Shared private
+file and OAuth client helpers are extracted only from existing duplicate code.
+The existing Vercel-derived Chat converter/parser is reused without a registry.
+
+Microsoft source license notice:
+MIT License
+
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Protocol facts were also checked against @vscode/copilot-api 0.2.19, the package
+pinned by the referenced Copilot Chat source:
+https://registry.npmjs.org/@vscode/copilot-api/-/copilot-api-0.2.19.tgz
+Archive SHA-256:
+8b96d8da5349db6d2ebfe37c01a6f721c2d48f5e9be31c79c02af41a0f0294dc
+That package has custom @vscode/copilot-api npm Module Terms and Conditions;
+it is not MIT licensed. No package code was copied, executed, bundled or added
+as a dependency. URL/header facts only were inspected, not its implementation
+or licensed first-party integration selection. No third-party entitlement or
+stable public inference API guarantee is inferred from these references.
+
+Historical Republic sources at 216098ef8f71afa5fc164284504036d81f4706c4 were
+read for comparison (auth/github_copilot.py, clients/github_copilot.py and tests).
+Their Models endpoint, gh/environment/profile discovery and permissive polling
+were not retained. GitHub Models is distinct from the Copilot editor service.
+See docs/copilot-oauth.md for primary-source links and offline/live limitations.

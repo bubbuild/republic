@@ -3,12 +3,9 @@
 
 import json
 import math
-import os
 import re
-import tempfile
 import time
 from base64 import urlsafe_b64decode
-from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from secrets import compare_digest
@@ -22,6 +19,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc6749.parameters import parse_authorization_code_response
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 
+from republic.auth._files import read_json, write_json
 from republic.errors import RepublicError
 
 _CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -280,7 +278,7 @@ async def refresh_tokens(
 def read_tokens(path: str | Path) -> CodexTokens:
     """Read only the explicit file, in Republic's format. No default-path discovery."""
     try:
-        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        raw = read_json(path)
         if not isinstance(raw, dict):
             raise CodexAuthError("invalid_token_file")
         return CodexTokens(**raw)
@@ -293,23 +291,10 @@ def read_tokens(path: str | Path) -> CodexTokens:
 
 def write_tokens(path: str | Path, tokens: CodexTokens) -> None:
     """Atomically replace the explicit file with mode 0600. Parent must exist."""
-    destination = Path(path)
-    temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent, delete=False) as handle:
-            temporary = Path(handle.name)
-            os.chmod(temporary, 0o600)
-            json.dump(asdict(tokens), handle)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, destination)
+        write_json(path, asdict(tokens))
     except OSError:
         error = CodexAuthError("credential_write_failed")
     else:
         return
-    finally:
-        if temporary is not None:
-            with suppress(OSError):
-                temporary.unlink(missing_ok=True)
     raise error

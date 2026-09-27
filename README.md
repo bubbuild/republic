@@ -12,12 +12,14 @@ belong to the caller. Tool definitions, calls, and results are model data.
 
 ## Current status
 
-Steps 1-5 implement a Python 3.11+ single-call SDK with OpenAI Chat Completions,
-OpenAI Responses, Anthropic Messages and ChatGPT/Codex adapters using official
-async clients, plus explicit Authlib PKCE/refresh and token-file helpers.
+Steps 1-6 implement a Python 3.11+ single-call SDK with OpenAI Chat Completions,
+OpenAI Responses, Anthropic Messages, ChatGPT/Codex and GitHub Copilot adapters
+using official async clients, plus explicit Authlib PKCE/device-flow, token
+exchange/refresh and token-file helpers.
 Deterministic tests exercise real clients with HTTP/SSE fixtures. No live service
 or real-account OAuth login → inference → refreshed inference has been validated.
-GitHub Copilot and Grok OAuth remain planned.
+Copilot is an editor-protocol adaptation with explicit integration identity, not
+a stable third-party inference API guarantee. Grok OAuth remains planned.
 This branch does not describe the currently published package.
 
 Install this checkout with `uv sync` for development or `pip install .` for
@@ -63,6 +65,11 @@ Use `from republic.providers.codex import OpenAICodex` with explicit tokens from
 `republic.auth.codex`. The [Codex OAuth guide](docs/codex-oauth.md) covers caller-owned
 login UX, persistence, explicit refresh and one-request SSE-backed generation.
 
+Use `from republic.providers.github_copilot import GitHubCopilot` with explicit
+inference tokens from `republic.auth.github_copilot`. The
+[Copilot OAuth guide](docs/copilot-oauth.md) covers device polling, separate token
+exchange, integration/entitlement limits and the supported Chat subset.
+
 See the [single-call contract](docs/contracts.md) for a runnable offline example,
 data types, metadata rules, event ordering, and stream ownership. Each call
 performs one provider operation. Republic does not execute tools, start another
@@ -87,4 +94,5 @@ See the plan's completion evidence for verification results and remaining limits
 ## License
 
 [Apache License 2.0](LICENSE). [NOTICE](NOTICE) records Vercel AI Python, Bub and
-OpenAI Codex sources, revisions, applicable copyrights, and Republic's changes.
+OpenAI Codex and Microsoft VS Code/Copilot Chat sources, revisions, applicable
+copyrights/licenses, and Republic's changes.

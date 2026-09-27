@@ -8,6 +8,42 @@ import openai
 from republic.errors import ProviderError, UnsupportedRequestError
 
 
+def oauth_client(
+    access_token: str,
+    base_url: str,
+    headers: dict[str, str],
+    client: openai.AsyncOpenAI | None,
+) -> tuple[openai.AsyncOpenAI, bool]:
+    """Private SDK copy with explicit OAuth routing, no retries or redirects."""
+    if client is not None and client._client.follow_redirects:
+        raise UnsupportedRequestError("client.follow_redirects", "disable redirects for a single HTTP attempt")
+    if client is None:
+        result = openai.AsyncOpenAI(
+            api_key=access_token,
+            base_url=base_url,
+            max_retries=0,
+            default_headers=headers,
+            http_client=openai.DefaultAsyncHttpxClient(follow_redirects=False),
+        )
+    else:
+        result = client.with_options(
+            api_key=access_token, base_url=base_url, max_retries=0, set_default_headers=headers, set_default_query={}
+        )
+    # SDK copy(None) inherits these; change only the new, private object.
+    result.organization = None
+    result.project = None
+    return result, client is None
+
+
+def oauth_error(exc: Exception, *, provider: str) -> ProviderError:
+    """Fixed diagnostics; never retain an OAuth-bearing SDK error as a cause."""
+    status = getattr(exc, "status_code", None)
+    code = {401: "unauthorized", 403: "forbidden", 429: "rate_limit"}.get(status, "request_failed")
+    if isinstance(exc, ProviderError):
+        code = "invalid_response" if exc.code == "invalid_response" else "stream_error"
+    return ProviderError(f"{provider} request: {code}", provider=provider, status_code=status, code=code)
+
+
 def provider_error(exc: Exception) -> ProviderError:
     code = getattr(exc, "code", None)
     return ProviderError(

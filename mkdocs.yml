@@ -14,6 +14,7 @@ nav:
   - OpenAI Responses: openai-responses.md
   - Anthropic Messages: anthropic-messages.md
   - ChatGPT Codex OAuth: codex-oauth.md
+  - GitHub Copilot OAuth: copilot-oauth.md
   - Rebuild Plan: rebuild-plan.md
 
 plugins:

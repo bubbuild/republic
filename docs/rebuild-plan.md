@@ -1,8 +1,10 @@
 # Provider SDK rebuild plan
 
-Status: Steps 0-4 implemented locally. OpenAI Chat Completions/Responses and
-Anthropic Messages have deterministic HTTP/SSE fixture evidence, with no
-live-service validation. Steps 5-8 remain planned. Verification evidence is recorded below.
+Status: Steps 0-6 implemented locally, including concrete ChatGPT/Codex and
+GitHub Copilot OAuth protocol adaptations. Evidence is deterministic HTTP/SSE
+fixtures; no live service or real-account OAuth acceptance has been validated.
+Copilot integration identity/entitlement remain unverified. Steps 7-8 remain
+planned. Verification evidence and the supported subsets are recorded below.
 
 ## Goal and boundaries
 
@@ -449,8 +451,8 @@ live account access.
 
 ### Step 5 implementation
 
-- Commit: `feat: add ChatGPT Codex OAuth support` (the commit containing this
-  evidence; resolve with `git log --grep='^feat: add ChatGPT Codex OAuth support$'`).
+- Commit: `38367c6d233f2aba86c988002835b4c6be914d22`
+  (`feat: add ChatGPT Codex OAuth support`).
   Started from accepted Step 4 `716b654d` on the clean `dev` worktree at
   `/home/psiace/bubbuild/republic-dev`. Other checkouts were not modified.
 - Added concrete `republic.auth.codex` helpers: `create_authorization`,
@@ -525,6 +527,99 @@ live account access.
   This does not block later independent steps. GitHub Copilot/Grok OAuth, device
   login, credential migration, hosted tools and Bub integration remain out of
   this increment; no subsequent step was started.
+
+
+### Step 6 implementation
+
+- Commit: `feat: add GitHub Copilot OAuth support` (the commit containing this
+  evidence; resolve with `git log --grep='^feat: add GitHub Copilot OAuth support$'`).
+  Started from accepted Step 5 `38367c6d233f2aba86c988002835b4c6be914d22` on clean
+  `dev` at `/home/psiace/bubbuild/republic-dev`. Other checkouts remain untouched.
+- Added `republic.auth.github_copilot`: `start_device_authorization`,
+  `wait_for_token`, `exchange_copilot_token`, conditional `refresh_github_token`,
+  `read_token`/`write_token`, immutable `DeviceAuthorization`, `GitHubToken`,
+  `CopilotToken` and `CopilotAuthError`. Standard device/refresh token requests
+  and OAuth parsing use async Authlib HTTPX with public-client authentication.
+  GitHub-specific polling waits before the first attempt, honors increasing
+  intervals/slow-down, stops on denial/expiry/unknown errors, and enforces caller
+  and device deadlines, including requests in flight. Cancellation releases the
+  auth client. No UI, subprocess, gh/environment/home discovery or profile calls.
+- The source-derived default client ID is VS Code's `01ab8ac9400c4e429b23`, with
+  minimal Copilot scope `user:email`; an explicit client ID is accepted without
+  fallback. GitHub login does not prove Copilot entitlement. OAuth tokens may
+  legitimately omit expiry/refresh data; there is no guessed lifetime or invented
+  refresh grant. Current official docs support optional expiring device tokens,
+  so refresh is available only when the server actually supplied a refresh token.
+- Copilot access is a separate explicit GET to
+  `https://api.github.com/copilot_internal/v2/token`, using the GitHub token.
+  It returns an opaque inference token with actual expiry, optional advisory
+  renewal time, and validated API origin. Renewal explicitly repeats this
+  exchange; inference never does it automatically. Exactly four known HTTPS
+  Copilot API origins are accepted; other domains/paths/ports/query/userinfo and
+  all redirects are rejected. The default origin follows the inspected client.
+- Added `republic.providers.github_copilot.GitHubCopilot(token, integration_id=...,
+  client=None)`, reusing the existing Chat conversion/stream parser and official
+  OpenAI SDK. One JSON `generate` or SSE `stream` POST goes to the validated
+  Copilot origin plus `/chat/completions`. Actual model/tool data, interleaved
+  argument fragments, tail usage, identity and finish metadata retain the prior
+  single-call behavior. `max_output_tokens` maps to the source's `max_tokens`.
+  Tools are never executed; no next turn, fallback or history repair is added.
+- The sourced Chat subset supports text, function calls/results, temperature,
+  top-p, stop and auto/none/named choice. Explicit parallel-tool setting,
+  `required` tool choice, structured response format/reasoning effort, media,
+  native reasoning/opaque fields and references are not supported. Such inputs
+  or recognized unsupported outputs fail instead of being dropped. Copilot
+  Responses/Messages, model routing and agent features remain outside this step.
+- Client identity is Republic's own installed version, with an explicit caller
+  integration ID; no first-party editor identity is supplied by default. Its
+  server acceptance is unverified. Owned/borrowed clients disable actual SDK
+  retries and redirects; borrowed configuration/lifetime remains unchanged.
+  401/403/429, stream errors and disconnects never trigger exchange or replay.
+  Fixed errors omit token-bearing SDK causes, server text/codes and request IDs.
+  Repr hides credentials; explicit tagged JSON files use atomic 0600 writes.
+- Only genuinely shared private helpers were extracted: explicit JSON file I/O
+  and OpenAI OAuth client/error handling from Step 5, plus an HTTP test transport.
+  Public Request/Response/part/event contracts did not change. No new dependency
+  or lockfile change was needed; original Python 3.11+ and checks remain intact.
+- Read historical Republic auth/client/tests at `216098ef` via git show. The old
+  client targeted GitHub Models, not Copilot; it was not retained. Public sources
+  pinned in [the guide](copilot-oauth.md) and NOTICE: MIT Microsoft VS Code
+  `216fe2adc8e0f4436829e40004307e4098fcb478`, Copilot Chat
+  `5863f5a7088958050792b5dccbe8b46c6e13eccc`, GitHub OAuth docs and RFC 8628.
+  URL/header facts were also inspected in the referenced `@vscode/copilot-api`
+  0.2.19 archive, whose custom restrictive license is recorded separately. None
+  of that package's code was copied, executed, bundled or added as a dependency.
+  Existing Vercel provenance stays at `c788059dd1db2d93ae1c3da6daffb660eca07dbb`.
+- Verification (2026-09-28, local Linux):
+  - `make check`: lock consistency, all applicable prek hooks and ty passed.
+    Type/lint findings were corrected without disabling or relaxing checks.
+  - `make test`: **530 passed / 2 existing expected warnings**, preserving all
+    398 prior cases and adding 132 Copilot cases. Python 3.11.15, Authlib 1.7.2,
+    OpenAI 2.54.0, HTTPX 0.28.1 and Pydantic 2.12.5. Real clients plus controlled
+    HTTP/SSE/time fixtures cover the full explicit login → storage → exchange →
+    inference → renewed token → inference sequence, payload/header/request counts,
+    pending/slow-down/deadlines, errors, malformed input, persistence and cleanup.
+  - `make docs-test`: strict MkDocs build passed. README, contract/landing pages,
+    new Copilot guide, navigation and this plan distinguish implemented code from
+    unverified service acceptance; the plan's previously stale top status is fixed.
+  - `uv build --wheel`: passed. Installed into a new Python 3.11 environment at
+    `/tmp/republic-step6-install.yjwZb8` with declared lower bounds Authlib
+    **1.6.5**, OpenAI **2.16.0**, Pydantic **2.7.0** and HTTPX **0.28.1**. Isolated
+    `python -I` imports resolve to site-packages; public auth/provider imports,
+    packaged NOTICE and py.typed verified. All **228 affected Copilot/Codex tests**
+    passed against the installed wheel. No unnecessary interpreter matrix rerun.
+  - `git diff --check` and `git diff --cached --check`: passed.
+- Tests ran in the already authorized normal process with 90-second timeouts,
+  following the earlier restricted-sandbox SDK wakeup evidence. Authlib and SDK
+  request methods were not mocked; transports, fake polling time and owned-client
+  transport construction were controlled. No actual token file, .env, login or
+  live inference was accessed.
+- **Code and offline Step 6 evidence complete; account-backed acceptance pending.**
+  This editor protocol is not established as a stable public third-party API.
+  A real device login → entitled Copilot inference → explicitly renewed inference,
+  accepted integration/editor identity, app/model availability and endpoint
+  behavior remain unverified. Fixtures do not prove any account entitlement.
+  Grok and Bub integration remain Steps 7-8; neither was started.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while

@@ -5,7 +5,9 @@ Step 1 provides data models and a small asynchronous boundary. Step 2's
 Step 3 adds [OpenAI Responses](openai-responses.md) with native reasoning metadata
 and full-history replay. Step 4 adds [Anthropic Messages](anthropic-messages.md),
 including signed/redacted thinking and inclusive cache usage. Step 5 adds
-[ChatGPT/Codex OAuth](codex-oauth.md) and its explicit Responses provider. Names and
+[ChatGPT/Codex OAuth](codex-oauth.md) and its explicit Responses provider. Step 6
+adds [GitHub Copilot device OAuth](copilot-oauth.md), explicit inference-token
+exchange, and a bounded Chat provider. Names and
 signatures remain provisional as more protocols are added.
 
 ## Run an offline call
@@ -145,7 +147,7 @@ pulling another event. No events after it are consumed.
 
 `RepublicError` is the SDK error base. `ProviderError` carries optional provider,
 HTTP status, service error code and request ID. API-key adapters preserve native
-errors as causes; the Codex OAuth adapter omits native error objects and untrusted
+errors as causes; the Codex and Copilot OAuth adapters omit native error objects and untrusted
 diagnostics to protect credentials. `UnsupportedRequestError` reports unrepresentable input
 before a request is sent.
 `IncompleteStreamError` and `StreamProtocolError` describe streaming failures.

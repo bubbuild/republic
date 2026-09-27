@@ -32,3 +32,22 @@ class Bytes(httpx.AsyncByteStream):
 
 def streaming(body: Bytes) -> httpx.Response:
     return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=body)
+
+
+class Transport(httpx.MockTransport):
+    def __init__(self, replies: list[httpx.Response | Exception]) -> None:
+        self.replies = replies
+        self.requests: list[httpx.Request] = []
+        self.closed = 0
+        super().__init__(self.handle)
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    async def aclose(self) -> None:
+        self.closed += 1
+        await super().aclose()

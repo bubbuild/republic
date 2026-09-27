@@ -241,7 +241,7 @@ def test_expiry_and_explicit_file_failures(tmp_path: Path, monkeypatch: pytest.M
     def fail_replace(*args: Any) -> None:
         raise OSError("fixture")
 
-    monkeypatch.setattr("republic.auth.codex.os.replace", fail_replace)
+    monkeypatch.setattr("republic.auth._files.os.replace", fail_replace)
     with pytest.raises(CodexAuthError, match="credential_write_failed"):
         write_tokens(path, tokens())
     assert path.read_text() == "existing"

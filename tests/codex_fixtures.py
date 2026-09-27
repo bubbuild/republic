@@ -11,6 +11,7 @@ import openai
 
 from republic.auth.codex import CodexTokens
 from republic.providers.codex import OpenAICodex
+from tests.http_fixtures import Transport as Transport
 
 
 def jwt(**claims: Any) -> str:
@@ -38,25 +39,6 @@ def tokens(**overrides: Any) -> CodexTokens:
         **overrides,
     }
     return CodexTokens(**values)
-
-
-class Transport(httpx.MockTransport):
-    def __init__(self, replies: list[httpx.Response | Exception]) -> None:
-        self.replies = replies
-        self.requests: list[httpx.Request] = []
-        self.closed = 0
-        super().__init__(self.handle)
-
-    async def handle(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        reply = self.replies.pop(0)
-        if isinstance(reply, Exception):
-            raise reply
-        return reply
-
-    async def aclose(self) -> None:
-        self.closed += 1
-        await super().aclose()
 
 
 class Wire:
