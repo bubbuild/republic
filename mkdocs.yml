@@ -13,6 +13,7 @@ nav:
   - OpenAI Chat Completions: openai-chat.md
   - OpenAI Responses: openai-responses.md
   - Anthropic Messages: anthropic-messages.md
+  - ChatGPT Codex OAuth: codex-oauth.md
   - Rebuild Plan: rebuild-plan.md
 
 plugins:

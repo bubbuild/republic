@@ -6,7 +6,7 @@ class RepublicError(Exception):
 
 
 class ProviderError(RepublicError):
-    """An adapter's mapped request/transport failure, with its cause preserved."""
+    """Mapped failure; OAuth adapters omit native causes to protect credentials."""
 
     def __init__(
         self,

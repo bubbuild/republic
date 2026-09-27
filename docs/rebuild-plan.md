@@ -379,8 +379,8 @@ live account access.
 
 ### Step 4 implementation
 
-- Commit: `feat: add Anthropic Messages provider` (the commit containing this
-  evidence; resolve with `git log --grep='^feat: add Anthropic Messages provider$'`).
+- Commit: `716b654d56eea24608eb4c0a71ab187823742f3c`
+  (`feat: add Anthropic Messages provider`).
 - Added `republic.providers.anthropic.AnthropicMessages`, using official
   `anthropic.AsyncAnthropic.messages.create` for one native non-streaming request
   or one raw event stream. Explicit API key/base URL and borrowed clients are
@@ -444,8 +444,87 @@ live account access.
 - Limits: text-only; no media/files, citations, hosted tools, programmatic callers,
   containers, compaction, MCP or beta-specific workflows. Native inference option
   values remain subject to endpoint/model validation. No live Anthropic account
-  or model acceptance, OAuth or Bub integration was attempted. Steps 5-8 remain
-  unimplemented; this increment stops at the Messages provider.
+  or model acceptance, OAuth or Bub integration was attempted. At this point,
+  Steps 5-8 were unimplemented; the increment stopped at the Messages provider.
+
+### Step 5 implementation
+
+- Commit: `feat: add ChatGPT Codex OAuth support` (the commit containing this
+  evidence; resolve with `git log --grep='^feat: add ChatGPT Codex OAuth support$'`).
+  Started from accepted Step 4 `716b654d` on the clean `dev` worktree at
+  `/home/psiace/bubbuild/republic-dev`. Other checkouts were not modified.
+- Added concrete `republic.auth.codex` helpers: `create_authorization`,
+  `exchange_code`, `refresh_tokens`, `read_tokens`, `write_tokens`, immutable
+  `CodexAuthorization`/`CodexTokens`, `CodexTokens.is_expired`, and `CodexAuthError`.
+  Authlib owns S256 PKCE, authorization-code parsing and public-client token
+  exchange/refresh. Local validation rejects missing/bad state, ambiguous or
+  denied callbacks, malformed token/expiry values and invalid PKCE. No implicit
+  login, callback server, browser, CLI, credential discovery or auth platform.
+- Expiry fields are checked before Authlib can coerce them; there is no guessed
+  lifetime. A JWT exp/account claim is only an unverified freshness/routing hint.
+  Refresh returns new data, preserves a non-rotated refresh token and updates
+  account hints. Repr hides secrets; mapped errors omit native token-bearing
+  causes/diagnostics. Explicit file writes use mode 0600, fsync and atomic replace;
+  parent directories must exist. Files are Republic's format, not a silent import
+  of Codex/Bub auth.json. Failed refresh never falls back to stale credentials.
+- Added `republic.providers.codex.OpenAICodex(tokens, client=None)`. Both generate
+  and stream use one SSE POST to the fixed ChatGPT Codex Responses endpoint with
+  bearer/account/originator headers. generate aggregates that stream; it never
+  tries non-streaming first. The pinned official client uses streaming wire;
+  whether all backend versions require it was not tested live. Shared Request,
+  Response, part and event fields are unchanged; the Provider.generate docstring
+  now permits this explicitly documented transport mode.
+- Reuses the native Responses converter/parser, preserving item/call IDs,
+  encrypted-only reasoning, JSON history round trips, tool results, usage and
+  delta/done/terminal reconciliation. Leading system text becomes instructions in
+  order; later system messages are rejected, including after empty history items.
+  store=False/full history and encrypted reasoning include are enforced. No local
+  tools, history repair, model routing or automatic continuation. A bounded native
+  option set includes reasoning/text format; unsupported/managed options fail.
+- Owned clients close with the provider; single streams close without closing
+  borrowed clients. Borrowed SDK settings stay unchanged, retries are actually
+  disabled, and their API-key endpoint/header/query/account routing is replaced
+  only on Republic's private copy. Owned HTTP clients disable redirects; borrowed
+  clients must already disable them. Expiry fails before HTTP, and 401/403 never
+  refresh or replay inference. Caller cancellation remains CancelledError.
+- Read Bub source/tests only, pinned at
+  `357901db1a3f82d7f696024574225e595b09d4ac`; inspected official Codex source at
+  `21eb35513df478a2a090bfc2c0293caaf435b36d` and the
+  [official authentication documentation](https://learn.chatgpt.com/docs/auth).
+  NOTICE records both sources, Apache-2.0 attribution and removed behaviors.
+  Existing Vercel Responses provenance stays at
+  `c788059dd1db2d93ae1c3da6daffb660eca07dbb`. No real credential files were read.
+- Added only the direct runtime dependency `authlib>=1.6.5,<1.8`; locked 1.7.2 and
+  its crypto dependencies. The upper bound retains the existing HTTPX integration
+  rather than adopting Authlib 1.8's HTTPX2 transition. Existing dependency pins,
+  Python 3.11 minimum and quality-check configuration remain intact.
+- Verification (2026-09-28, local Linux):
+  - `make check`: lock consistency, applicable prek hooks and ty passed. A test
+    regex lint finding was corrected; no checks were disabled.
+  - `make test`: **398 passed / 2 existing expected warnings**, preserving all
+    302 prior cases and adding 96 Codex/OAuth cases. Python 3.11.15, Authlib 1.7.2,
+    OpenAI 2.54.0, HTTPX 0.28.1, Pydantic 2.12.5. Fixtures exercise real clients,
+    full authorization → save/read → inference → explicit refresh → inference,
+    failure/denial/cancellation, expiry/rotation, headers/payload/request counts,
+    secret-safe repr/errors/logging, native replay and stream/client cleanup.
+  - `make docs-test`: strict MkDocs build passed; README, guides, navigation and
+    the previously stale docs landing-page status now distinguish Steps 1-5.
+  - `uv build --wheel`: passed. Clean installation in
+    `/tmp/republic-step5-install.k68cl5di` on Python 3.11. Isolated imports resolve
+    to site-packages, including auth/Codex public APIs; NOTICE and py.typed are
+    packaged. All **96 new tests passed against the installed wheel** with
+    Authlib **1.6.5**, OpenAI **2.16.0** and Pydantic **2.7.0**. No matrix rerun.
+  - `git diff --check` and `git diff --cached --check`: passed.
+- Tests ran with 90-second command timeouts in the previously authorized normal
+  process, following Step 2's sandbox thread-wakeup evidence. No SDK/Authlib
+  request method was mocked; only HTTP transports and owned-client transport
+  construction are injected. No live login, token refresh or paid inference.
+- **Code and offline Step 5 evidence complete; live account acceptance pending.**
+  A real account still needs login → inference → refreshed inference, including
+  entitlement/model/redirect acceptance. Fixtures do not establish that access.
+  This does not block later independent steps. GitHub Copilot/Grok OAuth, device
+  login, credential migration, hosted tools and Bub integration remain out of
+  this increment; no subsequent step was started.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while

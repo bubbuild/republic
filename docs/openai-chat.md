@@ -198,7 +198,8 @@ Unknown input metadata is rejected rather than discarded. Encrypted/signed
 `reasoning_details`, annotations and generated media are explicitly unsupported
 output fields in this increment. In particular, not every OpenRouter model or
 reasoning mode fits this subset. Native Responses reasoning items require the
-separate [Responses adapter](openai-responses.md). [Anthropic Messages](anthropic-messages.md) is also implemented; OAuth remains planned.
+separate [Responses adapter](openai-responses.md). [Anthropic Messages](anthropic-messages.md)
+and [ChatGPT/Codex OAuth](codex-oauth.md) also have explicit adapters.
 
 Unrepresentable input raises `UnsupportedRequestError` before HTTP. Provider/API
 failures raise `ProviderError` with available status, code and request ID; the

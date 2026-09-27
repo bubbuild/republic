@@ -63,3 +63,35 @@ Raw argument fragments are never parsed/repaired during streaming. Leading syste
 blocks preserve order; later system messages are rejected rather than hoisted.
 Unlike upstream, no role merging, history repair, model-specific default token
 limit, hosted tools or execution/agent code is retained.
+
+Step 5 includes concrete OAuth and Codex protocol semantics adapted from Bub:
+https://github.com/bubbuild/bub
+Revision: 357901db1a3f82d7f696024574225e595b09d4ac
+Bub contributors; licensed under the Apache License, Version 2.0 (see LICENSE).
+The referenced files contain no additional copyright notices.
+- src/bub/builtin/auth.py -> src/republic/auth/codex.py
+- src/bub/builtin/codex_provider.py -> src/republic/providers/codex.py
+- tests/test_builtin_codex.py -> tests/test_codex_auth.py, tests/test_codex.py
+  (selected expiry, refresh, account hint, header and payload scenarios rewritten
+  against real Authlib/OpenAI clients and offline transports)
+
+Cross-checked against official OpenAI Codex:
+https://github.com/openai/codex
+Revision: 21eb35513df478a2a090bfc2c0293caaf435b36d
+OpenAI Codex
+Copyright 2025 OpenAI
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+Sources: codex-rs/login/src/server.rs, oauth/client.rs, oauth/pkce.rs,
+auth/manager.rs; codex-rs/model-provider-info/src/lib.rs;
+codex-rs/core/src/client.rs; codex-rs/codex-api/src/common.rs.
+These inform public-client PKCE/token parameters, Codex endpoint/account headers,
+store/include/instructions and streaming request shape. No Rust implementation,
+terminal UI/Ratatui code, agent orchestration, recovery loop or credential manager
+was copied. Login UX, default-path discovery, automatic refresh/retry, permissive
+expiry fallback and Chat Completions bridging from Bub are excluded.
+
+Republic uses Authlib for standard OAuth, adds strict expiry/callback validation,
+secret-safe error mapping and explicit atomic token files, and reuses the existing
+Responses wire conversion/parser for single-request Codex SSE generation. Native
+reasoning items are retained. No claim of live account access or unchanged upstream
+API/behavior compatibility is made.

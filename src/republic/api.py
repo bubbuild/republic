@@ -22,7 +22,7 @@ class Provider(Protocol):
     """
 
     async def generate(self, request: Request) -> Response:
-        """Make one non-streaming model request."""
+        """Return one model result; the concrete adapter documents its wire mode."""
         ...
 
     def stream(self, request: Request) -> AsyncGenerator[Event, None]:

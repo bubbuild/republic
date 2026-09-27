@@ -4,9 +4,9 @@ Step 1 provides data models and a small asynchronous boundary. Step 2's
 [OpenAI Chat Completions adapter](openai-chat.md) is its first concrete consumer;
 Step 3 adds [OpenAI Responses](openai-responses.md) with native reasoning metadata
 and full-history replay. Step 4 adds [Anthropic Messages](anthropic-messages.md),
-including signed/redacted thinking and inclusive cache usage. Names and signatures
-remain provisional as more protocols are added. OAuth is
-not implemented.
+including signed/redacted thinking and inclusive cache usage. Step 5 adds
+[ChatGPT/Codex OAuth](codex-oauth.md) and its explicit Responses provider. Names and
+signatures remain provisional as more protocols are added.
 
 ## Run an offline call
 
@@ -60,7 +60,8 @@ asyncio.run(main())
 ```
 
 These are two explicit calls, one per API entry point. `generate` delegates once
-to the adapter's non-streaming method. There is no automatic fallback to stream.
+to the adapter's generation method. API-key adapters use non-streaming requests;
+Codex deliberately aggregates one SSE request. There is no automatic fallback.
 `stream` starts lazily on iteration and owns that response's stream until exit.
 
 ## Data and persistence
@@ -143,8 +144,9 @@ pulling another event. No events after it are consumed.
 | Adapter or event-protocol failure | Exception propagates, `status == "failed"`, partial output remains. |
 
 `RepublicError` is the SDK error base. `ProviderError` carries optional provider,
-HTTP status, service error code and request ID; adapters preserve native errors
-as exception causes. `UnsupportedRequestError` reports unrepresentable input
+HTTP status, service error code and request ID. API-key adapters preserve native
+errors as causes; the Codex OAuth adapter omits native error objects and untrusted
+diagnostics to protect credentials. `UnsupportedRequestError` reports unrepresentable input
 before a request is sent.
 `IncompleteStreamError` and `StreamProtocolError` describe streaming failures.
 Cancellation is never converted into a provider error or retried. The SDK does
