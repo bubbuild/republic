@@ -1,8 +1,8 @@
 # Provider SDK rebuild plan
 
-Status: Steps 0-2 implemented locally. Chat Completions has deterministic
-HTTP/SSE fixture evidence, with no live-service validation. Steps 3-8 remain
-planned. Verification evidence is recorded below.
+Status: Steps 0-3 implemented locally. Chat Completions and Responses have
+deterministic HTTP/SSE fixture evidence, with no live-service validation.
+Steps 4-8 remain planned. Verification evidence is recorded below.
 
 ## Goal and boundaries
 
@@ -258,8 +258,8 @@ live account access.
 
 ### Step 2 implementation
 
-- Commit: `feat: add OpenAI Chat Completions provider` (the commit containing
-  this evidence; resolve with `git log --all --grep='^feat: add OpenAI Chat Completions provider$'`).
+- Commit: `d00428477c166009bf312d2d06e43ddba4bd09ac`
+  (`feat: add OpenAI Chat Completions provider`).
 - Added `republic.providers.openai.OpenAIChatCompletions`, using official
   `openai.AsyncOpenAI` for native non-streaming generation and streaming.
   Supports explicit API key/base URL or an injected client; owned clients have
@@ -312,6 +312,70 @@ live account access.
   function-call formats, annotations and encrypted/signed reasoning_details.
   Tool ID/name fields must be atomic (late arrival is supported); changing
   header values fails rather than guessing. See the provider guide for details.
+
+### Step 3 implementation
+
+- Commit: `feat: add OpenAI Responses protocol` (the commit containing this
+  evidence; resolve with `git log --grep='^feat: add OpenAI Responses protocol$'`).
+- Added `republic.providers.openai.OpenAIResponses` with native non-streaming
+  `responses.create` and streaming through the same public `generate`/`stream`
+  API. No common data, event or error signatures changed. Only the actually
+  shared client lifetime/error mapping moved into `_openai_client.py`.
+- Full history is sent inline with `store=False` and `truncation="disabled"`;
+  encrypted reasoning is requested by default. Server-side state options are
+  explicitly rejected. Output item IDs remain distinct from function call IDs.
+  Each output item maps to one part, retaining its complete native item in
+  metadata. Empty-display encrypted reasoning, summary/content boundaries,
+  status, message phase, annotations and refusal survive JSON persistence.
+  Replay checks visible parts against retained items and never repairs history.
+- Stream conversion reconciles text, summary, native reasoning content, function
+  argument, content-part and output-item events. Snapshots can fill missing
+  suffixes before values close; they cannot rewrite received content. Overlapping
+  done/terminal data is not appended twice. Interleaved output and content indices
+  retain order; pending function identity never uses a fabricated call ID.
+- Completed, incomplete/length, native failed and SSE errors remain distinct.
+  Native failed responses preserve partial output and error metadata with finish
+  reason `error`; connection exhaustion without a terminal raises
+  `IncompleteStreamError`. Streams close before StreamEnd, and early exit,
+  cancellation or exceptions release only their response resource. Owned clients
+  close with the provider; borrowed clients remain open and keep their settings.
+- Native `text.format` structured-output configuration is supported. Parsing and
+  Pydantic validation are explicit caller operations, including schema mismatch;
+  neither validation failure nor provider error causes another request. Input
+  roles/parts and managed/unsupported options fail explicitly. Tool arguments
+  remain verbatim, including malformed JSON. No tools are executed locally.
+- Updated README, protocol/contract guides, MkDocs navigation and NOTICE using
+  fixed ai-python revision `c788059dd1db2d93ae1c3da6daffb660eca07dbb`. Consulted
+  the installed official SDK event/input schemas and official Responses guidance
+  as a cross-check; this is a modified subset, not upstream compatibility.
+- Verification (2026-09-28, local Linux):
+  - `make check`: lock consistency, prek hooks and ty passed, without relaxing
+    checks. Runtime dependencies and `uv.lock` did not need changes.
+  - `make test`: **194 passed** on Python 3.11.15, including all 110 prior tests
+    and 84 Responses cases. Locked OpenAI 2.54.0, HTTPX 0.28.1 and Pydantic 2.12.5.
+    Tests use the real SDK, MockTransport and controlled SSE bytes; assertions
+    cover payloads, request counts, serialization/replay, snapshot consistency,
+    terminal outcomes, client ownership and cleanup. Two intentionally invalid
+    output fixtures produce SDK/Pydantic serialization warnings before Republic
+    rejects them; the warnings were not suppressed.
+  - `make docs-test`: strict MkDocs build passed.
+  - `uv build --wheel`: passed. Installed that wheel in a fresh Python 3.11 venv
+    under `/tmp/republic-step3-install.Ch15tb`; isolated `python -I` imports resolve
+    to site-packages, including both provider classes. Verified packaged NOTICE
+    and `py.typed`. Ran all **84 Responses tests** against the installed wheel
+    with declared lower bounds OpenAI 2.16.0 and Pydantic 2.7.0: passed, with the
+    same two expected invalid-output warnings. The full Python matrix was not
+    repeated; new code runs on 3.11 and lint/typing retain that syntax target.
+  - `git diff --check` and `git diff --cached --check`: passed.
+- Offline SDK tests ran in a normal permitted process with 90-second command
+  timeouts, following the Step 2 restricted-sandbox wakeup evidence. No mocks
+  were changed to bypass the SDK, and no real credentials or live inference were
+  used. Fixtures do not establish live OpenAI/compatible endpoint acceptance.
+- Remaining limits: text-only input; no hosted/custom tools, media, MCP,
+  compaction, previous-response references, stored conversations or background
+  polling. Unknown reasoning content kinds are rejected. Native reasoning text
+  is retained in metadata; only summaries are exposed as display reasoning.
+  Anthropic, OAuth and Bub integration remain later steps.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while

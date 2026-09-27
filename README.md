@@ -12,11 +12,10 @@ belong to the caller. Tool definitions, calls, and results are model data.
 
 ## Current status
 
-Steps 1-2 implement a Python 3.11+ single-call SDK and an OpenAI Chat Completions
-adapter using the official asynchronous client. Deterministic tests exercise the
+Steps 1-3 implement a Python 3.11+ single-call SDK with OpenAI Chat Completions
+and Responses adapters using the official asynchronous client. Deterministic tests exercise the
 real client with HTTP/SSE fixtures, including custom base URLs. No live OpenAI or
-OpenRouter service has been validated. Responses, Anthropic and OAuth remain
-planned. This branch does not describe the currently published package.
+OpenRouter service has been validated. Anthropic and OAuth remain planned. This branch does not describe the currently published package.
 
 Install this checkout with `uv sync` for development or `pip install .` for
 runtime use. Pydantic, OpenAI 2.x and HTTPX are included runtime dependencies.
@@ -47,6 +46,10 @@ request = Request(
 Use `from republic.providers.openai import OpenAIChatCompletions` for the concrete
 adapter. The [Chat Completions guide](docs/openai-chat.md) covers API keys,
 OpenRouter/custom base URLs, streaming, tool results and client ownership.
+
+Use `from republic.providers.openai import OpenAIResponses` for Responses. The
+[Responses guide](docs/openai-responses.md) covers complete-history requests, native
+reasoning and encrypted metadata, structured output, and terminal outcomes.
 
 See the [single-call contract](docs/contracts.md) for a runnable offline example,
 data types, metadata rules, event ordering, and stream ownership. Each call

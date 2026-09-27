@@ -1,8 +1,9 @@
 # Single-call contract
 
 Step 1 provides data models and a small asynchronous boundary. Step 2's
-[OpenAI Chat Completions adapter](openai-chat.md) is its first concrete consumer.
-Names and signatures remain provisional as more protocols are added. OAuth is
+[OpenAI Chat Completions adapter](openai-chat.md) is its first concrete consumer;
+Step 3 adds [OpenAI Responses](openai-responses.md) with native reasoning metadata
+and full-history replay. Names and signatures remain provisional as more protocols are added. OAuth is
 not implemented.
 
 ## Run an offline call

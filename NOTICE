@@ -12,9 +12,13 @@ Source mapping:
 - src/ai/models/core/api.py -> src/republic/api.py, src/republic/_stream.py
 - tests/models/core/test_api.py -> tests/test_stream.py
 - src/ai/providers/openai/protocol.py -> src/republic/providers/_openai_chat.py,
-  src/republic/providers/_openai_stream.py, src/republic/providers/openai.py
+  src/republic/providers/_openai_stream.py, src/republic/providers/openai.py,
+  src/republic/providers/_openai_responses.py,
+  src/republic/providers/_openai_responses_stream.py
 - tests/providers/openai/test_adapter.py -> tests/test_openai.py (selected
-  conversion/finish-reason scenarios, rewritten against the real SDK transport)
+  conversion/finish-reason scenarios, rewritten against the real SDK transport),
+  tests/test_openai_responses.py (selected input, reasoning replay, structured
+  output, streaming and finish-reason scenarios rewritten as HTTP/SSE fixtures)
 
 Modified by Republic contributors for a Python 3.11+ single-call SDK:
 removed agent, hook, replay, UI, telemetry, tool execution and client persistence;
@@ -31,4 +35,14 @@ Step 2 extracts only Chat Completions conversion and streaming semantics. It
 adds native non-streaming generation, owned/borrowed client lifetime, disabled
 SDK retries, input validation, pending tool-header buffering, required provider
 finish evidence, tail usage and HTTP/SSE fixtures. History repair, implicit file
-downloads, Responses, provider/model routing and OAuth are not included.
+downloads, provider/model routing and OAuth are not included. Responses is
+added separately in Step 3.
+
+Step 3 adapts Responses conversion and selected event semantics. Native
+non-streaming generation, full-history store=False requests, raw output-item
+persistence, strict delta/snapshot reconciliation, encrypted-only reasoning,
+explicit terminal status mapping and deterministic resource cleanup are Republic
+changes. Item IDs and call IDs stay distinct. Shared client lifetime/error code
+is extracted into src/republic/providers/_openai_client.py. Hosted tools,
+server-side conversation state, media operations and upstream history repair are
+excluded; no upstream agent/executor machinery is retained.

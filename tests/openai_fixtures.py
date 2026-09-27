@@ -10,7 +10,7 @@ import httpx
 from openai import AsyncOpenAI
 
 from republic import Message, Request, TextPart
-from republic.providers.openai import OpenAIChatCompletions
+from republic.providers.openai import OpenAIChatCompletions, OpenAIResponses
 
 
 def request() -> Request:
@@ -80,7 +80,12 @@ def streaming(body: Bytes) -> httpx.Response:
 
 
 class Wire:
-    def __init__(self, replies: list[httpx.Response | Exception]) -> None:
+    def __init__(
+        self,
+        replies: list[httpx.Response | Exception],
+        *,
+        provider_type: type[OpenAIChatCompletions] | type[OpenAIResponses] = OpenAIChatCompletions,
+    ) -> None:
         self.replies = replies
         self.requests: list[httpx.Request] = []
         self.http = httpx.AsyncClient(transport=httpx.MockTransport(self.handle))
@@ -89,7 +94,7 @@ class Wire:
         self.client = AsyncOpenAI(
             api_key="fixture-key", base_url="https://unit.test/api/v1", max_retries=3, http_client=self.http
         )
-        self.provider = OpenAIChatCompletions(client=self.client)
+        self.provider = provider_type(client=self.client)
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
