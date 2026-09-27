@@ -15,6 +15,7 @@ nav:
   - Anthropic Messages: anthropic-messages.md
   - ChatGPT Codex OAuth: codex-oauth.md
   - GitHub Copilot OAuth: copilot-oauth.md
+  - Grok OAuth: grok-oauth.md
   - Rebuild Plan: rebuild-plan.md
 
 plugins:

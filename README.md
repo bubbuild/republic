@@ -12,14 +12,16 @@ belong to the caller. Tool definitions, calls, and results are model data.
 
 ## Current status
 
-Steps 1-6 implement a Python 3.11+ single-call SDK with OpenAI Chat Completions,
-OpenAI Responses, Anthropic Messages, ChatGPT/Codex and GitHub Copilot adapters
+Steps 1-7 implement a Python 3.11+ single-call SDK with OpenAI Chat Completions,
+OpenAI Responses, Anthropic Messages, ChatGPT/Codex, GitHub Copilot and Grok adapters
 using official async clients, plus explicit Authlib PKCE/device-flow, token
 exchange/refresh and token-file helpers.
 Deterministic tests exercise real clients with HTTP/SSE fixtures. No live service
 or real-account OAuth login → inference → refreshed inference has been validated.
 Copilot is an editor-protocol adaptation with explicit integration identity, not
-a stable third-party inference API guarantee. Grok OAuth remains planned.
+a stable third-party inference API guarantee. Grok uses the sourced Grok Build
+OAuth Responses proxy; reduced scopes, client identity and account access remain
+unverified. Step 7 code/offline evidence is complete; live acceptance is pending.
 This branch does not describe the currently published package.
 
 Install this checkout with `uv sync` for development or `pip install .` for
@@ -70,6 +72,11 @@ inference tokens from `republic.auth.github_copilot`. The
 [Copilot OAuth guide](docs/copilot-oauth.md) covers device polling, separate token
 exchange, integration/entitlement limits and the supported Chat subset.
 
+Use `from republic.providers.grok import GrokOAuth` with explicit tokens from
+`republic.auth.grok` and a caller-selected `client_version`. The
+[Grok OAuth guide](docs/grok-oauth.md) covers device authorization, explicit refresh,
+Responses reasoning replay and the boundary between protocol and live evidence.
+
 See the [single-call contract](docs/contracts.md) for a runnable offline example,
 data types, metadata rules, event ordering, and stream ownership. Each call
 performs one provider operation. Republic does not execute tools, start another
@@ -94,5 +101,5 @@ See the plan's completion evidence for verification results and remaining limits
 ## License
 
 [Apache License 2.0](LICENSE). [NOTICE](NOTICE) records Vercel AI Python, Bub and
-OpenAI Codex and Microsoft VS Code/Copilot Chat sources, revisions, applicable
+OpenAI Codex, Microsoft VS Code/Copilot Chat and SpaceXAI Grok Build sources, revisions, applicable
 copyrights/licenses, and Republic's changes.

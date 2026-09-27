@@ -51,3 +51,20 @@ class Transport(httpx.MockTransport):
     async def aclose(self) -> None:
         self.closed += 1
         await super().aclose()
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 2000000000.0
+        self.sleeps: list[float] = []
+
+    def time(self) -> float:
+        return self.now
+
+    def monotonic(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+        await asyncio.sleep(0)

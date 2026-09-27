@@ -155,3 +155,36 @@ read for comparison (auth/github_copilot.py, clients/github_copilot.py and tests
 Their Models endpoint, gh/environment/profile discovery and permissive polling
 were not retained. GitHub Models is distinct from the Copilot editor service.
 See docs/copilot-oauth.md for primary-source links and offline/live limitations.
+
+Step 7 adapts the concrete device/refresh and Responses proxy protocol from:
+https://github.com/xai-org/grok-build
+Revision: f0e3be1100ef5252488e3be8bb0e91cf68d8c305
+SOURCE_REV: 036a5d8348cd744767cd0b08518ab17bf608fa7f
+Source version: 1.0.41; inspected 2026-09-28.
+Copyright 2023-2026 SpaceXAI
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Source paths under crates/codegen/:
+- xai-grok-login/src/config.rs, device_code.rs, oidc/protocol.rs
+- xai-grok-shell/src/agent/config.rs, proxy_headers.rs
+- xai-grok-http/src/lib.rs
+- xai-grok-sampler/src/client.rs (Responses request/event and usage tests)
+- xai-grok-sampling-types/src/conversation/responses.rs
+These inform src/republic/auth/grok.py, src/republic/providers/grok.py and their
+rewritten HTTP/SSE fixture tests. No Rust/CLI runtime, hosted tool implementation,
+agent state, profile lookup, telemetry, credential discovery, automatic retry,
+refresh/replay or context-total rewriting is included. Republic uses Authlib for
+standard OAuth and retains the existing Vercel-derived Responses wire/parser,
+explicit file helper and OAuth client lifetime/error helper. Changes include a
+reduced API/refresh scope set, explicit caller-selected protocol version, Republic
+client identity, strict expiry/deadline validation, secret-safe errors and one
+SSE request per inference. No public core contract or dependency was expanded.
+
+Public discovery at https://auth.x.ai/.well-known/openid-configuration and
+https://docs.x.ai/build/enterprise (updated 2026-08-10) corroborate the issuer,
+grants and distinction between OAuth proxy and api.x.ai API-key access. Official
+npm metadata https://registry.npmjs.org/@xai-official/grok/1.0.41 reports the same
+version and Apache-2.0 license; no package was installed, run or bundled.
+No unchanged upstream compatibility, third-party client permission or real-account
+inference acceptance is claimed. See docs/grok-oauth.md for exact capabilities,
+adapter decisions, primary sources and outstanding live acceptance.

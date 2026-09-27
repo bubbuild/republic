@@ -7,7 +7,8 @@ and full-history replay. Step 4 adds [Anthropic Messages](anthropic-messages.md)
 including signed/redacted thinking and inclusive cache usage. Step 5 adds
 [ChatGPT/Codex OAuth](codex-oauth.md) and its explicit Responses provider. Step 6
 adds [GitHub Copilot device OAuth](copilot-oauth.md), explicit inference-token
-exchange, and a bounded Chat provider. Names and
+exchange, and a bounded Chat provider. Step 7 adds [Grok device OAuth](grok-oauth.md)
+and an explicit Responses proxy provider. Names and
 signatures remain provisional as more protocols are added.
 
 ## Run an offline call
@@ -63,7 +64,7 @@ asyncio.run(main())
 
 These are two explicit calls, one per API entry point. `generate` delegates once
 to the adapter's generation method. API-key adapters use non-streaming requests;
-Codex deliberately aggregates one SSE request. There is no automatic fallback.
+Codex and Grok deliberately aggregate one SSE request. There is no automatic fallback.
 `stream` starts lazily on iteration and owns that response's stream until exit.
 
 ## Data and persistence
@@ -147,7 +148,7 @@ pulling another event. No events after it are consumed.
 
 `RepublicError` is the SDK error base. `ProviderError` carries optional provider,
 HTTP status, service error code and request ID. API-key adapters preserve native
-errors as causes; the Codex and Copilot OAuth adapters omit native error objects and untrusted
+errors as causes; the Codex, Copilot and Grok OAuth adapters omit native error objects and untrusted
 diagnostics to protect credentials. `UnsupportedRequestError` reports unrepresentable input
 before a request is sent.
 `IncompleteStreamError` and `StreamProtocolError` describe streaming failures.

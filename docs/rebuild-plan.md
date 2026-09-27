@@ -1,10 +1,11 @@
 # Provider SDK rebuild plan
 
-Status: Steps 0-6 implemented locally, including concrete ChatGPT/Codex and
-GitHub Copilot OAuth protocol adaptations. Evidence is deterministic HTTP/SSE
-fixtures; no live service or real-account OAuth acceptance has been validated.
-Copilot integration identity/entitlement remain unverified. Steps 7-8 remain
-planned. Verification evidence and the supported subsets are recorded below.
+Status: Steps 0-7 have local code and deterministic HTTP/SSE evidence, including
+concrete ChatGPT/Codex, GitHub Copilot and Grok OAuth protocol adaptations.
+No live service or real-account OAuth acceptance has been validated. Step 7
+implementation is complete for the documented subset; live acceptance remains
+open, including Grok client/scopes/entitlement. Step 8 (Bub integration) is not
+started. Verification evidence and supported subsets are recorded below.
 
 ## Goal and boundaries
 
@@ -180,11 +181,16 @@ large commit per step.
   it fits; authentication can select a different endpoint from API-key access.
 - **Failure boundary:** token acquisition, account entitlement, and inference are
   separate outcomes. Do not label this supported based solely on login success.
-- **Acceptance:** first prove login -> inference -> refreshed inference with the
-  intended client/account. Add deterministic fixtures for the verified behavior,
-  including failure responses. If account/client access remains unavailable,
-  record the concrete limitation and leave this step incomplete.
-- **Commit:** `feat: add Grok OAuth support` after the behavior is established.
+- **Implementation checkpoint:** following the Step 7 authorization, establish
+  concrete public protocol evidence first, then implement and test that subset
+  offline. No live login or paid inference is authorized in this increment.
+  Record source-derived facts separately from adapter choices and account results.
+- **Live acceptance (still open):** login -> inference -> refreshed inference
+  with the intended client/account, including client/scopes/model entitlement.
+  Fixtures cannot close this item. Missing account access does not block the code
+  checkpoint or other independent work; protocol gaps must remain explicit.
+- **Commit:** `feat: add Grok OAuth support` for the sourced protocol subset;
+  use an auth-only title if inference wire cannot be established.
 
 ### Step 8: Validate the reference implementation with Bub
 
@@ -620,6 +626,93 @@ live account access.
   accepted integration/editor identity, app/model availability and endpoint
   behavior remain unverified. Fixtures do not prove any account entitlement.
   Grok and Bub integration remain Steps 7-8; neither was started.
+
+### Step 7 implementation
+
+- Commit: `feat: add Grok OAuth support` (the commit containing this evidence;
+  resolve with `git log --grep='^feat: add Grok OAuth support$'`). Started from
+  accepted Step 6 `efde348eab25230b9da49a64da7609c2bf5450a6`, clean `dev` at
+  `/home/psiace/bubbuild/republic-dev`. Other checkouts were not modified.
+- Established concrete protocol evidence before adding the adapter. Official
+  enterprise documentation separates `auth.x.ai` and the Grok Build proxy from
+  `api.x.ai` API-key access. Public discovery confirms the device/token endpoints,
+  device/refresh grants, public-client authentication and scopes. Official
+  `xai-org/grok-build` revision `f0e3be1100ef5252488e3be8bb0e91cf68d8c305`, source
+  revision `036a5d8348cd744767cd0b08518ab17bf608fa7f`, version **1.0.41**, supplies
+  the concrete client ID, headers and Responses wire. Apache-2.0 / Copyright
+  2023-2026 SpaceXAI provenance, exact paths and changes are in NOTICE and the
+  [Grok guide](grok-oauth.md). No CLI was installed or executed.
+- Added `republic.auth.grok`: immutable `GrokDeviceAuthorization`, `GrokTokens`,
+  `GrokAuthError`, `start_device_authorization`, `wait_for_tokens`,
+  `refresh_tokens`, `read_tokens` and `write_tokens`. The single supported login
+  path is RFC 8628 device authorization. Authlib async HTTPX performs standard
+  public-client grants; concrete polling honors the first interval, pending,
+  slow-down, denial, expiry, caller deadlines and cancellation, including in-flight
+  requests. Unknown/malformed responses stop. No invented expiry or refresh grant.
+- Tokens retain actual expiry and refresh rotation. Unverified JWT principal
+  claims are only refresh-routing hints; no identity/team/permission check uses
+  them. There is no userinfo/profile call or ID-token authentication. Auth has
+  no home/env/CLI credential discovery, browser/callback server, enterprise issuer
+  abstraction or external broker. File helpers reuse existing private atomic-0600
+  JSON operations at caller-selected paths; secrets are hidden from repr and
+  fixed diagnostics omit server text/native causes.
+- The sourced public client ID is `b1a00492-073a-47ea-816f-4c329264a828`.
+  Republic requests only `offline_access grok-cli:access api:access`, uses its
+  own identity/referrer and requires an explicit `client_version` (reference
+  1.0.41). Reduced scopes and Republic identity are adapter choices, **not proven
+  server acceptance**. Public source does not grant arbitrary third-party access.
+- Added `republic.providers.grok.GrokOAuth(tokens, client_version=..., client=None)`.
+  Both generate/stream issue one SSE POST to
+  `https://cli-chat-proxy.grok.com/v1/responses`, using the sourced bearer/auth,
+  version, headless-mode and model-override headers. Generate aggregates directly;
+  no initial JSON attempt, fallback, retry, implicit refresh, 401 replay, tool
+  execution, next model turn or history repair. Owned/borrowed client and stream
+  cleanup follow the prior OAuth boundary; redirects are disabled or rejected.
+- Reuses the existing Responses converter/parser, OAuth client/error helper and
+  public Request/Response/part/event contracts. Ordered text/function input and
+  output, separate item/call IDs, interleaved deltas, complete snapshots, reasoning
+  summaries/text and encrypted-only items retain native metadata through JSON
+  replay. Complete/incomplete/failed outcomes, length truncation and absent
+  terminal behavior remain explicit. Raw usage retains cost/context details;
+  normalized totals stay input plus output, without agent context-total rewriting.
+- Supports the documented temperature/top-p/output-limit/tool-choice subset and
+  native Responses text-format/reasoning options. Store is false, encrypted
+  reasoning is included, and history is self-contained. Media, hosted tools,
+  explicit parallel control, agent-control events, server-side history and
+  managed-field/header overrides are not supported; no silent lossy conversion.
+  Structured output remains caller-validated text with no repair call.
+- No dependency, lockfile or public core contract changes. The only new shared
+  extraction is the identical deterministic Clock test helper from Copilot.
+  Python 3.11+ and the original quality tooling remain unchanged.
+- Verification (2026-09-28, Linux):
+  - `make check`: locked dependency resolution, all applicable prek hooks and ty
+    passed. Lint/type findings were corrected without disabling checks.
+  - `make test`: **647 passed / 2 existing expected warnings**, retaining all
+    530 prior cases and adding 117 Grok cases. Python 3.11.15, Authlib 1.7.2,
+    OpenAI 2.54.0, HTTPX 0.28.1, Pydantic 2.12.5. Real Authlib/OpenAI clients and
+    controlled HTTP/SSE/time fixtures exercise device login → explicit persistence
+    → inference → explicit refresh → refreshed inference, request counts, payloads,
+    reasoning replay, usage, malformed/unsupported data, errors and cleanup.
+  - `make docs-test`: strict MkDocs build passed. README, guide, contract/index,
+    navigation, NOTICE and this plan record exact implementation/live boundaries.
+  - `uv build --wheel`: passed. Clean install at
+    `/tmp/republic-step7-install.wbdrDP`, Python 3.11.15, with declared lower bounds
+    Authlib **1.6.5**, OpenAI **2.16.0**, Pydantic **2.7.0**, HTTPX **0.28.1**.
+    Isolated `python -I` imports resolve to installed site-packages; public APIs,
+    packaged NOTICE and py.typed verified. All **117 Grok tests passed** against
+    that wheel. No unrelated interpreter/version matrix was repeated.
+  - `git diff --check` and `git diff --cached --check`: passed.
+- Tests used the already authorized normal process with 90-second command limits
+  because of the earlier sandbox SDK thread-wakeup issue. SDK/Authlib request
+  methods were not mocked; only HTTP transport, test time and owned-client
+  transport construction were controlled. No real credential/token file, live
+  login, refresh or inference was accessed.
+- **Step 7 code and offline evidence checkpoint complete; live acceptance remains
+  incomplete.** The minimum outstanding evidence is an authorized account/client
+  accepting this device client/scope set and Republic/version headers, followed by
+  permitted-model inference and refreshed inference. Fixtures prove neither
+  entitlement nor protocol stability. Browser PKCE and custom enterprise issuer
+  paths remain out of scope. Bub integration (Step 8) was not started.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while

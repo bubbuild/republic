@@ -1,6 +1,5 @@
 """Synthetic credentials and controlled time; no account or live inference."""
 
-import asyncio
 import json
 import time
 from types import TracebackType
@@ -11,6 +10,7 @@ import openai
 
 from republic.auth.github_copilot import CopilotToken, DeviceAuthorization, GitHubToken
 from republic.providers.github_copilot import GitHubCopilot
+from tests.http_fixtures import Clock as Clock
 from tests.http_fixtures import Transport
 
 
@@ -59,23 +59,6 @@ def token(**extra: Any) -> CopilotToken:
         **extra,
     }
     return CopilotToken(**values)
-
-
-class Clock:
-    def __init__(self) -> None:
-        self.now = 2000000000.0
-        self.sleeps: list[float] = []
-
-    def time(self) -> float:
-        return self.now
-
-    def monotonic(self) -> float:
-        return self.now
-
-    async def sleep(self, seconds: float) -> None:
-        self.sleeps.append(seconds)
-        self.now += seconds
-        await asyncio.sleep(0)
 
 
 class Wire:
