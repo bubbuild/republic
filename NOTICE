@@ -20,6 +20,13 @@ Source mapping:
   tests/test_openai_responses.py (selected input, reasoning replay, structured
   output, streaming and finish-reason scenarios rewritten as HTTP/SSE fixtures)
 
+- src/ai/providers/anthropic/protocol.py ->
+  src/republic/providers/_anthropic_messages.py,
+  src/republic/providers/_anthropic_stream.py, src/republic/providers/anthropic.py
+- tests/providers/anthropic/test_adapter.py -> tests/test_anthropic.py
+  (selected message/tool/options/signature/error scenarios rewritten against the
+  real SDK and HTTP/SSE transport; no history repair or hosted tool scenarios)
+
 Modified by Republic contributors for a Python 3.11+ single-call SDK:
 removed agent, hook, replay, UI, telemetry, tool execution and client persistence;
 replaced generic request/executor machinery with one Provider protocol; retained
@@ -46,3 +53,13 @@ changes. Item IDs and call IDs stay distinct. Shared client lifetime/error code
 is extracted into src/republic/providers/_openai_client.py. Hosted tools,
 server-side conversation state, media operations and upstream history repair are
 excluded; no upstream agent/executor machinery is retained.
+
+Step 4 adapts the Anthropic Messages conversion and selected stream semantics.
+It adds native non-streaming generation, owned/borrowed client management without
+SDK retries, redacted thinking, complete signature aggregation, explicit cache
+control and inclusive input usage (uncached + cache reads + cache writes). Missing
+counters remain unknown; cumulative stream usage replaces earlier counters.
+Raw argument fragments are never parsed/repaired during streaming. Leading system
+blocks preserve order; later system messages are rejected rather than hoisted.
+Unlike upstream, no role merging, history repair, model-specific default token
+limit, hosted tools or execution/agent code is retained.

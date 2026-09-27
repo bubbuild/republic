@@ -30,7 +30,8 @@ from republic import (
     stream,
 )
 from republic.providers.openai import OpenAIResponses
-from tests.openai_fixtures import Bytes, Wire, request, sse, streaming
+from tests.http_fixtures import Bytes, streaming
+from tests.openai_fixtures import Wire, request, sse
 
 pytestmark = pytest.mark.asyncio
 

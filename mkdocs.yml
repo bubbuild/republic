@@ -12,6 +12,7 @@ nav:
   - Single-call Contract: contracts.md
   - OpenAI Chat Completions: openai-chat.md
   - OpenAI Responses: openai-responses.md
+  - Anthropic Messages: anthropic-messages.md
   - Rebuild Plan: rebuild-plan.md
 
 plugins:

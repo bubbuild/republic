@@ -128,7 +128,12 @@ class Request(_Data):
 
 
 class Usage(_Data):
-    """One response's usage snapshot. Missing counts remain unknown, not zero."""
+    """One response's usage snapshot. Missing counts remain unknown, not zero.
+
+    input_tokens includes cached input; cache counts are a breakdown, not extra
+    tokens to add again. An adapter reports an unknown total if native fields
+    needed to compute that inclusive total are missing.
+    """
 
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)

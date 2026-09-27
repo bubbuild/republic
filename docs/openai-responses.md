@@ -4,7 +4,7 @@
 asynchronous OpenAI client. The adapter has offline HTTP/SSE fixture evidence;
 no live OpenAI or compatible Responses endpoint has been validated. Chat
 Completions compatibility alone does not establish Responses compatibility.
-OAuth and Anthropic belong to later rebuild steps.
+OAuth remains planned; [Anthropic Messages](anthropic-messages.md) has a separate adapter.
 
 ## Install and make one call
 

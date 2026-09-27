@@ -12,13 +12,15 @@ belong to the caller. Tool definitions, calls, and results are model data.
 
 ## Current status
 
-Steps 1-3 implement a Python 3.11+ single-call SDK with OpenAI Chat Completions
-and Responses adapters using the official asynchronous client. Deterministic tests exercise the
-real client with HTTP/SSE fixtures, including custom base URLs. No live OpenAI or
-OpenRouter service has been validated. Anthropic and OAuth remain planned. This branch does not describe the currently published package.
+Steps 1-4 implement a Python 3.11+ single-call SDK with OpenAI Chat Completions,
+OpenAI Responses and Anthropic Messages adapters using official async clients.
+Deterministic tests exercise the real clients with HTTP/SSE fixtures, including custom base URLs. No live OpenAI,
+OpenRouter or Anthropic service has been validated. OAuth remains planned.
+This branch does not describe the currently published package.
 
 Install this checkout with `uv sync` for development or `pip install .` for
-runtime use. Pydantic, OpenAI 2.x and HTTPX are included runtime dependencies.
+runtime use. Pydantic, OpenAI 2.x, Anthropic 0.x and HTTPX are included runtime
+dependencies.
 Existing packaging, versioning, CI and quality tooling are retained.
 
 Follow the [rebuild plan](docs/rebuild-plan.md) for the ordered increments,
@@ -50,6 +52,10 @@ OpenRouter/custom base URLs, streaming, tool results and client ownership.
 Use `from republic.providers.openai import OpenAIResponses` for Responses. The
 [Responses guide](docs/openai-responses.md) covers complete-history requests, native
 reasoning and encrypted metadata, structured output, and terminal outcomes.
+
+Use `from republic.providers.anthropic import AnthropicMessages` for Anthropic.
+The [Messages guide](docs/anthropic-messages.md) covers explicit output limits,
+thinking signatures, redacted reasoning, cache control and inclusive usage.
 
 See the [single-call contract](docs/contracts.md) for a runnable offline example,
 data types, metadata rules, event ordering, and stream ownership. Each call

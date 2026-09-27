@@ -26,7 +26,8 @@ from republic import (
     stream,
 )
 from republic.providers.openai import OpenAIChatCompletions
-from tests.openai_fixtures import Bytes, Wire, chunk, completion, request, sse, streaming
+from tests.http_fixtures import Bytes, streaming
+from tests.openai_fixtures import Wire, chunk, completion, request, sse
 
 pytestmark = pytest.mark.asyncio
 

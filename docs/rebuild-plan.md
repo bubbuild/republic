@@ -1,8 +1,8 @@
 # Provider SDK rebuild plan
 
-Status: Steps 0-3 implemented locally. Chat Completions and Responses have
-deterministic HTTP/SSE fixture evidence, with no live-service validation.
-Steps 4-8 remain planned. Verification evidence is recorded below.
+Status: Steps 0-4 implemented locally. OpenAI Chat Completions/Responses and
+Anthropic Messages have deterministic HTTP/SSE fixture evidence, with no
+live-service validation. Steps 5-8 remain planned. Verification evidence is recorded below.
 
 ## Goal and boundaries
 
@@ -315,8 +315,8 @@ live account access.
 
 ### Step 3 implementation
 
-- Commit: `feat: add OpenAI Responses protocol` (the commit containing this
-  evidence; resolve with `git log --grep='^feat: add OpenAI Responses protocol$'`).
+- Commit: `04c724f2b089c771b4af5f2ffffbdf5c424042bc`
+  (`feat: add OpenAI Responses protocol`).
 - Added `republic.providers.openai.OpenAIResponses` with native non-streaming
   `responses.create` and streaming through the same public `generate`/`stream`
   API. No common data, event or error signatures changed. Only the actually
@@ -376,6 +376,76 @@ live account access.
   polling. Unknown reasoning content kinds are rejected. Native reasoning text
   is retained in metadata; only summaries are exposed as display reasoning.
   Anthropic, OAuth and Bub integration remain later steps.
+
+### Step 4 implementation
+
+- Commit: `feat: add Anthropic Messages provider` (the commit containing this
+  evidence; resolve with `git log --grep='^feat: add Anthropic Messages provider$'`).
+- Added `republic.providers.anthropic.AnthropicMessages`, using official
+  `anthropic.AsyncAnthropic.messages.create` for one native non-streaming request
+  or one raw event stream. Explicit API key/base URL and borrowed clients are
+  supported; no credential-file discovery or login is performed by Republic.
+  Both client paths disable SDK retries, preserve caller settings and close only
+  resources they own. Anthropic does not inherit the OpenAI-specific helper.
+- Converts leading system text blocks, ordered user/assistant history, function
+  declarations/calls/results (including is_error), common options and a bounded
+  set of native options. `max_output_tokens` is required and maps to `max_tokens`;
+  there is no guessed default. Later system messages, unsupported parts/metadata,
+  managed overrides and invalid tool-history JSON fail explicitly. No history
+  repair, consecutive-role merging, tool execution or follow-up inference.
+- Thinking text and signatures, including multiple signature fragments, survive
+  Response JSON round trips and reconstruct subsequent request blocks. Signature
+  fragments are assembled before complete metadata is emitted. Redacted thinking
+  and signed thinking without display text remain empty reasoning parts with
+  their opaque provider data intact. Public part/event/error fields did not need
+  extension; `Usage` documentation now states the inclusive input-token meaning.
+- Streaming validates indexed block lifetimes, handles interleaved text/thinking/
+  tool deltas, ignores the initial empty tool input placeholder when fragments
+  arrive, and retains malformed/truncated argument text. A nonempty stop reason
+  plus message_stop is required. Pings are accepted, SDK/HTTP causes survive error
+  mapping, missing terminals fail and early exit/cancellation release responses.
+  `pause_turn` and unknown reasons map to `other` with raw reason metadata and
+  never trigger continuation. Owned/borrowed client reuse and closure are tested.
+- Cache control is explicit on supported blocks/tools or at request level.
+  Normalized input is **uncached + cache-read + cache-creation** tokens; cache
+  breakdowns and TTL details are not added twice. This corrects the fixed
+  upstream's omission of cache-creation tokens. Missing components leave total
+  input unknown; raw counters remain available. Cumulative usage patches replace
+  earlier values instead of being summed. Consulted the official
+  [cache definitions](https://platform.claude.com/docs/en/build-with-claude/prompt-caching),
+  [streaming protocol](https://platform.claude.com/docs/en/build-with-claude/streaming),
+  and installed SDK source for Messages, thinking/redacted block types, usage,
+  stream filtering/errors, client copy and retry behavior.
+- Added `anthropic>=0.83.0,<1` and refreshed `uv.lock` (locked SDK 0.125.0;
+  docstring-parser is its additional transitive dependency). Preserved Python
+  3.11+ and all existing check settings. Shared only the existing controllable
+  HTTP byte-body fixture between provider tests. Updated README, protocol guides,
+  MkDocs navigation and NOTICE; Vercel source remains revision
+  `c788059dd1db2d93ae1c3da6daffb660eca07dbb`.
+- Verification (2026-09-28, local Linux):
+  - `make check`: lock consistency, applicable prek hooks and ty passed.
+  - `make test`: **302 passed**, preserving all 194 Steps 1-3 cases and adding
+    108 Anthropic cases. Python 3.11.15, Anthropic 0.125.0, HTTPX 0.28.1 and
+    Pydantic 2.12.5. The same two expected invalid-output serialization warnings
+    from Step 3 remain; no new warnings or disabled checks.
+  - `make docs-test`: strict MkDocs build passed.
+  - `uv build --wheel`: passed. Installed the wheel in a fresh Python 3.11
+    environment under `/tmp/republic-step4-install.F1exin`. Isolated `python -I`
+    imports resolved to site-packages; AnthropicMessages, packaged NOTICE and
+    `py.typed` were verified. All **108 Anthropic tests** passed against that
+    installed wheel with Anthropic **0.83.0** and Pydantic **2.7.0**.
+  - `git diff --check` and `git diff --cached --check`: passed.
+- All inference tests use the real official SDK plus MockTransport/SSE fixtures,
+  with request-count assertions and no real tokens or paid requests. Tests ran
+  in the already permitted normal process with 90-second command timeouts, given
+  the earlier restricted-sandbox wakeup issue. No SDK request method or thread
+  helper was patched to bypass the transport. The prior full Python matrix was
+  not mechanically repeated; new code executes on the 3.11 lower bound.
+- Limits: text-only; no media/files, citations, hosted tools, programmatic callers,
+  containers, compaction, MCP or beta-specific workflows. Native inference option
+  values remain subject to endpoint/model validation. No live Anthropic account
+  or model acceptance, OAuth or Bub integration was attempted. Steps 5-8 remain
+  unimplemented; this increment stops at the Messages provider.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while
