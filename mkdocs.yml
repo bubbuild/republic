@@ -9,6 +9,7 @@ copyright: Copyright (c) 2026 Bub Build contributors.
 
 nav:
   - Home: index.md
+  - Single-call Contract: contracts.md
   - Rebuild Plan: rebuild-plan.md
 
 plugins:

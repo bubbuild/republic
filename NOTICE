@@ -1,0 +1,24 @@
+Republic contains code and behavior tests adapted from Vercel AI Python:
+https://github.com/vercel-labs/ai-python
+Revision: c788059dd1db2d93ae1c3da6daffb660eca07dbb
+
+Copyright 2026 Vercel, Inc.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Source mapping:
+- src/ai/types/messages.py -> src/republic/types.py
+- src/ai/types/usage.py -> src/republic/types.py
+- src/ai/types/events.py -> src/republic/events.py, src/republic/_stream.py
+- src/ai/models/core/api.py -> src/republic/api.py, src/republic/_stream.py
+- tests/models/core/test_api.py -> tests/test_stream.py
+
+Modified by Republic contributors for a Python 3.11+ single-call SDK:
+removed agent, hook, replay, UI, telemetry, tool execution and client persistence;
+replaced generic request/executor machinery with one Provider protocol; retained
+text/file/reasoning/tool data and block-based event aggregation; added strict
+event ordering, detached snapshots, recursive metadata merging, unknown usage,
+explicit response identity and deterministic stream cleanup. Files use tagged
+URL/base64 strings. Tool arguments remain raw strings, including invalid JSON.
+Tests retain relevant aggregation, metadata, missing-terminal and early-exit
+scenarios and add interleaving and cancellation coverage. This is a modified
+subset, not a claim of upstream API or behavior compatibility.

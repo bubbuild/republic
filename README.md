@@ -12,18 +12,43 @@ belong to the caller. Tool definitions, calls, and results are model data.
 
 ## Current status
 
-Only the rebuild baseline and delivery plan exist. The old implementation,
-tests, documentation, and examples have been removed from this branch. No new
-SDK API or provider support is implemented yet; this branch is not a usable
-release and does not describe the currently published package.
+Step 1 implements an installable Python 3.11+ package with typed JSON data,
+single-call `generate`/`stream` boundaries, and deterministic fake-provider tests.
+The API is provisional until Step 2's OpenAI Chat Completions adapter consumes it.
+There are no real provider adapters or OAuth helpers yet. This branch does not
+describe the currently published package.
 
-Packaging, versioning, CI, linting, typing, test tooling, documentation tooling,
-and release configuration are retained. Dependencies and Python compatibility
-will be adjusted only when an implementation increment needs them.
+The runtime depends only on Pydantic. Packaging, versioning, CI, linting, typing,
+test tooling, documentation tooling, and release configuration are retained.
 
 Follow the [rebuild plan](docs/rebuild-plan.md) for the ordered increments,
 acceptance evidence, and source references. Every increment should be a focused
 Conventional Commit with its behavior tests and documentation.
+
+## Single-call API
+
+```python
+from republic import Message, Request, TextPart, generate, stream
+
+request = Request(
+    model="your-model",
+    messages=[Message(role="user", parts=[TextPart(text="Hello")])],
+)
+
+# Inside an async function, with a caller-supplied Provider implementation:
+# response = await generate(provider, request)
+# async with stream(provider, request) as output:
+#     async for event in output:
+#         ...
+#     response = output.response
+```
+
+See the [single-call contract](docs/contracts.md) for a runnable offline example,
+data types, metadata rules, event ordering, and stream ownership. Each call
+performs one provider operation. Republic does not execute tools, start another
+turn, retry requests, or repair history. Caller cancellation remains
+`asyncio.CancelledError`; premature stream exhaustion raises
+`IncompleteStreamError` and leaves partial output inspectable.
 
 ## Development
 
@@ -36,11 +61,10 @@ make test
 make docs-test
 ```
 
-At this empty baseline, package installation, typing, and test commands may
-fail because `src/republic` and `tests` do not exist yet. Step 1 restores those
-paths and verifies the package. No checks have been disabled to hide this state.
+Tests use local deterministic providers and require no service credentials.
+See the plan's completion evidence for verification results and remaining limits.
 
 ## License
 
-[Apache License 2.0](LICENSE). Any code extracted from upstream must retain its
-applicable copyright and license notices and record its source revision.
+[Apache License 2.0](LICENSE). [NOTICE](NOTICE) records the Vercel AI Python
+revision, copyright, extracted files, and Republic's changes.

@@ -1,6 +1,7 @@
 # Provider SDK rebuild plan
 
-Status: Step 0 prepared; Steps 1-8 are planned, not implemented or validated.
+Status: Steps 0-1 implemented locally; Steps 2-8 are planned, not implemented
+or validated. Step 1's verification evidence is recorded below.
 
 ## Goal and boundaries
 
@@ -202,9 +203,57 @@ large commit per step.
 ## Completion evidence
 
 Update this document after each increment with its commit, commands run, results,
-and remaining limits. At the cleared baseline, no runtime tests or provider/auth
-calls have passed because no implementation exists yet. Do not claim the plan
-or a green generic test run proves live account access.
+and remaining limits. Do not claim the plan or a green generic test run proves
+live account access.
+
+### Step 1 implementation
+
+- Commit: `feat: establish single-call model contracts` (the commit containing
+  this evidence; resolve with `git log --all --grep='^feat: establish single-call model contracts$'`).
+- Restored `src/republic`, `py.typed`, and deterministic tests. Public entry points
+  are `generate(provider, request)` and `stream(provider, request)`; the sole
+  runtime adapter boundary is a structural `Provider` protocol with two methods.
+- Added JSON message/content/tool/request/response/usage types. Provider clients
+  stay outside persisted data. Request copies isolate caller history; the API
+  does not repair it, execute tools, retry, fall back or append another turn.
+- Retained upstream text/reasoning/tool start/delta/end semantics, with strict
+  ID/order validation and interleaved argument aggregation. Metadata merges
+  recursively with latest supplied leaves, preserving reasoning data. Tool JSON
+  remains verbatim. Response identity/finish reason survive serialization.
+- Stream exhaustion without `StreamEnd` raises; early close/cancellation retain
+  partial output without inventing a response. Normal completion, errors and
+  context exit close the source; explicit close is idempotent and waits through
+  cancellation during cleanup. The contract is single-consumer asyncio.
+- `NOTICE` records the fixed upstream revision, Vercel copyright, extracted
+  files and changes. No agent/UI/MCP/replay/approval models were carried over.
+- Retained Python 3.11+ and all existing quality/release tooling. Runtime now
+  needs only Pydantic; removed unused any-llm-sdk, Authlib and HTTPX and refreshed
+  `uv.lock`. Authlib and official transport clients return with their actual
+  implementation increments.
+- Verification (2026-09-28, local Linux):
+  - `make check`: passed lock consistency, all applicable prek hooks, and ty
+    without diagnostics. Existing rules and hook versions were not disabled.
+  - `make test`: 30 passed on Python 3.11.15 with locked Pydantic 2.12.5.
+  - `make docs-test`: strict MkDocs build passed; the complete offline example
+    from `docs/contracts.md` also ran successfully.
+  - `uv run tox`: py311 (3.11.15), py312 (3.12.13), py313 (3.13.13) and py314
+    (3.14.7) each passed 30 tests and ty. The retained tox commands select each
+    interpreter into the project `.venv`; uv reports the existing `VIRTUAL_ENV`
+    mismatch warning. Test headers confirmed the intended Python versions.
+    Restored `.venv` to Python 3.11 afterward.
+  - `uv build --wheel`: succeeded. Inspected the wheel for `py.typed`, LICENSE
+    and NOTICE. Created a fresh Python 3.11 environment under `/tmp`, installed
+    only the wheel and its runtime dependencies, and used `python -I` outside
+    the repository to confirm the import came from site-packages, round-trip a
+    request, and run the offline example. The clean resolver chose Pydantic
+    2.13.5; the wheel declares only `pydantic>=2.7.0` as a runtime dependency.
+  - In that isolated wheel environment, installed Pydantic 2.7.0 and pytest /
+    pytest-asyncio, then ran `python -I -m pytest <checkout>/tests -q` from `/tmp`:
+    30 passed, verifying the declared dependency floor against installed code.
+  - `git diff --check` and `git diff --cached --check`: passed.
+- Limits: no real OpenAI/Anthropic provider, OAuth service, live account access,
+  or Bub integration has been implemented or validated. The API remains
+  provisional for the next real adapter; client ownership will be exercised then.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while

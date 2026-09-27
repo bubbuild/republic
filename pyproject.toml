@@ -1,7 +1,7 @@
 [project]
 name = "republic"
 dynamic = ["version"]
-description = "Build LLM workflows like normal Python while keeping a full audit trail by default."
+description = "A small, single-call LLM provider SDK for Python."
 authors = [
     { name = "Chojan Shang", email = "psiace@apache.org" },
     { name = "Frost Ming", email = "me@frostming.com" },
@@ -9,22 +9,14 @@ authors = [
 readme = "README.md"
 keywords = [
     "ai",
-    "agents",
-    "any-llm",
-    "context",
     "llm",
     "openai",
     "openrouter",
     "python",
-    "routing",
-    "tape",
     "tools",
 ]
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "any-llm-sdk>=1.15.0",
-    "authlib>=1.6.5",
-    "httpx>=0.28.1",
     "pydantic>=2.7.0",
 ]
 classifiers = [
