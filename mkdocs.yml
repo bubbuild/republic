@@ -10,6 +10,8 @@ copyright: Copyright (c) 2026 Bub Build contributors.
 nav:
   - Home: index.md
   - Single-call Contract: contracts.md
+  - Support and Acceptance Matrix: support-matrix.md
+  - Bub Integration: bub-integration.md
   - OpenAI Chat Completions: openai-chat.md
   - OpenAI Responses: openai-responses.md
   - Anthropic Messages: anthropic-messages.md

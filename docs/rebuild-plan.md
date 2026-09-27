@@ -4,8 +4,10 @@ Status: Steps 0-7 have local code and deterministic HTTP/SSE evidence, including
 concrete ChatGPT/Codex, GitHub Copilot and Grok OAuth protocol adaptations.
 No live service or real-account OAuth acceptance has been validated. Step 7
 implementation is complete for the documented subset; live acceptance remains
-open, including Grok client/scopes/entitlement. Step 8 (Bub integration) is not
-started. Verification evidence and supported subsets are recorded below.
+open, including Grok client/scopes/entitlement. Step 8 adds an explicit Bub backend
+and installed-wheel, fresh-process integration evidence. The local code/offline
+baseline is complete for its documented subset; OAuth UX migration and all live
+acceptance remain open. Verification evidence and supported subsets follow.
 
 ## Goal and boundaries
 
@@ -713,6 +715,97 @@ live account access.
   permitted-model inference and refreshed inference. Fixtures prove neither
   entitlement nor protocol stability. Browser PKCE and custom enterprise issuer
   paths remain out of scope. Bub integration (Step 8) was not started.
+
+### Step 8 implementation
+
+- Bub commit: `a3c45120de4878f7167247c360721c5d628477a2` (`feat: integrate Republic provider SDK`), on
+  `feat/republic-provider-sdk` in `/home/psiace/bubbuild/bub-republic-dev`, starting
+  from clean `357901db1a3f82d7f696024574225e595b09d4ac`.
+- Republic commit: `docs: document provider SDK integration and acceptance`
+  (the commit containing this evidence; resolve by its exact subject). Started
+  from accepted clean Step 7 `5dff4aa7bdbf6f81411f16d64f74307d4d83f167` on `dev`
+  in `/home/psiace/bubbuild/republic-dev`. Original Republic/Bub checkouts and
+  other worktrees were not changed; no push, publication or PR was performed.
+- Read Bub's settings/onboarding/auth/Codex, runner, tools, hooks and tape/store
+  implementation before fixing the migration boundary. Added explicit
+  `model_backend="republic"` and a small `republic_protocols` map. Any-llm remains
+  the default dependency/backend with its prior provider coverage. Supported Bub
+  Republic selections are OpenAI Chat/Responses, OpenRouter Chat and Anthropic
+  Messages with API keys and explicit base URLs. Unsupported combinations fail;
+  no implicit any-llm fallback, OAuth discovery or onboarding rewrite was added.
+- Bub builds Republic Request/Response/events directly. Its original ToolExecutor,
+  hooks, model selection/fallback and agent loop remain caller behavior. Only
+  complete, identified calls with object JSON execute. Incomplete/failed/unknown
+  outcomes and malformed arguments execute no tools; terminal native output stays
+  on tape with context disabled. Errors/denials preserve per-call error flags
+  across hooks; Anthropic uses its bit, Chat/Responses use explicit result JSON.
+- Native messages persist in a versioned protocol-tagged envelope alongside the
+  existing tape view; tool-call/result entries carry full native messages. Real
+  JSONL restart preserves Responses item IDs and encrypted-only reasoning,
+  Anthropic signature fragments and original call IDs. Legacy text/function tape
+  records still read. Protocol changes, lossy view edits, unsupported legacy fields
+  and sending native history through any-llm fail explicitly. Run records retain
+  actual response identity, finish reason and normalized/raw usage. Tape errors
+  propagate; no transactional exactly-once promise was added for external tools.
+- Owned/borrowed clients and stream cleanup retain the SDK's no-retry contract.
+  Bub may explicitly try its configured next model only after a provider error
+  before any native event. It never switches after partial output or input errors.
+  Each candidate makes one HTTP request. Cancellation/consumer close bypasses
+  terminal hooks as before and releases the response without executing tools.
+- No Republic public contract, provider implementation, dependency or lock change
+  was required. Bub adds no mandatory Republic dependency or absolute wheel path.
+  The local artifact is built from clean Step 7: version
+  `0.5.9.dev17+g5dff4aa7b`, SHA256
+  `217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`.
+  [The consumer guide](bub-integration.md) records explicit installation and
+  `scripts/check_republic_wheel.py`, which builds a fresh Bub wheel, installs both
+  non-editably under locked constraints and verifies actual package file contents.
+- Verification (2026-09-28, local Linux):
+  - Republic `make check`, `make test`, `make docs-test`: lock/hooks/ty and strict
+    MkDocs pass; **647 passed / 2 existing expected warnings**, Python 3.11.15.
+    No baseline test or safety check was removed or disabled.
+  - Bub `make check`, `make test`, `make docs-test`: lock/hooks/mypy and Astro build
+    pass; **558 passed / 1 skipped**, Python 3.12.13 with the existing trace extra
+    installed. The sole skip requires unavailable PowerShell. There are **54 new
+    integration cases**; the prior default-backend, hook, CLI, turn and tape tests
+    remain intact. Website build uses pnpm and public snapshots without GitHub
+    credentials. pnpm 11.13.1 required explicit local `approve-builds esbuild
+    sharp workerd` for already locked dependencies; the generated approval file
+    was removed after the successful build. No web toolchain change was committed.
+  - Clean-environment installed-wheel acceptance: **54 integration cases passed**,
+    including independent Python process pairs for Responses and Anthropic.
+    First process: actual Bub runner -> model tool call -> ToolExecutor -> JSONL
+    merge. Second process: new store/runner -> actual SDK request with retained
+    opaque metadata -> final text. One HTTP per process and exactly one on-disk
+    tool effect are asserted. Normal/failed/early-exit/cancel cleanup is checked.
+    Final report: `/tmp/bub-republic-wheel-gu417qdl/report.json`; both packages
+    are installed wheels, including committed Bub `0.4.5.dev16+ga3c45120d`.
+    Responses process IDs were 2405850/2405859; Anthropic 2405868/2405875.
+    Each pair records HTTP counts `[1, 1]` and one tool effect in its JSONL test
+    directory. The report also records the exact Bub wheel SHA256.
+  - The clean consumer uses Bub's actual lock: any-llm-sdk 1.22.1, OpenAI 2.31.0,
+    Anthropic 0.94.0, Authlib 1.7.2, HTTPX 0.28.1 and Pydantic 2.12.5.
+    `uv pip check` passes; both imports resolve to installed site-packages.
+    No `--no-deps`, forced incompatible resolution or old PyPI Republic was used.
+  - Existing SDK lower-bound checks from Steps 2-7 and Python 3.11 policy remain
+    unchanged; no unrelated version matrix was mechanically repeated. Runtime
+    source did not change in Republic. `git diff --check` and cached checks pass.
+- Tests use real official SDK methods and synthetic HTTP/SSE transports, not live
+  service calls. Normal processes with bounded test commands follow the already
+  documented sandbox SDK thread-wakeup workaround. An initial uv project-cache
+  stale build was detected by installed-wheel negative tests; explicit Bub wheel
+  construction now prevents accepting that stale artifact.
+- README, contract landing, navigation, [support matrix](support-matrix.md), Bub
+  consumer guide and Bub's English/Chinese usage/settings pages distinguish
+  implemented protocol/consumer behavior from account-backed acceptance.
+- **Local implementation and offline consumer acceptance complete for this
+  subset.** All live provider checks remain open. Codex/Copilot/Grok still require
+  actual authorized login -> inference -> explicitly renewed inference. Grok's
+  reduced scopes and Republic/version headers and Copilot integration entitlement
+  remain unverified. Bub OAuth UX/credential migration is not implemented; original
+  onboarding/Codex behavior remains on the default backend. Bub media input and
+  arbitrary provider/history interchange are unsupported. No new agent/auth
+  platform or release/publication decision is part of this completion.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while

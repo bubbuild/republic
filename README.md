@@ -24,6 +24,12 @@ OAuth Responses proxy; reduced scopes, client identity and account access remain
 unverified. Step 7 code/offline evidence is complete; live acceptance is pending.
 This branch does not describe the currently published package.
 
+Step 8 validates actual Bub consumption through an explicitly selected backend,
+installed local wheels and fresh-process tape continuation. The SDK contract did
+not need to change. See the [support/acceptance matrix](docs/support-matrix.md) and
+[Bub integration guide](docs/bub-integration.md) for protocol selections, the exact
+wheel artifact, reproducible offline acceptance and OAuth migration limits.
+
 Install this checkout with `uv sync` for development or `pip install .` for
 runtime use. Pydantic, OpenAI 2.x, Anthropic 0.x, Authlib and HTTPX are included runtime
 dependencies.

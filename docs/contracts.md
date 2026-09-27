@@ -8,8 +8,9 @@ including signed/redacted thinking and inclusive cache usage. Step 5 adds
 [ChatGPT/Codex OAuth](codex-oauth.md) and its explicit Responses provider. Step 6
 adds [GitHub Copilot device OAuth](copilot-oauth.md), explicit inference-token
 exchange, and a bounded Chat provider. Step 7 adds [Grok device OAuth](grok-oauth.md)
-and an explicit Responses proxy provider. Names and
-signatures remain provisional as more protocols are added.
+and an explicit Responses proxy provider. Step 8 validates these existing contracts
+with an [actual Bub consumer](bub-integration.md), including durable native history;
+no core API change was needed. The API remains an unreleased development baseline.
 
 ## Run an offline call
 
