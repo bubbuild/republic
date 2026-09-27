@@ -147,6 +147,10 @@ class Stream:
             self._status = "incomplete"
             await self.aclose()
             raise IncompleteStreamError from None
+        except IncompleteStreamError:
+            self._status = "incomplete"
+            await self.aclose()
+            raise
         except asyncio.CancelledError:
             self._cancel()
             await self.aclose()

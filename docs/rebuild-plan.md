@@ -1,7 +1,8 @@
 # Provider SDK rebuild plan
 
-Status: Steps 0-1 implemented locally; Steps 2-8 are planned, not implemented
-or validated. Step 1's verification evidence is recorded below.
+Status: Steps 0-2 implemented locally. Chat Completions has deterministic
+HTTP/SSE fixture evidence, with no live-service validation. Steps 3-8 remain
+planned. Verification evidence is recorded below.
 
 ## Goal and boundaries
 
@@ -208,8 +209,8 @@ live account access.
 
 ### Step 1 implementation
 
-- Commit: `feat: establish single-call model contracts` (the commit containing
-  this evidence; resolve with `git log --all --grep='^feat: establish single-call model contracts$'`).
+- Commit: `fc10b257ca362c70741dc5f96cd4f038516462f3`
+  (`feat: establish single-call model contracts`).
 - Restored `src/republic`, `py.typed`, and deterministic tests. Public entry points
   are `generate(provider, request)` and `stream(provider, request)`; the sole
   runtime adapter boundary is a structural `Provider` protocol with two methods.
@@ -254,6 +255,63 @@ live account access.
 - Limits: no real OpenAI/Anthropic provider, OAuth service, live account access,
   or Bub integration has been implemented or validated. The API remains
   provisional for the next real adapter; client ownership will be exercised then.
+
+### Step 2 implementation
+
+- Commit: `feat: add OpenAI Chat Completions provider` (the commit containing
+  this evidence; resolve with `git log --all --grep='^feat: add OpenAI Chat Completions provider$'`).
+- Added `republic.providers.openai.OpenAIChatCompletions`, using official
+  `openai.AsyncOpenAI` for native non-streaming generation and streaming.
+  Supports explicit API key/base URL or an injected client; owned clients have
+  context/close methods, while borrowed transports remain caller-owned.
+- Both ownership paths disable SDK retries; injected settings are not mutated.
+  Actual HTTP-attempt assertions cover success, retryable HTTP errors, timeout,
+  connection and mid-stream failures. No automatic turns, execution or repair.
+- Added Chat message/tool/options conversion, user images, text reasoning
+  extensions, response identity, usage and finish-reason mapping. Unknown or
+  conflicting options and unrepresentable input fail explicitly before HTTP.
+- Streaming buffers argument fragments until tool ID/name are available,
+  aggregates interleaved indices and consumes tail usage before StreamEnd.
+  Missing finish evidence fails; malformed argument JSON remains verbatim.
+- Small shared-contract changes: `ProviderError` also carries optional service
+  code/request ID; `UnsupportedRequestError` describes unrepresentable input;
+  the shared Stream marks adapter-raised `IncompleteStreamError` as incomplete.
+  Existing data/event signatures are unchanged.
+- Added OpenAI 2.x and HTTPX runtime dependencies and updated `uv.lock`. Updated
+  NOTICE with the pinned upstream Chat protocol and selected test provenance.
+- Verification (2026-09-28, local Linux):
+  - `make check`: lock consistency, applicable prek hooks and ty passed without
+    disabling or relaxing checks.
+  - `make test`: 110 passed on Python 3.11.15, including all 30 Step 1 cases
+    and 80 provider cases. Locked versions: OpenAI 2.54.0, HTTPX 0.28.1,
+    Pydantic 2.12.5. The provider cases use the real SDK with MockTransport and
+    controlled SSE, including byte/UTF-8 fragmentation and request counting.
+  - `make docs-test`: strict MkDocs build passed.
+  - `uv run tox -e py314`: 110 passed and ty passed on Python 3.14.7. Only the
+    upper supported interpreter was added to this step's 3.11 evidence; the
+    whole Step 1 matrix was not repeated. Restored `.venv` to Python 3.11.
+  - `uv build --wheel`: succeeded. Inspected provider files, `py.typed`, LICENSE
+    and NOTICE inside the wheel. Installed it into a fresh Python 3.11 venv in
+    `/tmp`; `python -I` outside the repository imported it from site-packages
+    and completed an SDK/MockTransport call, checking one HTTP attempt and
+    borrowed-client reuse. Clean resolution used OpenAI 2.54.0/Pydantic 2.13.5.
+  - In the isolated wheel environment, installed the declared lower bounds
+    OpenAI 2.16.0 and Pydantic 2.7.0, plus pytest/pytest-asyncio; running
+    `python -I -m pytest <checkout>/tests -q` passed all 110 tests.
+  - `git diff --check` and `git diff --cached --check`: passed.
+- Environment evidence: the first mocked SDK request stalled in the restricted
+  execution sandbox. A 5-second faulthandler dump showed the asyncio selector
+  waiting and a thread worker idle; the focused test timed out at 15 seconds
+  (exit 124). A sandbox thread-wakeup limitation is suspected, not established. The unchanged fixtures
+  passed in a normal permitted process, as did all Makefile/tox checks. No SDK
+  methods or thread helpers were patched to make the checks pass, and no live
+  request was used to work around this sandbox behavior.
+- Limits: no live OpenAI/OpenRouter inference, account access, OAuth or Bub
+  integration was attempted. Fixtures prove local protocol behavior only.
+  Unsupported: Responses, Anthropic, audio/PDF/generated media, built-in/legacy
+  function-call formats, annotations and encrypted/signed reasoning_details.
+  Tool ID/name fields must be atomic (late arrival is supported); changing
+  header values fails rather than guessing. See the provider guide for details.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while

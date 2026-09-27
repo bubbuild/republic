@@ -2,7 +2,13 @@
 
 from republic import events
 from republic.api import Provider, Stream, generate, stream
-from republic.errors import IncompleteStreamError, ProviderError, RepublicError, StreamProtocolError
+from republic.errors import (
+    IncompleteStreamError,
+    ProviderError,
+    RepublicError,
+    StreamProtocolError,
+    UnsupportedRequestError,
+)
 from republic.types import (
     FilePart,
     FinishReason,
@@ -42,6 +48,7 @@ __all__ = [
     "ToolCallPart",
     "ToolChoice",
     "ToolResultPart",
+    "UnsupportedRequestError",
     "Usage",
     "events",
     "generate",

@@ -8,10 +8,28 @@ class RepublicError(Exception):
 class ProviderError(RepublicError):
     """An adapter's mapped request/transport failure, with its cause preserved."""
 
-    def __init__(self, message: str, *, provider: str | None = None, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str | None = None,
+        status_code: int | None = None,
+        code: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.provider = provider
         self.status_code = status_code
+        self.code = code
+        self.request_id = request_id
+
+
+class UnsupportedRequestError(RepublicError, ValueError):
+    """Input cannot be represented by the selected provider protocol."""
+
+    def __init__(self, field: str, reason: str) -> None:
+        self.field = field
+        super().__init__(f"Unsupported {field}: {reason}")
 
 
 class IncompleteStreamError(RepublicError):

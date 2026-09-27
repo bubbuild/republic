@@ -11,6 +11,10 @@ Source mapping:
 - src/ai/types/events.py -> src/republic/events.py, src/republic/_stream.py
 - src/ai/models/core/api.py -> src/republic/api.py, src/republic/_stream.py
 - tests/models/core/test_api.py -> tests/test_stream.py
+- src/ai/providers/openai/protocol.py -> src/republic/providers/_openai_chat.py,
+  src/republic/providers/_openai_stream.py, src/republic/providers/openai.py
+- tests/providers/openai/test_adapter.py -> tests/test_openai.py (selected
+  conversion/finish-reason scenarios, rewritten against the real SDK transport)
 
 Modified by Republic contributors for a Python 3.11+ single-call SDK:
 removed agent, hook, replay, UI, telemetry, tool execution and client persistence;
@@ -22,3 +26,9 @@ URL/base64 strings. Tool arguments remain raw strings, including invalid JSON.
 Tests retain relevant aggregation, metadata, missing-terminal and early-exit
 scenarios and add interleaving and cancellation coverage. This is a modified
 subset, not a claim of upstream API or behavior compatibility.
+
+Step 2 extracts only Chat Completions conversion and streaming semantics. It
+adds native non-streaming generation, owned/borrowed client lifetime, disabled
+SDK retries, input validation, pending tool-header buffering, required provider
+finish evidence, tail usage and HTTP/SSE fixtures. History repair, implicit file
+downloads, Responses, provider/model routing and OAuth are not included.

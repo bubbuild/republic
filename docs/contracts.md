@@ -1,8 +1,9 @@
 # Single-call contract
 
-Step 1 provides data models and a small asynchronous boundary. No real provider
-or OAuth implementation is included. Names and signatures remain provisional;
-Step 2's OpenAI Chat Completions adapter is the next consumer.
+Step 1 provides data models and a small asynchronous boundary. Step 2's
+[OpenAI Chat Completions adapter](openai-chat.md) is its first concrete consumer.
+Names and signatures remain provisional as more protocols are added. OAuth is
+not implemented.
 
 ## Run an offline call
 
@@ -138,8 +139,10 @@ pulling another event. No events after it are consumed.
 | Caller task cancellation before terminal | `CancelledError` propagates, `status == "cancelled"`, partial output remains. |
 | Adapter or event-protocol failure | Exception propagates, `status == "failed"`, partial output remains. |
 
-`RepublicError` is the SDK error base. `ProviderError` carries optional provider
-and HTTP status; adapters should preserve native errors as exception causes.
+`RepublicError` is the SDK error base. `ProviderError` carries optional provider,
+HTTP status, service error code and request ID; adapters preserve native errors
+as exception causes. `UnsupportedRequestError` reports unrepresentable input
+before a request is sent.
 `IncompleteStreamError` and `StreamProtocolError` describe streaming failures.
 Cancellation is never converted into a provider error or retried. The SDK does
 not automatically retry any request.
@@ -156,7 +159,8 @@ running. Explicit closure is awaited in a shielded cleanup task, so cancellation
 during closure waits for cleanup and then propagates. Adapter cleanup must allow
 execution in that task and must eventually return. Client lifetime is separate:
 the adapter/caller owns a reusable client; closing one response must not close a
-borrowed client. Real client ownership is to be tested with Step 2.
+borrowed client. Step 2 tests these ownership rules through the official OpenAI
+client with controlled HTTP responses.
 
 ## Source and intentional changes
 

@@ -12,14 +12,15 @@ belong to the caller. Tool definitions, calls, and results are model data.
 
 ## Current status
 
-Step 1 implements an installable Python 3.11+ package with typed JSON data,
-single-call `generate`/`stream` boundaries, and deterministic fake-provider tests.
-The API is provisional until Step 2's OpenAI Chat Completions adapter consumes it.
-There are no real provider adapters or OAuth helpers yet. This branch does not
-describe the currently published package.
+Steps 1-2 implement a Python 3.11+ single-call SDK and an OpenAI Chat Completions
+adapter using the official asynchronous client. Deterministic tests exercise the
+real client with HTTP/SSE fixtures, including custom base URLs. No live OpenAI or
+OpenRouter service has been validated. Responses, Anthropic and OAuth remain
+planned. This branch does not describe the currently published package.
 
-The runtime depends only on Pydantic. Packaging, versioning, CI, linting, typing,
-test tooling, documentation tooling, and release configuration are retained.
+Install this checkout with `uv sync` for development or `pip install .` for
+runtime use. Pydantic, OpenAI 2.x and HTTPX are included runtime dependencies.
+Existing packaging, versioning, CI and quality tooling are retained.
 
 Follow the [rebuild plan](docs/rebuild-plan.md) for the ordered increments,
 acceptance evidence, and source references. Every increment should be a focused
@@ -43,6 +44,10 @@ request = Request(
 #     response = output.response
 ```
 
+Use `from republic.providers.openai import OpenAIChatCompletions` for the concrete
+adapter. The [Chat Completions guide](docs/openai-chat.md) covers API keys,
+OpenRouter/custom base URLs, streaming, tool results and client ownership.
+
 See the [single-call contract](docs/contracts.md) for a runnable offline example,
 data types, metadata rules, event ordering, and stream ownership. Each call
 performs one provider operation. Republic does not execute tools, start another
@@ -61,7 +66,7 @@ make test
 make docs-test
 ```
 
-Tests use local deterministic providers and require no service credentials.
+Tests use deterministic providers and HTTP/SSE fixtures, with no service credentials.
 See the plan's completion evidence for verification results and remaining limits.
 
 ## License
