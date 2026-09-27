@@ -1,7 +1,7 @@
 site_name: republic
 repo_url: https://github.com/bubbuild/republic
 site_url: https://getrepublic.org
-site_description: Tape-first LLM client with structured outputs.
+site_description: A small LLM provider SDK for Python.
 site_author: Bub Build
 edit_uri: edit/main/docs/
 repo_name: bubbuild/republic
@@ -9,17 +9,7 @@ copyright: Copyright (c) 2026 Bub Build contributors.
 
 nav:
   - Home: index.md
-  - Quickstart: quickstart.md
-  - Guides:
-      - Breaking Changes: guides/breaking-changes.md
-      - Authentication: guides/authentication.md
-      - Chat: guides/chat.md
-      - Tools: guides/tools.md
-      - Tape: guides/tape.md
-      - Stream Events: guides/stream-events.md
-      - Text Decisions: guides/text.md
-      - Embeddings: guides/embeddings.md
-  - Philosophy: philosophy.md
+  - Rebuild Plan: rebuild-plan.md
 
 plugins:
   - search
