@@ -15,19 +15,19 @@ policy composable; see [client configuration](client-configuration.md).
 ## Install the local baseline
 
 The current SDK artifact was built from clean Republic runtime commit
-`3c5638118952744cd53738be956d1c02354f5fc8` (independent embeddings/reranking,
-protocol-specific media and opaque Anthropic image URL references):
+`68e13a4ccc3177ae6b036c094dff83f980482b7f` (the Codex audio correction, retaining independent embeddings/reranking
+and previously accepted media behavior):
 
-- File: `republic-0.5.9.dev26+g3c5638118-py3-none-any.whl`.
-- Version: `0.5.9.dev26+g3c5638118`.
-- SHA256: `4053168afadc79e5f9e0e913eb173c2de11e96782f971d6dce6f51fed1d7ecdc`.
+- File: `republic-0.5.9.dev28+g68e13a4cc-py3-none-any.whl`.
+- Version: `0.5.9.dev28+g68e13a4cc`.
+- SHA256: `9a83feedd03931beaf1e565479b93ad8f0193b1e005eff16dd01b4223756e3c8`.
 - Build: `uv build --wheel` from the clean runtime commit. Hashes identify the
   exact tested artifact, not a reproducible-build guarantee. The earlier
   `5dff4aa` wheel predates these APIs and is not sufficient for current Bub.
 
 For source development, place `bub-republic-dev` beside `republic-dev`, then run
 `uv sync --locked --extra trace` in Bub. Its normal runtime dependency is
-`republic>=0.5.9.dev26,<0.6`; the local uv source is the repository-relative
+`republic>=0.5.9.dev28,<0.6`; the local uv source is the repository-relative
 `../republic-dev`, not an absolute path or unavailable remote commit. The sibling
 checkout may include later documentation commits; the minimum runtime must include the media restoration as well as the caller-policy correction.
 The trace extra is optional telemetry; Republic is required for imports and tests.
@@ -71,8 +71,9 @@ defaults to 16384 for API-key protocols and omits the limit for Codex (an explic
 limit is rejected there). `completion_args` uses Republic common options and a nested `provider_options` object. Unsupported
 settings or managed-field overrides fail. Bub's existing `build_prompt` image_url,
 input_audio and video_url become ordered FilePart data. Images work through Chat,
-Responses, Messages and Codex; inline audio uses Chat; video_url requires a compatible
-Chat endpoint such as OpenRouter. Other protocols still reject audio/video.
+Responses, Messages and Codex; inline audio uses Chat or the Codex-specific
+input_audio/audio_url wire. video_url requires a compatible Chat endpoint such
+as OpenRouter. Standard Responses and Anthropic reject audio/video; Codex rejects video.
 See [media inputs](media-inputs.md) for exact SDK PDF/file-reference support and
 model/service limits. Bub channel fetchers remain caller-owned; the SDK never
 fetches media or reads arbitrary files. Independent embeddings/reranking do not
@@ -157,7 +158,7 @@ The Bub branch includes a standalone acceptance entry point:
 ```bash
 python scripts/check_republic_wheel.py \
   /explicit/path/to/republic-VERSION-py3-none-any.whl \
-  --source-commit 3c5638118952744cd53738be956d1c02354f5fc8
+  --source-commit 68e13a4ccc3177ae6b036c094dff83f980482b7f
 ```
 
 It creates a clean Python 3.12 environment, builds and installs the current Bub
@@ -176,7 +177,7 @@ HTTP/SSE MockTransport fixtures. Separate OS processes prove, for **Chat/OpenRou
    executes it through ToolExecutor and merges a FileTapeStore fork to JSONL.
 2. A new Python process opens that tape, constructs another real SDK request
    containing identical ordered media, original call ID and encrypted reasoning or
-   thinking signature where applicable (Chat also replays audio and video),
+   thinking signature where applicable (Codex also replays audio; Chat replays audio and video),
    then receives the final answer.
 3. Each process asserts one model HTTP request and released resources. The
    on-disk execution log contains exactly one tool effect across both processes.
@@ -194,9 +195,11 @@ patches the OAuth client constructor; unexpected HTTP fails locally.
 
 The [plan](rebuild-plan.md#step-8-implementation) records both repository commits,
 full check/test/docs results, installed dependency versions and remaining work.
-The current runtime wheel also passed all 744 Republic tests with Python 3.11
-and the declared OpenAI/Anthropic/Authlib/HTTPX/Pydantic lower bounds. The clean Python 3.12 two-wheel environment passed all 604 Bub tests (one existing
-skip), including trace and fresh-process native media history. Bub runtime commit
-`696a3b56506f69b306148ea079be62a1133c9610` and both artifact hashes are recorded
+The earlier media runtime passed all 744 Republic tests with Python 3.11 and
+the declared dependency lower bounds; the new wheel passed all 19 Codex audio
+cases on those same lower bounds. Its normal-environment SDK suite is 763 tests.
+The clean Python 3.12 two-wheel environment passed all 610 Bub tests (one existing
+skip), including trace, Codex audio and fresh-process native media history. Bub consumer commit
+`bf0b5c43db7de618763d635acab0885fcd494f45` and both artifact hashes are recorded
 in the plan. Both environments passed
 `uv pip check`; no dependency conflict was ignored.

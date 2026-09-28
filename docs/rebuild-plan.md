@@ -1120,3 +1120,41 @@ expected warnings**) and `make docs-test` passed. The Bub build_prompt/tape
 extension and clean committed-wheel evidence are recorded after consumer checks.
 All evidence is offline fixtures; model codec support, remote asset retrieval and
 OAuth account entitlement/live inference remain unverified.
+
+
+Codex audio consumer/wheel acceptance:
+
+- SDK runtime commit `68e13a4ccc3177ae6b036c094dff83f980482b7f`;
+  Bub commit `bf0b5c43db7de618763d635acab0885fcd494f45`.
+  Bub's existing FilePart adapter needed no runtime change. Its required minimum
+  is now `republic>=0.5.9.dev28,<0.6`, still using `../republic-dev` as the local
+  development source; `uv lock --locked` passed without changing the directory
+  source entry. Auth.json, login/refresh, tool and agent policies remain unchanged.
+- The real Bub build_prompt audio+image path now runs through Codex SSE, Bub's
+  ToolExecutor, JSONL and a fresh Python process. The second actual SDK payload
+  preserves ordered input_audio/audio_url, images, encrypted reasoning, item/call
+  IDs and tool output. Each process sends one HTTP request; the tool runs once.
+  Codex early close, cancellation and missing terminal are also exercised through
+  Bub with media. The affected integration module passed 78 cases.
+- Both repositories passed `make check/test/docs-test`. Full results: SDK
+  **763 passed / 2 existing expected warnings**, Bub with trace **610 passed /
+  1 existing skip**. The website's existing pnpm build-approval prerequisite was
+  handled locally as before; its generated approval file was not committed.
+- New SDK artifact: `republic-0.5.9.dev28+g68e13a4cc-py3-none-any.whl`, SHA256
+  `9a83feedd03931beaf1e565479b93ad8f0193b1e005eff16dd01b4223756e3c8`.
+  The installed-wheel Python 3.11.15 lower-bound environment passed the 19 new
+  audio cases with OpenAI 2.16.0, Anthropic 0.83.0, Authlib 1.6.5, HTTPX 0.28.1,
+  Pydantic 2.7.0 and `uv pip check`; the previously accepted full matrix was not
+  mechanically repeated.
+- A fresh Python 3.12 dual-wheel environment installed that exact SDK plus
+  `bub-0.4.5.dev20+gbf0b5c43d-py3-none-any.whl` (SHA256
+  `65dc0038a2dd3b016d3812e3a88c83f7a2e28a71a6703af3c0dc5a3b2871d944`).
+  Its full regression run passed **610 / 1 skipped**, including the new-process
+  Codex audio chain and existing Responses/Anthropic metadata chains. The script
+  verified installed archives/site-packages imports, dependency compatibility and
+  absence of any-llm/model_backend. Evidence:
+  `/tmp/bub-republic-wheel-m00be5ta/report.json`.
+- All request tests remain isolated HTTP/SSE fixtures, including subprocesses.
+  No real token files, login, inference, account changes, push or publication were
+  involved. Native tool-output audio and generated media remain separate scope;
+  live audio codec/model/account acceptance remains unverified.
