@@ -189,3 +189,13 @@ async def test_owned_client_explicit_retry_timeout_and_header_policy(monkeypatch
         assert transport.requests[0].extensions["timeout"]["read"] == 7
         assert transport.requests[0].headers["originator"] == "caller"
     assert http.is_closed
+
+
+@pytest.mark.asyncio
+async def test_malformed_callback_is_sanitized_before_transport() -> None:
+    authorization = await codex.create_authorization()
+    transport = Transport([])
+    with pytest.raises(codex.CodexAuthError, match="invalid_callback") as caught:
+        await codex.exchange_code(authorization, "https://[private-callback-secret", transport=transport)
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    assert "private" not in repr(caught.value) and not transport.requests

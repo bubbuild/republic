@@ -248,6 +248,8 @@ async def exchange_code(
         code = _callback(authorization, callback_url)
     except AuthlibBaseError:
         error = CodexAuthError("missing_code")
+    except (ValueError, TypeError, KeyError):
+        error = CodexAuthError("invalid_callback")
     else:
         return await exchange_authorization_code(authorization, code, transport=transport, timeout=timeout)
     raise error
