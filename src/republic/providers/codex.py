@@ -14,15 +14,25 @@ from republic.errors import IncompleteStreamError, ProviderError, UnsupportedReq
 from republic.providers import _openai_responses as responses
 from republic.providers._openai_client import OpenAIClient, oauth_client, oauth_error
 from republic.providers._openai_responses_stream import ResponsesStream
-from republic.types import Request, Response
+from republic.types import FilePart, Request, Response
 
 _BASE_URL = "https://chatgpt.com/backend-api/codex"
+
+
+def _media(request: Request) -> None:
+    for message in request.messages:
+        for part in message.parts:
+            if isinstance(part, FilePart) and not part.media_type.startswith("image/"):
+                raise UnsupportedRequestError(
+                    "file", "the sourced Codex input subset supports images, not documents/audio/video"
+                )
 
 
 def _payload(request: Request) -> dict[str, Any]:
     for field in ("temperature", "top_p", "max_output_tokens", "stop"):
         if getattr(request.options, field) is not None:
             raise UnsupportedRequestError(field, "not supported by the Codex adapter")
+    _media(request)
     in_history = False
     for message in request.messages:
         if message.role == "system" and in_history:

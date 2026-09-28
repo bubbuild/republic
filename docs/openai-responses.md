@@ -223,9 +223,10 @@ except ValidationError:
 
 ## Current limits and evidence
 
-This increment supports text-only system/user input, assistant text, retained
-native reasoning, function calls and function results. It rejects media/file
-input and output, hosted/built-in/custom tools, MCP, compaction, unknown reasoning
+Supported input includes system text and user text/images/PDF, assistant text,
+retained native reasoning, function calls and function results. See
+[media inputs](media-inputs.md) for URLs/base64/file IDs and text-file conversion.
+It rejects audio/video input, generated media output, hosted/built-in/custom tools, MCP, compaction, unknown reasoning
 content kinds, unsupported roles/parts and stop sequences. No files are fetched,
 no tools are executed, and no hidden history is reconstructed.
 

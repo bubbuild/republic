@@ -1023,3 +1023,15 @@ cover request/response semantics, native billing data, conflicts, errors and
 lifetime. `make check`, `make test` (696 passed, two existing expected warnings)
 and `make docs-test` passed. The instance-registration sketch remains a proposal
 in `capability-design.md`, not an implemented API or dependency for these calls.
+
+SDK media increment (2026-09-28): FilePart now includes explicit provider file
+references. Source-trimmed Chat/Responses/Messages mappings restore user media,
+with OpenRouter video/audio extensions and Codex native images. No downloader,
+uploader or local-file reader was added. Protocol-specific limits and source
+links are in `media-inputs.md`; Copilot/Grok media and independent generation/
+transcription operations are not claimed. OpenRouter reasoning_details preserves
+opaque context and indexed/id-bearing fragments through serialization/replay.
+46 added real-client HTTP/SSE cases cover media ordering, inline/reference forms,
+no-fetch failures and retained reasoning/signatures. `make check`, `make test`
+(742 passed, two existing expected warnings) and `make docs-test` passed.
+Actual Bub media consumption and committed-wheel evidence follow separately.

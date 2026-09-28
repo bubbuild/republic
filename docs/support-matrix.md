@@ -9,10 +9,10 @@ through real official clients. No provider or OAuth account has live acceptance.
 
 | Import / class | Wire and credentials | Implemented subset | Bub selection |
 | --- | --- | --- | --- |
-| `republic.providers.openai.OpenAIChatCompletions` | API key; `/chat/completions`; explicit compatible base URL | Text, user images, plain reasoning extensions, function tools/results, common/native options | `openai:`, `openrouter:` with `chat`; text input only in Bub |
-| `republic.providers.openai.OpenAIResponses` | API key; `/responses`; full inline history by default | Text, native reasoning/summary/encrypted items, functions, structured output wire schema | `openai:` with explicit `responses` |
-| `republic.providers.anthropic.AnthropicMessages` | API key; `/v1/messages`; explicit required output limit | Text, signed/redacted thinking, functions/error results, cache controls/usage | `anthropic:` with `messages` |
-| `republic.providers.codex.OpenAICodex` | Existing ChatGPT access token or token data; Codex Responses SSE endpoint | Sourced Codex text/reasoning/function subset; generate aggregates one SSE request | `openai:` with `codex`, or saved Bub Codex login without API-key/base/protocol overrides |
+| `republic.providers.openai.OpenAIChatCompletions` | API key; `/chat/completions`; explicit compatible base URL | Text, user images/audio/PDF, compatible video and native reasoning extensions, function tools/results, common/native options | `openai:`, `openrouter:` with `chat`; text input only in Bub |
+| `republic.providers.openai.OpenAIResponses` | API key; `/responses`; full inline history by default | Text, user images/PDF, native reasoning/summary/encrypted items, functions, structured output wire schema | `openai:` with explicit `responses` |
+| `republic.providers.anthropic.AnthropicMessages` | API key; `/v1/messages`; explicit required output limit | Text, user images/documents, signed/redacted thinking, functions/error results, cache controls/usage | `anthropic:` with `messages` |
+| `republic.providers.codex.OpenAICodex` | Existing ChatGPT access token or token data; Codex Responses SSE endpoint | Sourced Codex text/image/reasoning/function subset; generate aggregates one SSE request | `openai:` with `codex`, or saved Bub Codex login without API-key/base/protocol overrides |
 | `republic.providers.github_copilot.GitHubCopilot` | Existing Copilot inference token and integration ID; service endpoint default or explicit caller route | Sourced editor Chat text/function subset; separate GitHub login and inference tokens | Not connected |
 | `republic.providers.grok.GrokOAuth` | Existing Grok access token or token data/version; Grok Build OAuth Responses proxy | Sourced text/native reasoning/function subset; generate aggregates one SSE request | Not connected |
 
@@ -35,7 +35,7 @@ vectors, usage and native metadata are covered by offline HTTP fixtures. No
 implicit batching, retrieval or agent facade is included. See [embeddings](embeddings.md)
 and the [capability restoration inventory](capability-restoration.md). `republic.providers.cohere.CohereRerank` implements direct `/v2/rerank` with
 string documents, top_n, original indexes/scores and native billing metadata.
-See [reranking](reranking.md). Message media restoration is the next increment.
+See [reranking](reranking.md). [SDK media inputs](media-inputs.md) are implemented; Bub consumption is the next increment.
 
 ## Authentication helpers
 
@@ -74,8 +74,9 @@ and Grok's client integration are not stable public third-party API promises.
 - Structured output configuration forwards the supported native schema. Output
   remains text; the caller explicitly validates it with Pydantic. Validation
   failure does not trigger repair inference. See the Responses guide's example.
-- Chat has a bounded user-image subset. Responses, Messages and OAuth adapters
-  currently reject media. Hosted tools, agents, MCP, replay/approval state, model
+- [Media inputs](media-inputs.md) lists each protocol's actual image/audio/video/
+  document wire. Media support is not interchangeable. Hosted tools, agents, MCP,
+  replay/approval state, model
   catalogs, server-side conversation recovery and background polling are outside the implementation. Protocol guides also list rejected
   reasoning forms, role combinations and managed-field overrides.
 

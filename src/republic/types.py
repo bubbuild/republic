@@ -21,12 +21,12 @@ class TextPart(_Data):
 
 
 class FilePart(_Data):
-    """A URL or standard base64 data; never a file handle or fetched resource."""
+    """A URL, base64 data or provider file ID; never a file handle or fetched resource."""
 
     kind: Literal["file"] = "file"
     data: str
     media_type: str
-    encoding: Literal["url", "base64"] = "url"
+    encoding: Literal["url", "base64", "file_id"] = "url"
     filename: str | None = None
     provider_metadata: ProviderMetadata | None = None
 

@@ -16,7 +16,7 @@ from republic.errors import IncompleteStreamError, ProviderError, UnsupportedReq
 from republic.providers import _openai_responses as responses
 from republic.providers._openai_client import OpenAIClient, oauth_client, oauth_error
 from republic.providers._openai_responses_stream import ResponsesStream
-from republic.types import Request, Response
+from republic.types import FilePart, Request, Response
 
 _BASE_URL = "https://cli-chat-proxy.grok.com/v1"
 
@@ -24,6 +24,8 @@ _BASE_URL = "https://cli-chat-proxy.grok.com/v1"
 def _payload(request: Request) -> dict[str, Any]:
     if not re.fullmatch(r"[A-Za-z0-9_.:/-]+", request.model):
         raise UnsupportedRequestError("model", "expected a nonempty ASCII model identifier for proxy routing")
+    if any(isinstance(part, FilePart) for message in request.messages for part in message.parts):
+        raise UnsupportedRequestError("file", "Grok OAuth media wire has not been established")
     payload = responses.request_payload(request)
     if "truncation" not in request.options.provider_options:
         payload.pop("truncation")

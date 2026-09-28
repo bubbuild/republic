@@ -115,3 +115,5 @@ OpenAI Codex, Microsoft VS Code/Copilot Chat and SpaceXAI Grok Build sources, re
 copyrights/licenses, and Republic's changes.
 
 Independent document reranking uses the [direct Cohere v2 adapter](docs/reranking.md).
+
+[Message media inputs](docs/media-inputs.md) cover protocol-specific images, audio, video and documents.

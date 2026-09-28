@@ -14,6 +14,7 @@ nav:
   - Capability Restoration: capability-restoration.md
   - Embeddings: embeddings.md
   - Reranking: reranking.md
+  - Media Inputs: media-inputs.md
   - Client Configuration: client-configuration.md
   - Bub Integration: bub-integration.md
   - OpenAI Chat Completions: openai-chat.md

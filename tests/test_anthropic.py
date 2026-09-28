@@ -452,7 +452,7 @@ async def test_unsupported_options_fail_before_http(extra: dict[str, Any]) -> No
     "msg",
     [
         Message(role="system", parts=[TextPart(text="late instruction")]),
-        Message(role="user", parts=[FilePart(data="https://x.test/image.png", media_type="image/png")]),
+        Message(role="user", parts=[FilePart(data="https://x.test/audio.wav", media_type="audio/wav")]),
         Message(role="assistant", parts=[ReasoningPart(text="unsigned")]),
         Message(
             role="assistant",

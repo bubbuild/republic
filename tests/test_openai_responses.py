@@ -408,7 +408,7 @@ async def test_unsupported_options_fail_before_http(options: dict[str, Any]) -> 
 @pytest.mark.parametrize(
     "msg",
     [
-        Message(role="user", parts=[FilePart(data="https://x.test/img.png", media_type="image/png")]),
+        Message(role="user", parts=[FilePart(data="https://x.test/audio.wav", media_type="audio/wav")]),
         Message(role="user", parts=[ReasoningPart(text="thought")]),
         Message(role="assistant", parts=[ReasoningPart(text="unbacked")]),
         Message(

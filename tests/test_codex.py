@@ -306,7 +306,7 @@ async def test_unsupported_options_rejected_before_http(options: RequestOptions)
     "message",
     [
         Message(role="system", parts=[TextPart(text="later rules")]),
-        Message(role="user", parts=[FilePart(data="https://unit.test/image.png", media_type="image/png")]),
+        Message(role="user", parts=[FilePart(data="https://unit.test/document.pdf", media_type="application/pdf")]),
         Message(role="user", parts=[TextPart(text="x", provider_metadata={"unsupported": True})]),
     ],
 )

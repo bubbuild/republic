@@ -3,12 +3,12 @@
 # Source: ai-python c788059dd1db2d93ae1c3da6daffb660eca07dbb; see NOTICE.
 """Conversion between Republic data and Chat Completions wire data."""
 
-import base64
-import binascii
 import json
 from typing import Any, cast
 
 from republic.errors import ProviderError, UnsupportedRequestError
+from republic.providers._files import base64_data, detail_option, file_id, file_url, text_data
+from republic.providers._openrouter_reasoning import details as reasoning_details
 from republic.types import (
     FilePart,
     FinishReason,
@@ -82,23 +82,54 @@ def _metadata(value: ProviderMetadata | None, allowed: set[str], field: str) -> 
     return dict(data)
 
 
-def _image(part: FilePart) -> dict[str, Any]:
-    options = _metadata(part.provider_metadata, {"detail"}, "file metadata")
-    if not part.media_type.startswith("image/") or part.filename is not None:
-        raise UnsupportedRequestError("file", "only user images without a filename are supported")
-    detail = options.get("detail", "auto")
-    if not isinstance(detail, str) or detail not in {"auto", "low", "high"}:
-        raise UnsupportedRequestError("image.detail", "expected auto, low or high")
-    data = part.data
-    if part.encoding == "base64":
-        try:
-            base64.b64decode(data, validate=True)
-        except (ValueError, binascii.Error) as exc:
-            raise UnsupportedRequestError("file.data", "invalid base64") from exc
-        data = f"data:{part.media_type};base64,{data}"
-    elif not data.startswith(("https://", "http://", "data:image/")):
-        raise UnsupportedRequestError("file.URL", "expected an HTTP(S) or image data URL")
-    return {"type": "image_url", "image_url": {"url": data, **options}}
+def _audio(part: FilePart, options: dict[str, Any]) -> dict[str, Any]:
+    if options.keys() - {"format"} or part.filename is not None:
+        raise UnsupportedRequestError("audio", "expected input_audio format without filename")
+    audio_format = options.get(
+        "format", {"audio/mpeg": "mp3", "audio/x-wav": "wav"}.get(part.media_type, part.media_type.split("/", 1)[1])
+    )
+    if not isinstance(audio_format, str) or not audio_format:
+        raise UnsupportedRequestError("audio.format", "expected a nonempty wire format")
+    return {"type": "input_audio", "input_audio": {"data": base64_data(part), "format": audio_format}}
+
+
+def _pdf(part: FilePart) -> dict[str, Any]:
+    if part.encoding == "file_id":
+        if part.filename is not None:
+            raise UnsupportedRequestError("file.filename", "file references have no filename field")
+        data = {"file_id": file_id(part)}
+    else:
+        data = {
+            "file_data": f"data:application/pdf;base64,{base64_data(part)}",
+            "filename": part.filename or "document.pdf",
+        }
+    return {"type": "file", "file": data}
+
+
+def _file(part: FilePart) -> dict[str, Any]:
+    # Dispatch follows ai-python _file_part_to_openai, without URL downloads.
+    # video_url is the documented OpenRouter compatible-endpoint extension.
+    options = _metadata(part.provider_metadata, {"detail", "format", "processing"}, "file metadata")
+    if part.media_type.startswith("image/"):
+        if options.keys() - {"detail"} or part.filename is not None:
+            raise UnsupportedRequestError("image", "expected image_url detail without filename")
+        detail_option(options)
+        return {"type": "image_url", "image_url": {"url": file_url(part), **options}}
+    if part.media_type.startswith("audio/"):
+        return _audio(part, options)
+    if part.media_type.startswith("video/"):
+        if options.keys() - {"processing"} or part.filename is not None:
+            raise UnsupportedRequestError("video", "expected video_url with optional processing")
+        if "processing" in options and options["processing"] not in ("agentic", "static"):
+            raise UnsupportedRequestError("video.processing", "expected agentic or static")
+        return {"type": "video_url", "video_url": {"url": file_url(part)}, **options}
+    if options:
+        raise UnsupportedRequestError("file.metadata", "options are incompatible with this media type")
+    if part.media_type == "application/pdf":
+        return _pdf(part)
+    if part.media_type.startswith("text/") and part.filename is None:
+        return {"type": "text", "text": text_data(part)}
+    raise UnsupportedRequestError("file", "unsupported Chat media or unrepresentable filename")
 
 
 def _text(part: TextPart) -> str:
@@ -126,10 +157,16 @@ def _assistant(message: Message, metadata: dict[str, Any]) -> dict[str, Any]:
         entry["tool_calls"] = calls
         if not entry["content"]:
             entry["content"] = None
+    return _assistant_metadata(entry, metadata)
+
+
+def _assistant_metadata(entry: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
     if "refusal" in metadata:
         if not isinstance(metadata["refusal"], str):
             raise UnsupportedRequestError("refusal", "expected a string")
         entry["refusal"] = metadata["refusal"]
+    if "reasoning_details" in metadata:
+        entry["reasoning_details"] = reasoning_details(metadata["reasoning_details"])
     return entry
 
 
@@ -147,7 +184,9 @@ def _history_tool_call(part: ToolCallPart) -> dict[str, Any]:
 def _messages(messages: list[Message]) -> list[dict[str, Any]]:
     result = []
     for message in messages:
-        metadata = _metadata(message.provider_metadata, _RECORD_FIELDS | {"refusal"}, "message metadata")
+        metadata = _metadata(
+            message.provider_metadata, _RECORD_FIELDS | {"refusal", "reasoning_details"}, "message metadata"
+        )
         if metadata and message.role != "assistant":
             raise UnsupportedRequestError("message.metadata", "only assistant response records are supported")
         if message.role == "assistant":
@@ -160,7 +199,7 @@ def _messages(messages: list[Message]) -> list[dict[str, Any]]:
                 if isinstance(part, TextPart):
                     parts.append({"type": "text", "text": _text(part)})
                 elif isinstance(part, FilePart) and message.role == "user":
-                    parts.append(_image(part))
+                    parts.append(_file(part))
                 else:
                     raise UnsupportedRequestError(f"{message.role}.parts", part.kind)
             content = parts if any(p["type"] != "text" for p in parts) else "".join(p["text"] for p in parts)
@@ -266,7 +305,7 @@ def usage(raw: dict[str, Any] | None) -> Usage | None:
 
 def check_message_fields(data: dict[str, Any]) -> None:
     """Fail visibly for output kinds that this increment cannot preserve/reuse."""
-    for name in ("function_call", "audio", "images", "annotations", "reasoning_details"):
+    for name in ("function_call", "audio", "images", "annotations"):
         if data.get(name):
             raise invalid_response(detail=f"unsupported output field {name}")
     if data.get("role", "assistant") != "assistant":
@@ -291,6 +330,8 @@ def response(raw: dict[str, Any]) -> Response:
         if not isinstance(data["refusal"], str):
             raise invalid_response(detail="refusal must be a string")
         details["refusal"] = data["refusal"]
+    if data.get("reasoning_details") is not None:
+        details["reasoning_details"] = reasoning_details(data["reasoning_details"])
     if choice.get("logprobs") is not None:
         details["logprobs"] = choice["logprobs"]
     message.provider_metadata = metadata if details else None

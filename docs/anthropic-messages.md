@@ -219,10 +219,12 @@ may still be 200; Republic does not fabricate a 529 status from the error type.
 Cancellation remains `asyncio.CancelledError`. Malformed blocks/order are explicit
 `ProviderError(code="invalid_response")` failures, with no retry.
 
-This increment is text-only. Media/files, citations, hosted/server tools,
+User images, PDF and plain-text documents are supported as described in
+[media inputs](media-inputs.md), including native cache controls and file references.
+Audio/video, generated media/citations, hosted/server tools,
 programmatic callers, compaction, containers, MCP, beta-specific workflows and
 mid-conversation system messages are outside its supported conversion. Input
-media and incompatible metadata fail before HTTP; unsupported output blocks or
+unsupported media and incompatible metadata fail before HTTP; unsupported output blocks or
 deltas fail visibly. No files are fetched and no tools are executed.
 
 Real-SDK MockTransport/SSE tests cover payloads, request counts, signed/redacted

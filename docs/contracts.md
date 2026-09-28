@@ -80,7 +80,7 @@ them; Pydantic does not intercept in-place edits to nested lists/dictionaries.
 | --- | --- |
 | `Message` | `role` (system/user/assistant/tool), ordered `parts`, optional `provider_metadata`. `text` concatenates text only; `tool_calls` returns call data. |
 | `TextPart`, `ReasoningPart` | Text plus optional provider metadata. Reasoning is separate from display text. |
-| `FilePart` | `data`, `media_type`, explicit `encoding` (url/base64), optional filename and metadata. `from_bytes` stores standard base64. No fetch, file access or media detection. |
+| `FilePart` | `data`, `media_type`, explicit `encoding` (url/base64/file_id), optional filename and metadata. `from_bytes` stores standard base64. No fetch, file access or media detection. |
 | `Tool` | Name, optional description, JSON Schema `parameters`, optional metadata. No callable or execution state. |
 | `ToolCallPart` | Call ID, tool name, raw `tool_args` string, optional metadata. Even malformed/partial JSON remains verbatim. |
 | `ToolResultPart` | Caller-provided call ID, tool name, JSON `result`, `is_error`, optional metadata. |

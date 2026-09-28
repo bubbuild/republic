@@ -128,12 +128,11 @@ new provider with the returned access token; lifecycle policy belongs to the cal
 
 ## Messages, tools and options
 
-Supported history consists of system text; user text/images; assistant text,
-reasoning text and function calls; and tool-result messages. Images can be
-HTTP(S)/image data URLs or standard base64 via `FilePart.from_bytes`. No content
-is downloaded. Image `provider_metadata={"openai": {"detail": "low"}}` supports
-auto/low/high. Images with a filename, other file types, audio output, provider
-built-in tools and deprecated `function_call` data are not supported.
+Supported history includes system text, user text/media, assistant text/reasoning
+and function calls/results. [Media inputs](media-inputs.md) covers images,
+inline audio/PDF, text files and compatible-endpoint video. URLs are not fetched.
+Generated media output, provider built-in tools and deprecated function_call
+remain unsupported.
 
 `Tool.parameters` is sent as the function's JSON Schema; description is optional.
 `Tool.provider_metadata={"openai": {"strict": True}}` forwards strict mode.
@@ -200,12 +199,11 @@ metadata and sent back as the assistant's refusal field. Log probabilities,
 system fingerprint and service tier are persisted as response records and are
 not sent back as history input.
 
-Unknown input metadata is rejected rather than discarded. Encrypted/signed
-`reasoning_details`, annotations and generated media are explicitly unsupported
-output fields in this increment. In particular, not every OpenRouter model or
-reasoning mode fits this subset. Native Responses reasoning items require the
-separate [Responses adapter](openai-responses.md). [Anthropic Messages](anthropic-messages.md)
-and [ChatGPT/Codex OAuth](codex-oauth.md) also have explicit adapters.
+Unknown input metadata is rejected rather than discarded. OpenRouter native
+`reasoning_details` (including opaque encrypted context and signature fragments)
+are preserved through output serialization and history replay. Annotations and
+generated media output remain unsupported. See [media inputs](media-inputs.md)
+for boundaries and [Responses](openai-responses.md) for native Responses items.
 
 Unrepresentable input raises `UnsupportedRequestError` before HTTP. Provider/API
 failures raise `ProviderError` with available status, code and request ID; the

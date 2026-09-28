@@ -155,7 +155,8 @@ tool result or malformed JSON triggers a repair/continuation request.
 | Native `provider_options` | `reasoning`, `text` (including structured `format`), `service_tier`, `prompt_cache_key`, positive `timeout`. Native values remain model/endpoint-dependent. |
 | Native extensions | `store`, `include`, `truncation`, `previous_response_id`, `instructions`, `extra_headers`, `extra_body`; shared Responses options apply. |
 | Rejected options | Temperature, top-p, output-token limit and stop sequences in common fields; conflicting managed fields. |
-| Outside this adapter | Media, hosted/custom tools, agents, model catalogs/routing, WebSocket sessions and background polling. |
+| Media input | Native user images via URL/base64/file_id; see [media inputs](media-inputs.md). |
+| Outside this adapter | PDF/audio/video and generated media, hosted/custom tools, agents, model catalogs/routing, WebSocket sessions and background polling. |
 
 The adapter rejects options outside its supported Codex subset, even if a general
 Responses endpoint accepts them. It does not silently discard caller parameters.

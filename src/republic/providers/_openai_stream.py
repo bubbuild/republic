@@ -15,6 +15,7 @@ from republic.providers._openai_chat import (
     response_metadata,
     usage,
 )
+from republic.providers._openrouter_reasoning import ReasoningDetails
 
 
 @dataclass
@@ -54,6 +55,7 @@ class ChatStream:
         self.refusal: str | None = None
         self.logprobs: dict[str, list[Any]] = {}
         self._call_ids: set[str] = set()
+        self.reasoning_details = ReasoningDetails()
 
     def feed(self, chunk: dict[str, Any]) -> list[events.Event]:
         self._record(chunk)
@@ -67,6 +69,8 @@ class ChatStream:
         choice = choices[0]
         delta = choice.get("delta") or {}
         check_message_fields(delta)
+        if delta.get("reasoning_details") is not None:
+            self.reasoning_details.feed(delta["reasoning_details"])
         result = self._content(delta)
         result.extend(self._tools(delta.get("tool_calls") or []))
         for key, values in (choice.get("logprobs") or {}).items():
@@ -156,6 +160,8 @@ class ChatStream:
             details["refusal"] = self.refusal
         if self.logprobs:
             details["logprobs"] = self.logprobs
+        if self.reasoning_details.items:
+            details["reasoning_details"] = self.reasoning_details.result()
         return events.StreamEnd(
             finish_reason=finish_reason(self.reason),
             response_id=self.identity.get("id"),

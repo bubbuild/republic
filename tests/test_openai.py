@@ -479,7 +479,7 @@ async def test_unrepresentable_history_is_rejected_not_dropped(message: Message)
         [chunk(finish="stop"), chunk({"content": "late"})],
         [chunk({"content": "x"}), chunk(id="different")],
         [chunk({"audio": {"id": "a"}})],
-        [chunk({"reasoning_details": [{"type": "reasoning.encrypted", "data": "x"}]})],
+        [chunk({"reasoning_details": [{"type": "reasoning.unknown", "data": "x"}]})],
         [chunk(choices=[{"index": 1, "delta": {"content": "wrong choice"}}])],
     ],
 )

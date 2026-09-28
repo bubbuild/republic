@@ -7,7 +7,9 @@ import json
 from typing import Any
 
 from republic.errors import ProviderError, UnsupportedRequestError
+from republic.providers._files import base64_data, file_id, file_url, text_data
 from republic.types import (
+    FilePart,
     FinishReason,
     Message,
     Part,
@@ -122,9 +124,45 @@ def _reasoning(part: ReasoningPart) -> dict[str, Any]:
     raise UnsupportedRequestError("reasoning", "expected signed thinking or empty text with opaque redacted_data")
 
 
+def _file(part: FilePart) -> dict[str, Any]:
+    image = part.media_type in {"image/jpeg", "image/png", "image/gif", "image/webp"}
+    if not image and part.media_type not in {"application/pdf", "text/plain"}:
+        raise UnsupportedRequestError(
+            "file.media_type", "Messages supports JPEG/PNG/GIF/WebP images, PDF and plain-text documents"
+        )
+    allowed = {"cache_control"} if image else {"cache_control", "title", "context", "citations"}
+    info = metadata(part.provider_metadata, allowed, "file.metadata")
+    if "cache_control" in info:
+        _cache(info["cache_control"])
+    for field in ("title", "context"):
+        if field in info and not isinstance(info[field], str):
+            raise UnsupportedRequestError("file.metadata", "title/context must be strings")
+    if "citations" in info and (
+        not isinstance(info["citations"], dict)
+        or set(info["citations"]) != {"enabled"}
+        or not isinstance(info["citations"]["enabled"], bool)
+    ):
+        raise UnsupportedRequestError("file.citations", "expected an enabled boolean")
+    if part.filename is not None:
+        raise UnsupportedRequestError("file.filename", "Messages uses document title metadata, not filename")
+    if part.encoding == "file_id":
+        source = {"type": "file", "file_id": file_id(part)}
+    elif part.encoding == "base64" or part.data.startswith("data:"):
+        source = (
+            {"type": "text", "media_type": "text/plain", "data": text_data(part)}
+            if part.media_type == "text/plain"
+            else {"type": "base64", "media_type": part.media_type, "data": base64_data(part)}
+        )
+    else:
+        source = {"type": "url", "url": file_url(part)}
+    return {"type": "image" if image else "document", "source": source, **info}
+
+
 def _part(part: Part, role: str) -> dict[str, Any]:
     if isinstance(part, ReasoningPart) and role == "assistant":
         return _reasoning(part)
+    if isinstance(part, FilePart) and role == "user":
+        return _file(part)
     info = _part_options(part)
     if isinstance(part, TextPart) and role != "tool":
         return {"type": "text", "text": part.text, **info}

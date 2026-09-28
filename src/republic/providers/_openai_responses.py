@@ -8,7 +8,9 @@ from copy import deepcopy
 from typing import Any
 
 from republic.errors import ProviderError, UnsupportedRequestError
+from republic.providers._files import detail_option, file_id, file_url, text_data
 from republic.types import (
+    FilePart,
     FinishReason,
     Message,
     Part,
@@ -143,6 +145,33 @@ def _tool_result(part: Part) -> dict[str, Any]:
     }
 
 
+def _file(part: FilePart) -> dict[str, Any]:
+    options = metadata(part.provider_metadata, {"detail"}, "file.metadata")
+    detail_option(options)
+    if part.media_type.startswith("text/") and part.encoding != "file_id":
+        if options or part.filename is not None:
+            raise UnsupportedRequestError("file", "inline text conversion cannot retain detail/filename")
+        return {"type": "input_text", "text": text_data(part)}
+    if not part.media_type.startswith(("image/", "text/")) and part.media_type != "application/pdf":
+        raise UnsupportedRequestError("file", "implemented Responses inputs are images, PDF and text")
+    image = part.media_type.startswith("image/")
+    result = {"type": "input_image" if image else "input_file", **options}
+    if part.encoding == "file_id":
+        result["file_id"] = file_id(part)
+    elif image:
+        result["image_url"] = file_url(part)
+    elif part.encoding == "base64" or part.data.startswith("data:"):
+        result["file_data"] = file_url(part)
+        if not part.filename and part.media_type != "application/pdf":
+            raise UnsupportedRequestError("file.filename", "inline documents need a filename")
+        result["filename"] = part.filename or "document.pdf"
+    else:
+        result["file_url"] = file_url(part)
+    if part.filename is not None and "filename" not in result:
+        raise UnsupportedRequestError("file.filename", "only inline document data has a filename field")
+    return result
+
+
 def _messages(messages: list[Message]) -> list[dict[str, Any]]:
     result = []
     for message in messages:
@@ -154,10 +183,13 @@ def _messages(messages: list[Message]) -> list[dict[str, Any]]:
         else:
             content = []
             for part in message.parts:
-                if not isinstance(part, TextPart):
-                    raise UnsupportedRequestError("message.part", "only text is supported for system/user input")
-                metadata(part.provider_metadata, set(), "text.metadata")
-                content.append({"type": "input_text", "text": part.text})
+                if isinstance(part, FilePart) and message.role == "user":
+                    content.append(_file(part))
+                elif isinstance(part, TextPart):
+                    metadata(part.provider_metadata, set(), "text.metadata")
+                    content.append({"type": "input_text", "text": part.text})
+                else:
+                    raise UnsupportedRequestError("message.part", "expected text or user media")
             result.append({"role": message.role, "content": content})
     return result
 
