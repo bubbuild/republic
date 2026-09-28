@@ -188,3 +188,14 @@ version and Apache-2.0 license; no package was installed, run or bundled.
 No unchanged upstream compatibility, third-party client permission or real-account
 inference acceptance is claimed. See docs/grok-oauth.md for exact capabilities,
 adapter decisions, primary sources and outstanding live acceptance.
+
+Embedding capability restoration (2026-09-28)
+--------------------------------------------
+Republic 216098ef8f71afa5fc164284504036d81f4706c4 clients/embedding.py and its
+embedding guide establish prior public capability. Independent async semantics
+also reference Vercel ai-python c788059dd1db2d93ae1c3da6daffb660eca07dbb:
+src/ai/ops/embeddings.py (Copyright 2026 Vercel, Inc.; Apache-2.0).
+The Republic request/result/protocol and OpenAI wire implementation are rewritten
+for the existing data/client boundary, retaining indexes/metadata and rejecting
+invalid alignment; no upstream telemetry, model registry, implicit batching or
+any-llm facade is included. See docs/capability-restoration.md and embeddings.md.

@@ -993,3 +993,23 @@ Republic provides auth and request mechanisms; consumers choose policy. See
   inference or account policy were used/validated. Media and cross-protocol native
   history limits remain unchanged. There is no multi-process refresh lock or
   transaction guaranteeing exactly-once external tool effects after a crash.
+
+
+### Capability restoration correction (2026-09-28)
+
+Embedding, upstream reranking and existing Bub multimodal inputs were omitted
+from the chat-focused rebuild. [The revised inventory](capability-restoration.md)
+separates original Republic capabilities, Vercel standalone ops and later media
+generation/transcription increments. Implement independent embeddings, a real
+rerank adapter, model media wire mappings, then actual Bub hook/runner/tape media
+acceptance. Retain caller policy and the sole Republic dependency. Prior text-only
+acceptance is not proof of complete Bub migration.
+
+Embedding increment evidence (2026-09-28): independent `EmbeddingRequest` /
+`EmbeddingResponse` / `EmbeddingProvider`, `embed` and `OpenAIEmbeddings` use
+one logical official-client operation with caller-controlled transport/retries.
+`make check`, `make docs-test` and `make test` passed (670 tests, two existing
+expected SDK serialization warnings). The 25 added HTTP fixtures cover ordering,
+original indexes, dimensions, base64 vectors, metadata/usage, invalid responses,
+explicit retries, cancellation and owned/borrowed resource cleanup. Live model
+acceptance and the remaining restoration increments are still outstanding.

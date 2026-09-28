@@ -91,6 +91,9 @@ SDK and transport policies belong to the caller. Caller cancellation remains
 `asyncio.CancelledError`; premature stream exhaustion raises
 `IncompleteStreamError` and leaves partial output inspectable.
 
+See [embeddings](docs/embeddings.md) for the independent async capability and
+[restoration inventory](docs/capability-restoration.md) for the corrected scope.
+
 ## Development
 
 The existing workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md):

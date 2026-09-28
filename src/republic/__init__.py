@@ -2,6 +2,7 @@
 
 from republic import events
 from republic.api import Provider, Stream, generate, stream
+from republic.embeddings import Embedding, EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, embed
 from republic.errors import (
     IncompleteStreamError,
     ProviderError,
@@ -28,6 +29,10 @@ from republic.types import (
 )
 
 __all__ = [
+    "Embedding",
+    "EmbeddingProvider",
+    "EmbeddingRequest",
+    "EmbeddingResponse",
     "FilePart",
     "FinishReason",
     "IncompleteStreamError",
@@ -50,6 +55,7 @@ __all__ = [
     "ToolResultPart",
     "UnsupportedRequestError",
     "Usage",
+    "embed",
     "events",
     "generate",
     "stream",

@@ -26,6 +26,16 @@ See each guide for exact allowed options and source revisions:
 [Messages](anthropic-messages.md), [Codex](codex-oauth.md),
 [Copilot](copilot-oauth.md), [Grok](grok-oauth.md).
 
+## Independent model operations
+
+`republic.providers.openai_embeddings.OpenAIEmbeddings` provides async `embed`
+through the official OpenAI `/embeddings` client, including explicit compatible
+base URLs. Text batches, dimensions, ordered original indexes, float/base64
+vectors, usage and native metadata are covered by offline HTTP fixtures. No
+implicit batching, retrieval or agent facade is included. See [embeddings](embeddings.md)
+and the [capability restoration inventory](capability-restoration.md). Reranking
+and message media restoration are the next increments in that inventory.
+
 ## Authentication helpers
 
 | Module | Explicit login path | Renewal | Remaining acceptance |
