@@ -5,7 +5,7 @@ concrete ChatGPT/Codex, GitHub Copilot and Grok OAuth protocol adaptations.
 No live service or real-account OAuth acceptance has been validated. Step 7
 implementation is complete for the documented subset; live acceptance remains
 open, including Grok client/scopes/entitlement. Step 8 now replaces Bub’s model SDK
-with required Republic, including Codex UX migration and installed-wheel,
+with required Republic, including Codex credential compatibility and installed-wheel,
 fresh-process integration evidence. Copilot/Grok UX and all live acceptance
 remain open. Verification evidence and supported subsets follow.
 
@@ -27,7 +27,10 @@ generation and embedding operations.
 OAuth is Authlib plus concrete provider logic. Use a small module per service
 with login, refresh, and credential read/write functions as needed. Extract
 shared helpers only after actual duplication appears. Do not introduce a
-general authentication framework. Bub owns the interactive login presentation.
+general authentication framework. Bub owns the interactive login presentation,
+credential schema, expiry estimates, refresh timing and fallback. Providers accept
+existing credentials without refresh/expiry data. Client retries/redirects and
+native request policy are caller-configurable; owned defaults remain conservative.
 
 ## Source baseline
 
@@ -944,3 +947,49 @@ Republic provides auth and request mechanisms; consumers choose policy. See
   on Python 3.11. The suite blocks default HTTP transports; custom retry tests
   assert actual request counts, configuration precedence and retained ownership.
   Clean-wheel/lower-bound and installed Bub evidence will follow this runtime commit.
+
+
+#### Final installed-wheel evidence
+
+- Republic capability commit: `61b9517640c7154e0aef5cdbec66d07e068550db`.
+  Callback sanitization follow-up/runtime wheel source:
+  `8c6531070b0ef2f22fba843e1cc46055d6e697a0`.
+- Bub compatibility commit: `fdbe9c308dbc6a9887a4bc67a4ca2e8981fff237`
+  (`fix: preserve Bub Codex credential and refresh behavior`).
+- Both repositories passed `make check`, `make test`, and `make docs-test`.
+  Final Republic result: **645 passed / 2 expected malformed-output warnings**
+  on Python 3.11.15. Final Bub result: **584 passed / 1 existing skip** on Python
+  3.12, including trace extra. Initial lint/typing findings were corrected; no
+  checks were disabled. Bub docs required locally approving existing pnpm build
+  scripts (esbuild/sharp/workerd); the temporary approval file was removed.
+- Clean SDK wheel: `republic-0.5.9.dev21+g8c6531070-py3-none-any.whl`;
+  SHA256 `6078583c4704c4727a547abca6ea8e5920a7d7187039aa5936cf375db24c59bb`.
+  At `/tmp/republic-policy-lower`, the installed wheel passed **645 tests / 2
+  expected warnings** with OpenAI **2.16.0**, Anthropic **0.83.0**, Authlib
+  **1.6.5**, HTTPX **0.28.1**, Pydantic **2.7.0**, Python **3.11.15**.
+  Isolated imports resolved to site-packages and `uv pip check` passed.
+- Bub requires `republic>=0.5.9.dev21,<0.6`, using the existing repository-relative
+  `../republic-dev` uv source. `uv lock` / `uv lock --locked` passed; the lock's
+  versionless local-directory entry is unchanged. The built wheel declares the
+  new minimum, and wheel verification excludes the directory source.
+- From clean committed Bub, `scripts/check_republic_wheel.py` installed both
+  explicit wheels into `/tmp/bub-republic-wheel-0w_rb470/venv` and independently
+  passed the complete **584 passed / 1 skipped** suite. Report:
+  `/tmp/bub-republic-wheel-0w_rb470/report.json`. Both imports are in site-packages,
+  installed files match wheel archives, any-llm is absent, model_backend is absent,
+  and `uv pip check` passed. Installed `python -I -m bub --help` also passed.
+- Bub artifact: `bub-0.4.5.dev18+gfdbe9c308-py3-none-any.whl`;
+  SHA256 `9e4ef933d5af5a8ae6dd38d128faec0109bbe03f74896df945109178973f6bcd`.
+- Real runner → ToolExecutor → FileTapeStore JSONL → new Python process → next
+  official SDK request passed for Responses, Anthropic and Codex. Tests check
+  encrypted reasoning/signature and original item/call IDs, one tool effect,
+  one HTTP attempt per default Bub model operation and resource closure.
+  Additional fixtures cover auth.json unchanged reads, login URL/code/state,
+  refresh rotation/write-back, still-valid-token fallback, expired rejection,
+  persistence failure, direct access tokens and configuration precedence.
+- All model/auth requests use synthetic MockTransport/SSE fixtures. Default HTTP
+  transports are blocked in both suites; the wheel helper and child processes
+  isolate CODEX_HOME and disable dotenv. No real credentials, login, entitlement,
+  inference or account policy were used/validated. Media and cross-protocol native
+  history limits remain unchanged. There is no multi-process refresh lock or
+  transaction guaranteeing exactly-once external tool effects after a crash.

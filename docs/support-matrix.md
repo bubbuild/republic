@@ -12,9 +12,9 @@ through real official clients. No provider or OAuth account has live acceptance.
 | `republic.providers.openai.OpenAIChatCompletions` | API key; `/chat/completions`; explicit compatible base URL | Text, user images, plain reasoning extensions, function tools/results, common/native options | `openai:`, `openrouter:` with `chat`; text input only in Bub |
 | `republic.providers.openai.OpenAIResponses` | API key; `/responses`; full inline history by default | Text, native reasoning/summary/encrypted items, functions, structured output wire schema | `openai:` with explicit `responses` |
 | `republic.providers.anthropic.AnthropicMessages` | API key; `/v1/messages`; explicit required output limit | Text, signed/redacted thinking, functions/error results, cache controls/usage | `anthropic:` with `messages` |
-| `republic.providers.codex.OpenAICodex` | Explicit ChatGPT tokens; Codex Responses SSE endpoint | Sourced Codex text/reasoning/function subset; generate aggregates one SSE request | `openai:` with `codex`, or saved Bub Codex login without API-key/base/protocol overrides |
-| `republic.providers.github_copilot.GitHubCopilot` | Explicit exchanged Copilot token and integration ID; trusted service-issued endpoint | Sourced editor Chat text/function subset; separate GitHub login and inference tokens | Not connected |
-| `republic.providers.grok.GrokOAuth` | Explicit Grok tokens/version; Grok Build OAuth Responses proxy | Sourced text/native reasoning/function subset; generate aggregates one SSE request | Not connected |
+| `republic.providers.codex.OpenAICodex` | Existing ChatGPT access token or token data; Codex Responses SSE endpoint | Sourced Codex text/reasoning/function subset; generate aggregates one SSE request | `openai:` with `codex`, or saved Bub Codex login without API-key/base/protocol overrides |
+| `republic.providers.github_copilot.GitHubCopilot` | Existing Copilot inference token and integration ID; service endpoint default or explicit caller route | Sourced editor Chat text/function subset; separate GitHub login and inference tokens | Not connected |
+| `republic.providers.grok.GrokOAuth` | Existing Grok access token or token data/version; Grok Build OAuth Responses proxy | Sourced text/native reasoning/function subset; generate aggregates one SSE request | Not connected |
 
 An OpenAI-compatible Chat endpoint is not evidence of Responses compatibility.
 GitHub Models is not GitHub Copilot. `api.x.ai` API-key access is not Grok Build

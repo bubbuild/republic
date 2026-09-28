@@ -4,7 +4,9 @@ Step 8 replaces Bub's model SDK on `feat/republic-provider-sdk`. The initial opt
 integration (`a3c45120`) was superseded by the user's direct-migration requirement:
 Republic is mandatory, with no alternate SDK or backend selector. The replacement
 commit is `bb89a96db9c13034aa8de87f30d8ac9880755f9c`
-(`refactor: use Republic as the sole model SDK`). The original
+(`refactor: use Republic as the sole model SDK`). Current consumer commit
+`fdbe9c308dbc6a9887a4bc67a4ca2e8981fff237` restores original Codex credential/refresh
+behavior using the caller-configurable SDK. The original
 Bub integration baseline is `357901db1a3f82d7f696024574225e595b09d4ac`.
 Republic remains a provider SDK: no Bub dependency, agent loop, tool execution,
 hook, model router or tape implementation was added here. The caller-policy correction now makes client configuration and OAuth lifecycle
@@ -12,18 +14,20 @@ policy composable; see [client configuration](client-configuration.md).
 
 ## Install the local baseline
 
-Historical direct-migration artifact (before the caller-policy correction): clean Republic commit
-`5dff4aa7bdbf6f81411f16d64f74307d4d83f167`:
+The current SDK artifact was built from clean Republic runtime commit
+`8c6531070b0ef2f22fba843e1cc46055d6e697a0` (capability correction
+`61b9517640c7154e0aef5cdbec66d07e068550db`, followed by callback-error sanitization):
 
-- File: `republic-0.5.9.dev17+g5dff4aa7b-py3-none-any.whl`.
-- Version: `0.5.9.dev17+g5dff4aa7b`.
-- SHA256: `217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`.
-- Build: `uv build --wheel` in the clean Republic checkout. This artifact predates the capability correction and must not be used for the
-  updated Bub credential path. Build the new clean SDK commit instead. Hashes identify exact artifacts, not reproducible-build guarantees.
+- File: `republic-0.5.9.dev21+g8c6531070-py3-none-any.whl`.
+- Version: `0.5.9.dev21+g8c6531070`.
+- SHA256: `6078583c4704c4727a547abca6ea8e5920a7d7187039aa5936cf375db24c59bb`.
+- Build: `uv build --wheel` from the clean runtime commit. Hashes identify the
+  exact tested artifact, not a reproducible-build guarantee. The earlier
+  `5dff4aa` wheel predates these APIs and is not sufficient for current Bub.
 
 For source development, place `bub-republic-dev` beside `republic-dev`, then run
 `uv sync --locked --extra trace` in Bub. Its normal runtime dependency is
-`republic>=0.5.9.dev20,<0.6`; the local uv source is the repository-relative
+`republic>=0.5.9.dev21,<0.6`; the local uv source is the repository-relative
 `../republic-dev`, not an absolute path or unavailable remote commit. The sibling
 checkout may include later documentation commits; the minimum runtime must include the caller-policy correction.
 The trace extra is optional telemetry; Republic is required for imports and tests.
@@ -144,7 +148,7 @@ The Bub branch includes a standalone acceptance entry point:
 ```bash
 python scripts/check_republic_wheel.py \
   /explicit/path/to/republic-VERSION-py3-none-any.whl \
-  --source-commit FULL_REPUBLIC_COMMIT
+  --source-commit 8c6531070b0ef2f22fba843e1cc46055d6e697a0
 ```
 
 It creates a clean Python 3.12 environment, builds and installs the current Bub
@@ -180,5 +184,8 @@ patches the OAuth client constructor; unexpected HTTP fails locally.
 
 The [plan](rebuild-plan.md#step-8-implementation) records both repository commits,
 full check/test/docs results, installed dependency versions and remaining work.
-Lower-bound SDK and interpreter checks from prior steps remain valid; this step
-also verifies the real Bub lock combination without ignoring dependency conflicts.
+The current runtime wheel also passed all 645 Republic tests with Python 3.11
+and the declared OpenAI/Anthropic/Authlib/HTTPX/Pydantic lower bounds. The clean
+Python 3.12 two-wheel environment passed all 584 Bub tests (one existing skip),
+including trace and fresh-process native history. Both environments passed
+`uv pip check`; no dependency conflict was ignored.

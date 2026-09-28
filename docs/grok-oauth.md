@@ -142,7 +142,7 @@ path; it does not claim that the server cannot support JSON responses. There is
 no JSON-first fallback, implicit token refresh, 401 replay, tool execution or
 next-turn decision. Known expiry is an optional caller hint, not a local gate.
 
-The request carries `Authorization: Bearer …`, `X-XAI-Token-Auth: xai-grok-cli`,
+By default the request carries `Authorization: Bearer …`, `X-XAI-Token-Auth: xai-grok-cli`,
 `x-authenticateresponse: authenticate-response`, the explicit
 `x-grok-client-version`, `x-grok-client-mode: headless`, and
 `x-grok-model-override` matching `Request.model`. `Accept` requests SSE.

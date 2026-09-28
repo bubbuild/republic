@@ -10,7 +10,7 @@ adds [GitHub Copilot device OAuth](copilot-oauth.md), explicit inference-token
 exchange, and a bounded Chat provider. Step 7 adds [Grok device OAuth](grok-oauth.md)
 and an explicit Responses proxy provider. Step 8 validates these existing contracts
 with an [actual Bub consumer](bub-integration.md), including durable native history;
-no core API change was needed. The API remains an unreleased development baseline.
+The core message/event types remain unchanged; client/auth policy is caller-owned. The API remains an unreleased development baseline.
 
 ## Run an offline call
 
