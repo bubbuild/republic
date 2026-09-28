@@ -199,3 +199,10 @@ The Republic request/result/protocol and OpenAI wire implementation are rewritte
 for the existing data/client boundary, retaining indexes/metadata and rejecting
 invalid alignment; no upstream telemetry, model registry, implicit batching or
 any-llm facade is included. See docs/capability-restoration.md and embeddings.md.
+
+Reranking data semantics adapt ai-python c788059dd1db2d93ae1c3da6daffb660eca07dbb
+src/ai/ops/reranking.py (Copyright 2026 Vercel, Inc.; Apache-2.0).
+Republic retains original index/score semantics and independent capability types.
+Its direct HTTPX Cohere v2 adapter is based on the public reference inspected
+2026-09-28: https://docs.cohere.com/reference/rerank
+No AI Gateway client, model registry, telemetry or retrieval was copied.

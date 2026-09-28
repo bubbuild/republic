@@ -7,7 +7,7 @@ boundaries remain unchanged. It does not claim live service acceptance.
 | Capability | Source / prior behavior | Delivery |
 | --- | --- | --- |
 | Text embeddings | Republic `216098ef` clients/embedding.py, LLM.embed/embed_async; ai-python ops/embeddings.py | Independent request/result/protocol and real OpenAI-compatible `/embeddings`; no LLM facade or hidden batching |
-| Document reranking | ai-python ops/reranking.py and AI Gateway protocol/v4.py `/reranking-model`; **not a dedicated old Republic API** | Independent real adapter; provider choice awaiting the caller's Cohere/Gateway decision |
+| Document reranking | ai-python ops/reranking.py and AI Gateway protocol/v4.py `/reranking-model`; **not a dedicated old Republic API** | Direct Cohere-compatible v2 adapter; original index/score/response ID and native billing metadata. No AI Gateway connection |
 | Message images/audio/video/files | ai-python OpenAI/Anthropic converters; Bub build_prompt emits image_url/input_audio/video_url | Restore FilePart wire conversion and Bub hook → runner → durable tape path, with protocol-specific media support |
 | Image generation/editing | ai-python ops/images.py and provider implementations | Next independent increment: explicit image request/results and actual image endpoint, bytes/URL output, no automatic fetch |
 | Speech generation | ai-python ops/audio.py | Next independent increment: speech request/result and real audio endpoint, caller-selected encoding/voice |

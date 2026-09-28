@@ -33,8 +33,9 @@ through the official OpenAI `/embeddings` client, including explicit compatible
 base URLs. Text batches, dimensions, ordered original indexes, float/base64
 vectors, usage and native metadata are covered by offline HTTP fixtures. No
 implicit batching, retrieval or agent facade is included. See [embeddings](embeddings.md)
-and the [capability restoration inventory](capability-restoration.md). Reranking
-and message media restoration are the next increments in that inventory.
+and the [capability restoration inventory](capability-restoration.md). `republic.providers.cohere.CohereRerank` implements direct `/v2/rerank` with
+string documents, top_n, original indexes/scores and native billing metadata.
+See [reranking](reranking.md). Message media restoration is the next increment.
 
 ## Authentication helpers
 

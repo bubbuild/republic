@@ -113,3 +113,5 @@ See the plan's completion evidence for verification results and remaining limits
 [Apache License 2.0](LICENSE). [NOTICE](NOTICE) records Vercel AI Python, Bub and
 OpenAI Codex, Microsoft VS Code/Copilot Chat and SpaceXAI Grok Build sources, revisions, applicable
 copyrights/licenses, and Republic's changes.
+
+Independent document reranking uses the [direct Cohere v2 adapter](docs/reranking.md).

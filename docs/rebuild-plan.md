@@ -1013,3 +1013,13 @@ expected SDK serialization warnings). The 25 added HTTP fixtures cover ordering,
 original indexes, dimensions, base64 vectors, metadata/usage, invalid responses,
 explicit retries, cancellation and owned/borrowed resource cleanup. Live model
 acceptance and the remaining restoration increments are still outstanding.
+
+Direct reranking increment (2026-09-28): `RerankRequest`, `RankedDocument`,
+`RerankResponse`, `RerankProvider`, `rerank` and `CohereRerank` now expose the
+actual Cohere-compatible v2 endpoint via the existing HTTPX dependency. Object
+documents are rejected by this adapter; no implicit serialization, Gateway,
+chat scoring, retrieval or token-usage fabrication occurs. 26 HTTP fixtures
+cover request/response semantics, native billing data, conflicts, errors and
+lifetime. `make check`, `make test` (696 passed, two existing expected warnings)
+and `make docs-test` passed. The instance-registration sketch remains a proposal
+in `capability-design.md`, not an implemented API or dependency for these calls.

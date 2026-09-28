@@ -13,6 +13,7 @@ nav:
   - Support and Acceptance Matrix: support-matrix.md
   - Capability Restoration: capability-restoration.md
   - Embeddings: embeddings.md
+  - Reranking: reranking.md
   - Client Configuration: client-configuration.md
   - Bub Integration: bub-integration.md
   - OpenAI Chat Completions: openai-chat.md

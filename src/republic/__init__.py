@@ -10,6 +10,7 @@ from republic.errors import (
     StreamProtocolError,
     UnsupportedRequestError,
 )
+from republic.reranking import RankedDocument, RerankProvider, RerankRequest, RerankResponse, rerank
 from republic.types import (
     FilePart,
     FinishReason,
@@ -41,10 +42,14 @@ __all__ = [
     "Provider",
     "ProviderError",
     "ProviderMetadata",
+    "RankedDocument",
     "ReasoningPart",
     "RepublicError",
     "Request",
     "RequestOptions",
+    "RerankProvider",
+    "RerankRequest",
+    "RerankResponse",
     "Response",
     "Stream",
     "StreamProtocolError",
@@ -58,5 +63,6 @@ __all__ = [
     "embed",
     "events",
     "generate",
+    "rerank",
     "stream",
 ]
