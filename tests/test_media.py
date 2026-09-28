@@ -275,3 +275,17 @@ async def test_conflicting_reasoning_identity_fails():
                 async for _ in output:
                     pass
         assert body.closed == 1
+
+
+@pytest.mark.parametrize("encoding,data", [("url", "https://assets.test/opaque-image"), ("file_id", "file-image")])
+async def test_anthropic_image_reference_needs_no_guessed_mime(encoding, data):
+    req = anthropic.request()
+    req.messages[0].parts = [FilePart(data=data, encoding=encoding, media_type="image/*")]
+    async with anthropic.Wire([httpx.Response(200, json=anthropic.message())]) as wire:
+        await generate(wire.provider, req)
+        assert wire.payload()["messages"][0]["content"] == [
+            {
+                "type": "image",
+                "source": {"type": "url", "url": data} if encoding == "url" else {"type": "file", "file_id": data},
+            }
+        ]

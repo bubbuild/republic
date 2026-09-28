@@ -125,7 +125,10 @@ def _reasoning(part: ReasoningPart) -> dict[str, Any]:
 
 
 def _file(part: FilePart) -> dict[str, Any]:
-    image = part.media_type in {"image/jpeg", "image/png", "image/gif", "image/webp"}
+    image = part.media_type in {"image/jpeg", "image/png", "image/gif", "image/webp"} or (
+        part.media_type == "image/*"
+        and (part.encoding == "file_id" or (part.encoding == "url" and not part.data.startswith("data:")))
+    )
     if not image and part.media_type not in {"application/pdf", "text/plain"}:
         raise UnsupportedRequestError(
             "file.media_type", "Messages supports JPEG/PNG/GIF/WebP images, PDF and plain-text documents"
