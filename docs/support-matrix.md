@@ -12,14 +12,14 @@ through real official clients. No provider or OAuth account has live acceptance.
 | `republic.providers.openai.OpenAIChatCompletions` | API key; `/chat/completions`; explicit compatible base URL | Text, user images, plain reasoning extensions, function tools/results, common/native options | `openai:`, `openrouter:` with `chat`; text input only in Bub |
 | `republic.providers.openai.OpenAIResponses` | API key; `/responses`; full inline history, `store=False` | Text, native reasoning/summary/encrypted items, functions, structured output wire schema | `openai:` with explicit `responses` |
 | `republic.providers.anthropic.AnthropicMessages` | API key; `/v1/messages`; explicit required output limit | Text, signed/redacted thinking, functions/error results, cache controls/usage | `anthropic:` with `messages` |
-| `republic.providers.codex.OpenAICodex` | Explicit ChatGPT tokens; Codex Responses SSE endpoint | Sourced Codex text/reasoning/function subset; generate aggregates one SSE request | Not connected to Bub's Republic backend |
+| `republic.providers.codex.OpenAICodex` | Explicit ChatGPT tokens; Codex Responses SSE endpoint | Sourced Codex text/reasoning/function subset; generate aggregates one SSE request | `openai:` with `codex`, or saved Bub Codex login without API-key/base/protocol overrides |
 | `republic.providers.github_copilot.GitHubCopilot` | Explicit exchanged Copilot token and integration ID; trusted service-issued endpoint | Sourced editor Chat text/function subset; separate GitHub login and inference tokens | Not connected |
 | `republic.providers.grok.GrokOAuth` | Explicit Grok tokens/version; Grok Build OAuth Responses proxy | Sourced text/native reasoning/function subset; generate aggregates one SSE request | Not connected |
 
 An OpenAI-compatible Chat endpoint is not evidence of Responses compatibility.
 GitHub Models is not GitHub Copilot. `api.x.ai` API-key access is not Grok Build
-OAuth proxy access. No model registry, account entitlement discovery or automatic
-protocol selection is provided.
+OAuth proxy access. The SDK provides no model registry, account entitlement discovery or automatic
+protocol selection. Bub owns its explicit protocol map and saved-Codex-login selection.
 
 See each guide for exact allowed options and source revisions:
 [Chat](openai-chat.md), [Responses](openai-responses.md),
@@ -36,7 +36,9 @@ See each guide for exact allowed options and source revisions:
 
 Helpers accept explicit file paths and use atomic restricted-permission writes.
 They do not scan home directories, environment credential files or CLI profiles;
-there is no browser, callback server, terminal UI or credential manager. Inference
+there is no browser, callback server, terminal UI or credential manager in Republic.
+Bub now supplies Codex browser/callback/manual UX, explicit legacy-file migration
+and a documented pre-call refresh point; Copilot/Grok UX remains unconnected. Inference
 never initiates login, refreshes on 401 or replays the model request. Login/token
 success alone cannot establish inference permission. Copilot's editor protocol
 and Grok's client integration are not stable public third-party API promises.

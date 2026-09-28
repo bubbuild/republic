@@ -24,8 +24,9 @@ See the [rebuild plan](rebuild-plan.md) for scope, increment order, and acceptan
 criteria. Bub remains responsible for agent loops, local tool execution, and
 tape/context management.
 
-Step 8 validates an explicit Bub backend with installed local wheels and actual
-runner/tool/tape continuation in new Python processes. See the
+Step 8 validates Republic as Bub’s required model SDK, including Codex login
+migration, installed local wheels and runner/tool/tape continuation in new Python
+processes. See the
 [support and acceptance matrix](support-matrix.md) and
 [Bub consumer guide](bub-integration.md). This offline integration does not close
 any live provider or OAuth acceptance item.

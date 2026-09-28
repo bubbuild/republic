@@ -4,10 +4,10 @@ Status: Steps 0-7 have local code and deterministic HTTP/SSE evidence, including
 concrete ChatGPT/Codex, GitHub Copilot and Grok OAuth protocol adaptations.
 No live service or real-account OAuth acceptance has been validated. Step 7
 implementation is complete for the documented subset; live acceptance remains
-open, including Grok client/scopes/entitlement. Step 8 adds an explicit Bub backend
-and installed-wheel, fresh-process integration evidence. The local code/offline
-baseline is complete for its documented subset; OAuth UX migration and all live
-acceptance remain open. Verification evidence and supported subsets follow.
+open, including Grok client/scopes/entitlement. Step 8 now replaces Bub’s model SDK
+with required Republic, including Codex UX migration and installed-wheel,
+fresh-process integration evidence. Copilot/Grok UX and all live acceptance
+remain open. Verification evidence and supported subsets follow.
 
 ## Goal and boundaries
 
@@ -202,8 +202,8 @@ large commit per step.
   ToolExecutor, hooks, model selection, and tape implementation.
 - **Contract:** translate SDK results/events at the Bub boundary, persist the
   message metadata needed for the next call, and preserve existing cancellation
-  and tool-result behavior. Plan settings/onboarding/Codex migration and the
-  treatment of Bub's other existing providers before removing any-llm.
+  and tool-result behavior. The final user-directed scope removes any-llm entirely,
+  migrates settings/onboarding/Codex and rejects providers outside Republic's subset.
 - **Acceptance:** build/install the wheel in a clean environment; run existing
   lint/typing/tests/docs checks. In a separate Bub integration worktree, exercise
   model -> caller-executed tool -> tape persistence -> fresh-process continuation.
@@ -718,6 +718,9 @@ live account access.
 
 ### Step 8 implementation
 
+The following initial optional-path checkpoint is historical. It is superseded by
+the direct-migration checkpoint below; it is not the current installation or auth design.
+
 - Bub commit: `a3c45120de4878f7167247c360721c5d628477a2` (`feat: integrate Republic provider SDK`), on
   `feat/republic-provider-sdk` in `/home/psiace/bubbuild/bub-republic-dev`, starting
   from clean `357901db1a3f82d7f696024574225e595b09d4ac`.
@@ -806,6 +809,103 @@ live account access.
   onboarding/Codex behavior remains on the default backend. Bub media input and
   arbitrary provider/history interchange are unsupported. No new agent/auth
   platform or release/publication decision is part of this completion.
+
+### Step 8 direct-migration checkpoint (supersedes the optional path)
+
+- User-directed scope: remove any-llm entirely from Bub, not merely change the
+  default. Bub commit `bb89a96db9c13034aa8de87f30d8ac9880755f9c`
+  (`refactor: use Republic as the sole model SDK`) is on
+  `feat/republic-provider-sdk` in `/home/psiace/bubbuild/bub-republic-dev`.
+  Republic changes in this increment are documentation only, on `dev` in
+  `/home/psiace/bubbuild/republic-dev`. No SDK public contract, runtime, dependency
+  or lock modification was necessary. Original/other checkouts remain outside
+  the edit scope; no push, merge, publication or PR was performed.
+- Bub `pyproject.toml` / `uv.lock` now declare required
+  `republic>=0.5.9.dev17,<0.6`, sourced from relative `../republic-dev` for this
+  unpublished development baseline. The installed wheel metadata has a normal
+  Republic dependency, without a direct sibling path. Any-llm and its completion
+  DTOs/provider subclasses, optional loader, backend selector, legacy stream
+  parser and provider-specific history repair are removed. No replacement DTO
+  framework or compatibility shim was added. The former boundary is the normal
+  `model_provider.py` factory and asynchronous `ModelRunner.create_provider`.
+- Supported Bub configurations are OpenAI Chat/Responses/Codex, OpenRouter Chat,
+  and Anthropic Messages. Bub splits only the first `provider:model` colon,
+  retaining model slashes/colons. Unsupported providers fail configuration.
+  Onboarding offers the actual supported API-key connections; model listing uses
+  official clients with zero retries and is not inference acceptance. Standard
+  provider key variables remain lower-priority defaults. Common/native options
+  use Republic RequestOptions. API-key output limits default to 16384; Codex
+  omits an unset limit and rejects an explicit one. Anthropic retains Bub's
+  ephemeral-cache default. Nonempty legacy client options fail explicitly.
+- `bub login openai` now delegates standard OAuth work to `republic.auth.codex`
+  (Authlib) and inference to `OpenAICodex`. Bub retains browser/manual/local
+  callback UX; full callbacks require state. New tokens live in a separate
+  `bub-republic.json`. `--migrate --codex-home PATH` explicitly imports old
+  `auth.json` without modifying it, requires actual expiry, and refuses to
+  overwrite an existing destination. JWT claims remain unverified hints; no
+  guessed hour-long expiry or stale-token refresh fallback survives. Runtime
+  `codex_home` / `BUB_CODEX_HOME` can match an explicit login directory.
+- Bub owns pre-call refresh within 120 seconds of expiry and saves the returned
+  tokens before constructing a new immutable-token adapter. Refresh failure
+  prevents inference. No inference 401 causes refresh/replay; each explicit
+  model operation is one HTTP/SSE request. Codex instructions and native
+  Responses item/reasoning metadata pass directly through Republic, with no
+  Chat completion intermediary. Cross-process refresh coordination is not added.
+- The existing versioned native tape format, tool IDs/error bits, hooks,
+  configured fallback, agent loop and resource ownership remain intact.
+  Cancelled, failed, truncated or malformed calls do not execute tools. Text,
+  reasoning, usage/identity and error semantics use public Republic events and
+  Response data. Old supported text/full-function histories remain readable;
+  native histories cannot be silently switched between protocols.
+- Verification on Python 3.12.13, including the trace extra:
+  - Bub `make check`: locked resolution, pinned prek/Ruff and mypy all pass;
+    51 source files type-check. Source/tests contain no imports or references
+    to any-llm DTOs, provider enum/base class or the deleted backend selector.
+  - Bub `make test`: **574 passed / 1 skipped** (PowerShell unavailable),
+    including **53 native integration cases** plus migrated runner/agent,
+    settings/onboarding, Codex, hooks, tracing, tools and tape coverage.
+    Obsolete internal-converter checks were replaced with observable behavior
+    using public Republic data/events and actual SDK HTTP/SSE fixtures.
+  - Bub `make docs-test`: final bilingual Astro docs build passes. The same
+    pnpm 11.13.1 locked-build approval (`esbuild`, `sharp`, `workerd`) was needed;
+    only a temporary local approval file was used and removed. Public snapshot
+    generation ran without GitHub account tokens. No web toolchain change.
+  - Republic `make check` and strict `make docs-test` pass for documentation.
+    The parent-verified **647 SDK tests / 2 expected warnings** remain the
+    unchanged runtime baseline; this docs-only increment did not repeat the
+    SDK/Python matrix. Bub's clean consumer also validates the accepted minimum
+    runtime wheel `0.5.9.dev17+g5dff4aa7b` rather than an old PyPI Republic.
+- The wheel script now creates an empty environment, exports locked dev/trace
+  dependencies excluding the sibling Republic source, and installs explicit Bub
+  and Republic wheels together with dependency resolution enabled. It verifies
+  `uv pip check`, absence of the removed SDK, mandatory Republic metadata,
+  site-packages imports and byte-for-byte installed files against both archives.
+  It runs the **entire Bub suite**, including CLI startup and Codex/config/tracing.
+  Each of Responses, Anthropic and Codex uses independent process pairs for
+  actual runner -> tool -> JSONL -> restored SDK request, one tool effect and
+  one model HTTP per process. Codex additionally chains actual Authlib exchange,
+  file persistence, inference, explicit pre-call refresh and another inference.
+- Final clean committed-wheel run: **574 passed / 1 skipped**, report
+  `/tmp/bub-republic-wheel-59fanapg/report.json`. Bub artifact
+  `bub-0.4.5.dev17+gbb89a96db-py3-none-any.whl`, SHA256
+  `f84ca86482c7b34b3e581ceae720b962ff9b9c15331b78b91d460f7ba3da4642`;
+  Republic artifact `republic-0.5.9.dev17+g5dff4aa7b-py3-none-any.whl`, SHA256
+  `217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`.
+  Both installed packages match their supplied archives, no removed SDK exists,
+  and all 93 installed distributions pass dependency compatibility checks.
+- Test-isolation correction: initial Codex fixture injection covered the ordinary
+  SDK client wrapper but missed `DefaultAsyncHttpxClient`. Synthetic tokens
+  reached the actual Codex endpoint and received 401; this was an unintended
+  test-isolation failure, not a successful login/inference or live acceptance.
+  No real token was used. The helper now intercepts both constructors; default
+  real HTTP transports are blocked in tests and in child-process fixture scopes.
+  All final evidence is from the guarded synthetic fixtures.
+- Remaining limits: no real-account Codex/Copilot/Grok login -> inference ->
+  renewed inference acceptance. Grok reduced scopes/Republic version headers/
+  entitlement and Copilot integration entitlement are still unverified.
+  Copilot/Grok login UX is not added to Bub. Media inputs, hosted tools,
+  arbitrary provider/history interchange and cross-process credential locking
+  are outside this integration. Republic remains agent-free.
 
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while
