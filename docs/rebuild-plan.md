@@ -1091,3 +1091,32 @@ This completes the current embedding/rerank/message-media restoration. It does
 not claim independent image/speech/video generation or transcription; their
 concrete next increments remain in the capability inventory. The registration
 sketch is a reviewable proposal, not a shipped framework or AI Gateway integration.
+
+
+#### Codex audio source correction (2026-09-28)
+
+The fixed Codex reference was verified clean at
+`21eb35513df478a2a090bfc2c0293caaf435b36d`; there was no revision drift.
+The previous image-only description misread an implemented input capability.
+ContentItem::InputAudio and UserInput::Audio are serialized through
+ResponseInputItem -> ResponseItem -> ResponsesApiRequest.input -> POST /responses.
+The upstream client tests sends_audio_urls_to_responses and
+sends_local_audio_to_responses explicitly assert this request body with an
+audio-capable model configuration. It is not limited to Realtime.
+
+OpenAICodex now maps user audio FilePart URL/base64/data URL to native
+input_audio/audio_url, using a small internal file conversion callback. Standard
+OpenAIResponses remains unchanged. No downloads, local reads, refresh/retry
+policy, generated media or agent behavior is added. Unsupported filename,
+metadata and file ID forms fail before HTTP. The same source also has native
+tool-output audio, which is distinct from the current JSON/text tool-result
+contract and is not claimed by this input correction.
+
+Nineteen added real official-client SSE cases cover audio forms, image/audio
+ordering, JSON/full-history replay with opaque reasoning and original call IDs,
+early close, cancellation, borrowed-client reuse, unsupported forms and isolation
+from standard Responses. `make check`, `make test` (**763 passed / 2 existing
+expected warnings**) and `make docs-test` passed. The Bub build_prompt/tape
+extension and clean committed-wheel evidence are recorded after consumer checks.
+All evidence is offline fixtures; model codec support, remote asset retrieval and
+OAuth account entitlement/live inference remain unverified.

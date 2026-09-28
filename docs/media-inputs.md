@@ -26,8 +26,16 @@ actual encoded media when making a real request.
 | OpenAI-compatible Chat / OpenRouter | The same parts; video_url with HTTP(S)/data URL; provider-supported audio formats | Video and extra audio formats are compatible-service extensions, not native OpenAI guarantees. Choose an explicit compatible endpoint/model. |
 | OpenAI Responses | input_image URL/base64/file_id; input_file PDF URL/base64/file_id; inline UTF-8 text files | No audio/video wire in this standard adapter. Other independent media operations are separate increments. |
 | Anthropic Messages | image URL/base64/file_id; document PDF URL/base64/file_id; text/plain document | JPEG/PNG/GIF/WebP; no audio/video. File IDs must already belong to the service; Files API beta/version headers remain caller configuration where required. |
-| ChatGPT Codex | Native Responses input_image URL/base64/file_id | The sourced Codex subset establishes images, not PDF documents. Audio/video and PDF remain unsupported here. |
+| ChatGPT Codex | input_image URL/base64/file_id; input_audio with audio_url from HTTP(S), base64 or matching data URL | Codex-specific audio wire; no audio file_id/filename/extra metadata. PDF and video remain unsupported. Model audio availability is service-dependent. |
 | Copilot / Grok OAuth | No restored media claim | Their specific media wire/account acceptance remains unverified; these adapters still reject media. |
+
+Codex audio uses `FilePart(data=..., media_type="audio/wav")` for an HTTP(S) or
+matching data URL, or `FilePart.from_bytes(..., media_type="audio/wav")` for
+caller-supplied bytes. It maps to `{"type": "input_audio", "audio_url": ...}`,
+not Chat's `{data, format}` shape. This adapter-specific conversion does not
+extend the standard OpenAIResponses wire. Audio remains in its original position
+alongside text/images and survives full request/history JSON serialization.
+No file download, local file reading, codec conversion or synthesized labels occur.
 
 For a reference use `FilePart(data="file-id", encoding="file_id", media_type=...)`.
 IDs and native metadata are protocol-specific; changing the endpoint/provider does
@@ -65,9 +73,26 @@ are checked against official sources (2026-09-28):
 - [OpenAI vision](https://developers.openai.com/api/docs/guides/images-vision) and [file inputs](https://developers.openai.com/api/docs/guides/file-inputs).
 - [Anthropic vision](https://platform.claude.com/docs/en/build-with-claude/vision) and [PDFs](https://platform.claude.com/docs/en/build-with-claude/pdf-support).
 - [OpenRouter audio](https://openrouter.ai/docs/guides/overview/multimodal/audio), [video](https://openrouter.ai/docs/guides/overview/multimodal/videos) and [reasoning details](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
-- [Codex ContentItem/ImageReference](https://github.com/openai/codex/blob/21eb35513df478a2a090bfc2c0293caaf435b36d/codex-rs/protocol/src/models.rs).
+- [Codex ContentItem/ImageReference/InputAudio](https://github.com/openai/codex/blob/21eb35513df478a2a090bfc2c0293caaf435b36d/codex-rs/protocol/src/models.rs).
 
 Real official SDK HTTP/SSE fixtures verify ordered payloads, serialization, native
 history replay and rejected inputs. They do not establish live model/account
 support or decode the supplied synthetic media bytes. See the separate
 [Bub integration evidence](bub-integration.md) for consumer acceptance.
+
+Codex audio correction: the local reference was rechecked at clean commit
+`21eb35513df478a2a090bfc2c0293caaf435b36d` on 2026-09-28. The earlier claim that
+this source established only images was incorrect. `UserInput::Audio` becomes
+`ResponseInputItem::Message` containing `ContentItem::InputAudio { audio_url }`;
+conversion to `ResponseItem` retains that content. `ResponsesApiRequest.input`
+contains those items and the HTTP endpoint serializes them to POST `/responses`.
+[Upstream client tests](https://github.com/openai/codex/blob/21eb35513df478a2a090bfc2c0293caaf435b36d/codex-rs/core/tests/suite/client.rs)
+`sends_audio_urls_to_responses` and `sends_local_audio_to_responses` assert the
+wire with model audio capability explicitly enabled. This is not a Realtime-only
+type. [local_media.rs](https://github.com/openai/codex/blob/21eb35513df478a2a090bfc2c0293caaf435b36d/codex-rs/protocol/src/local_media.rs)
+shows data URL encoding (wav/mp3/m4a/webm/ogg); Republic accepts supplied data and
+does not copy its local reader. The typed source accepts an audio_url string;
+Republic fixtures cover HTTP(S) references as well as inline data. This proves
+request adaptation, not live URL retrieval, codec validity or account/model access.
+Tool-output audio is also present upstream but is a separate content shape; the
+current ToolResultPart contract still carries JSON/text, not native audio results.

@@ -12,6 +12,7 @@ from republic.api import stream
 from republic.auth.codex import CodexTokens
 from republic.errors import IncompleteStreamError, ProviderError, UnsupportedRequestError
 from republic.providers import _openai_responses as responses
+from republic.providers._files import file_url
 from republic.providers._openai_client import OpenAIClient, oauth_client, oauth_error
 from republic.providers._openai_responses_stream import ResponsesStream
 from republic.types import FilePart, Request, Response
@@ -19,27 +20,30 @@ from republic.types import FilePart, Request, Response
 _BASE_URL = "https://chatgpt.com/backend-api/codex"
 
 
-def _media(request: Request) -> None:
-    for message in request.messages:
-        for part in message.parts:
-            if isinstance(part, FilePart) and not part.media_type.startswith("image/"):
-                raise UnsupportedRequestError(
-                    "file", "the sourced Codex input subset supports images, not documents/audio/video"
-                )
+def _file(part: FilePart) -> dict[str, Any]:
+    if part.media_type.startswith("image/"):
+        return responses._file(part)
+    if part.media_type.startswith("audio/"):
+        responses.metadata(part.provider_metadata, set(), "file.metadata")
+        if part.filename is not None:
+            raise UnsupportedRequestError("file.filename", "Codex input_audio has no filename field")
+        # Codex ContentItem has audio_url, unlike Chat's input_audio object.
+        # Keep this sourced wire extension out of standard OpenAI Responses.
+        return {"type": "input_audio", "audio_url": file_url(part)}
+    raise UnsupportedRequestError("file", "the Codex adapter supports user images/audio, not documents/video")
 
 
 def _payload(request: Request) -> dict[str, Any]:
     for field in ("temperature", "top_p", "max_output_tokens", "stop"):
         if getattr(request.options, field) is not None:
             raise UnsupportedRequestError(field, "not supported by the Codex adapter")
-    _media(request)
     in_history = False
     for message in request.messages:
         if message.role == "system" and in_history:
             raise UnsupportedRequestError("messages.system", "only leading system messages can become instructions")
         in_history = in_history or message.role != "system"
     # Reuse native Responses conversion/validation, including retained raw items.
-    payload = responses.request_payload(request)
+    payload = responses.request_payload(request, file_part=_file)
     if "truncation" not in request.options.provider_options:
         payload.pop("truncation")
     instructions = []

@@ -215,3 +215,14 @@ are observed in codex-rs/protocol/src/models.rs at 21eb35513df478a2a090bfc2c0293
 OpenRouter video/audio wire and native reasoning_details semantics follow its
 public docs inspected 2026-09-28 (source URLs in docs/media-inputs.md).
 No OpenRouter implementation was copied; fixtures verify JSON/SSE behavior.
+
+Codex audio input correction is based on the same fixed OpenAI Codex revision
+21eb35513df478a2a090bfc2c0293caaf435b36d (Apache-2.0, Copyright 2025 OpenAI),
+verified clean on 2026-09-28. Sources: codex-rs/protocol/src/models.rs
+ContentItem::InputAudio, UserInput conversion and serialization tests;
+protocol/src/local_media.rs data URL semantics; codex-api/src/common.rs
+ResponsesApiRequest, endpoint/responses.rs HTTP serialization; and
+core/tests/suite/client.rs sends_audio_urls_to_responses / sends_local_audio_to_responses.
+These establish Codex Responses input_audio/audio_url, not only Realtime audio.
+Republic adds a Codex-only file conversion callback and HTTP/SSE tests; it does
+not copy local file reading, modality filtering, labels, retries or agent behavior.

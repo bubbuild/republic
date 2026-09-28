@@ -4,6 +4,7 @@
 """Conversion for the supported Responses text, reasoning and function items."""
 
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
@@ -172,7 +173,7 @@ def _file(part: FilePart) -> dict[str, Any]:
     return result
 
 
-def _messages(messages: list[Message]) -> list[dict[str, Any]]:
+def _messages(messages: list[Message], file_part: Callable[[FilePart], dict[str, Any]]) -> list[dict[str, Any]]:
     result = []
     for message in messages:
         metadata(message.provider_metadata, _RECORD if message.role == "assistant" else set(), "message.metadata")
@@ -184,7 +185,7 @@ def _messages(messages: list[Message]) -> list[dict[str, Any]]:
             content = []
             for part in message.parts:
                 if isinstance(part, FilePart) and message.role == "user":
-                    content.append(_file(part))
+                    content.append(file_part(part))
                 elif isinstance(part, TextPart):
                     metadata(part.provider_metadata, set(), "text.metadata")
                     content.append({"type": "input_text", "text": part.text})
@@ -234,10 +235,10 @@ def _options(request: Request) -> dict[str, Any]:
     return {"store": False, "truncation": "disabled", "include": includes, **options}
 
 
-def request_payload(request: Request) -> dict[str, Any]:
+def request_payload(request: Request, *, file_part: Callable[[FilePart], dict[str, Any]] = _file) -> dict[str, Any]:
     if request.options.stop is not None:
         raise UnsupportedRequestError("stop", "Responses has no stop-sequence option")
-    payload = {"model": request.model, "input": _messages(request.messages), **_options(request)}
+    payload = {"model": request.model, "input": _messages(request.messages, file_part), **_options(request)}
     for field in ("temperature", "top_p", "max_output_tokens", "parallel_tool_calls"):
         if (value := getattr(request.options, field)) is not None:
             payload[field] = value
