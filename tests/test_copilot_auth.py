@@ -256,14 +256,12 @@ async def test_absent_expired_and_rejected_refresh() -> None:
     transport = Transport([])
     with pytest.raises(auth.CopilotAuthError, match="no_refresh_token"):
         await auth.refresh_github_token(login(), transport=transport)
-    with pytest.raises(auth.CopilotAuthError, match="refresh_expired"):
-        await auth.refresh_github_token(
-            login(**{"refresh_token": "private"}, refresh_expires_at=1), transport=transport
-        )
     assert not transport.requests
     transport = Transport([httpx.Response(400, json={"error": "invalid_grant", "error_description": "private-secret"})])
     with pytest.raises(auth.CopilotAuthError, match="refresh_rejected") as caught:
-        await auth.refresh_github_token(login(**{"refresh_token": "private"}), transport=transport)
+        await auth.refresh_github_token(
+            login(**{"refresh_token": "private"}, refresh_expires_at=1), transport=transport
+        )
     assert caught.value.__context__ is None and len(transport.requests) == 1
 
 
@@ -297,8 +295,10 @@ async def test_exchange_default_origin_expiry_and_no_profile_collection() -> Non
     result = await auth.exchange_copilot_token(login(), transport=transport)
     assert result.api_endpoint == "https://api.githubcopilot.com" and result.refresh_at is None
     assert result.expires_at == raw["expires_at"] and len(transport.requests) == 1
-    with pytest.raises(auth.CopilotAuthError, match="github_token_expired"):
-        await auth.exchange_copilot_token(login(expires_at=1), transport=Transport([]))
+    renewed = await auth.exchange_copilot_token(
+        login(expires_at=1), transport=Transport([httpx.Response(200, json=raw)])
+    )
+    assert renewed.token == result.token
 
 
 @pytest.mark.asyncio

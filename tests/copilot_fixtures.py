@@ -70,11 +70,17 @@ class Wire:
             max_retries=4,
             organization="unrelated-org",
             project="unrelated-project",
-            default_headers={"Authorization": "unrelated-auth", "x-unrelated": "yes"},
+            default_headers={"x-unrelated": "yes"},
             default_query={"unrelated": "yes"},
             http_client=httpx.AsyncClient(transport=self.transport),
         )
-        self.provider = GitHubCopilot(credentials or token(), integration_id="fixture-integration", client=self.client)
+        self.provider = GitHubCopilot(
+            credentials or token(),
+            integration_id="fixture-integration",
+            client=self.client,
+            base_url="https://api.individual.githubcopilot.com",
+            max_retries=0,
+        )
 
     @property
     def requests(self) -> list[httpx.Request]:

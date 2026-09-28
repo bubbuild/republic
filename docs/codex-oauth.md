@@ -38,9 +38,10 @@ Endpoints are fixed at `https://auth.openai.com/oauth/authorize` and `/oauth/tok
 An optional `redirect_uri` must be an HTTP localhost/127.0.0.1 URL without query or
 fragment; actual redirect registration/acceptance remains the server's decision.
 
-Keep the authorization object private and consume each pending login once. Pass
-the **full callback URL**, not a bare code. Exchange validates its destination,
-state, code, duplicate parameters, errors and denial; missing state fails. On
+Keep the authorization object private and consume each pending login once. `exchange_code` accepts a **full callback URL** and validates its destination,
+state, code, duplicate parameters, errors and denial; missing state fails.
+For an existing manual code UX, `exchange_authorization_code(authorization, code)`
+performs the same Authlib PKCE exchange; the caller owns callback/state handling. On
 user cancellation, discard the pending object. Cancelling an exchange task
 propagates `asyncio.CancelledError` and closes its response/client. No background
 login task, callback server, device-code flow or CLI UX is included.
@@ -64,8 +65,8 @@ if credentials.is_expired(leeway=120):
     write_tokens(path, credentials)
 ```
 
-`CodexTokens(access_token, refresh_token, expires_at, account_id=None)` is plain,
-immutable data. `expires_at` is a positive, finite Unix timestamp. Token fields
+`CodexTokens(access_token, refresh_token=None, expires_at=None, account_id=None)` is plain,
+immutable data. `expires_at`, when supplied, is a positive, finite Unix timestamp. Token fields
 are nonempty strings without whitespace/control characters; bearer access tokens
 must be ASCII. Repr hides credentials/account IDs. Accessing fields or serializing
 them deliberately reveals their values: do not put them into messages or logs.
@@ -73,16 +74,17 @@ them deliberately reveals their values: do not put them into messages or logs.
 Token responses accept numeric `expires_at` or `expires_in`; every supplied
 expiry field must be valid (booleans, strings, nonfinite and nonpositive values
 fail). If both are absent, an access JWT's numeric `exp` may supply a freshness
-hint. There is no guessed lifetime. `is_expired(leeway=0)` is only a local check,
+hint. If no expiry is available, it stays `None`; there is no guessed lifetime. `is_expired(leeway=0)` is only a local check,
 not token validation. JWT signatures/issuer/audience are **not verified** here;
 claims are never proof of identity, permission or entitlement.
 
 Refresh is one explicit exchange. It returns new tokens, preserves a refresh
 token when the server omits rotation, and rejects an explicitly empty replacement.
 It uses a new access token's account claim first, then an ID token claim, then the
-previous account ID. ID tokens themselves are not persisted. An opaque access
-token is usable with explicit expiry/account information. `OpenAICodex` requires
-an account ID for the `chatgpt-account-id` header; absent hints fail clearly.
+previous account ID. ID tokens themselves are not persisted. An opaque access token is usable without refresh or expiry data. An optional
+account ID adds `chatgpt-account-id`; the service decides whether a particular
+credential requires that routing hint. `OpenAICodex(access_token, account_id=...)`
+also accepts a string directly.
 
 `read_tokens(path)` and `write_tokens(path, tokens)` accept only an explicit path.
 They use Republic's small JSON format, not a Codex/Bub credential-file importer.
@@ -94,10 +96,11 @@ concurrent refresh coordination or power-loss durability guarantee is provided.
 
 `CodexAuthError.code` distinguishes `state_mismatch`, `denied`, `callback_error`,
 `missing_code`, `invalid_callback`, `invalid_pkce`/`invalid_authorization`,
-`expired`, `missing_account`, malformed token/expiry, exchange/refresh rejection
+`no_refresh_token`, malformed token/expiry, exchange/refresh rejection
 or transport failure, and credential read/write failure. Exceptions contain fixed
 diagnostics, not callback URLs, token responses or secret-bearing native causes.
-There is no fallback to stale tokens after refresh failure.
+A refresh failure is returned to the caller, which decides whether to keep using
+a still-valid old token. Providers never reject tokens based on local expiry.
 
 ## One model operation
 
@@ -124,10 +127,10 @@ async with OpenAICodex(credentials) as provider:
         streamed_response = output.response
 ```
 
-Both operations send **one POST** to
+Both operations use the SSE endpoint (one POST with the default client policy) at
 `https://chatgpt.com/backend-api/codex/responses`, with bearer authorization,
-`chatgpt-account-id` and `originator: republic`. The endpoint/headers cannot be
-overridden per request. No `OpenAI-Beta: responses=experimental` is added: the
+optional `chatgpt-account-id` and `originator: republic`. Constructor `base_url`
+and `headers` override routing defaults; request `extra_headers` has final priority. No `OpenAI-Beta: responses=experimental` is added: the
 pinned current official HTTP path no longer uses that older Bub header.
 
 The adapter follows the official Codex HTTP client's `stream=True` wire mode.
@@ -136,7 +139,7 @@ non-streaming first or performs a fallback. Source inspection establishes the
 official client's streaming shape, not a live proof that every backend version
 rejects non-streaming. Ordinary `OpenAIResponses.generate` stays non-streaming.
 
-`store=False` and `include=["reasoning.encrypted_content"]` are fixed defaults.
+`store=False` and `include=["reasoning.encrypted_content"]` are overridable defaults.
 Supply complete history yourself. Leading system text parts become `instructions`,
 in original order separated by two newlines; with none, instructions is empty.
 Later system messages are rejected, never hoisted. The remaining items keep their
@@ -150,9 +153,9 @@ tool result or malformed JSON triggers a repair/continuation request.
 | Messages/parts | Leading system text, user/assistant text, native assistant reasoning/function calls, tool results; same part validation as Responses. |
 | Tools | Function schemas, optional strict metadata, auto/none/required/named choice, parallel calls. Default: empty tools, auto choice, parallel enabled. |
 | Native `provider_options` | `reasoning`, `text` (including structured `format`), `service_tier`, `prompt_cache_key`, positive `timeout`. Native values remain model/endpoint-dependent. |
-| Explicit managed values | `store=False` and exactly `include=["reasoning.encrypted_content"]` are accepted. |
-| Rejected options | Temperature, top-p, output-token limit, stop sequences, truncation, custom headers/body, user/metadata, previous-response IDs and other managed/unknown keys. |
-| Outside this adapter | Media, hosted/custom tools, agents, model catalogs/routing, WebSocket sessions, server-side conversation state and background polling. |
+| Native extensions | `store`, `include`, `truncation`, `previous_response_id`, `instructions`, `extra_headers`, `extra_body`; shared Responses options apply. |
+| Rejected options | Temperature, top-p, output-token limit and stop sequences in common fields; conflicting managed fields. |
+| Outside this adapter | Media, hosted/custom tools, agents, model catalogs/routing, WebSocket sessions and background polling. |
 
 The adapter rejects options outside its supported Codex subset, even if a general
 Responses endpoint accepts them. It does not silently discard caller parameters.
@@ -170,25 +173,32 @@ from openai import AsyncOpenAI
 
 # Inside an async function:
 async with httpx.AsyncClient(follow_redirects=False) as http:
-    async with AsyncOpenAI(api_key="unused-by-codex", http_client=http) as client:
+    async with AsyncOpenAI(api_key="unused-by-codex", base_url="https://chatgpt.com/backend-api/codex",
+                           max_retries=0, http_client=http) as client:
         async with OpenAICodex(credentials, client=client) as provider:
             response = await generate(provider, request)
 ```
 
-Republic uses a private SDK copy with retries disabled, the Codex token/endpoint,
-and Codex headers. It replaces SDK custom headers/query and clears API organization
-and project routing on its own copy. It never mutates or closes the borrowed
-client. HTTPX transports, timeouts and hooks are caller-provided infrastructure;
-they must not independently retry, replace auth, or log credentials. Borrowed
-HTTP clients with `follow_redirects=True` are rejected; owned clients disable it.
+Providers accept `client`, `base_url`, `headers`, `timeout` and `max_retries`.
+Owned clients default to zero SDK retries. Borrowed clients retain retries,
+redirects, headers, query, organization/project and transport configuration on a
+private SDK copy; Republic neither mutates nor closes the caller's client.
+Explicit constructor values override borrowed settings, which override service
+defaults. Request `provider_options["extra_headers"]` overrides constructor
+headers. An OAuth access token supplies the bearer credential; an explicit
+Authorization header can override it. Choose endpoints and redirect policy
+appropriate for your credentials. With a borrowed client, its base URL is used
+unless `base_url` is passed explicitly.
 
-Each response stream closes on terminal, error, cancellation or early context
-exit, while the reusable client stays open. After explicit refresh, construct a
-new `OpenAICodex(new_tokens, client=client)`; an existing provider keeps its original
-immutable tokens. Expired tokens fail before HTTP. A 401 or 403 never refreshes,
-opens a login UX or retries inference; `ProviderError` exposes `unauthorized` or
-`forbidden` and the HTTP status. Entitlement and account access require caller
-action; fixtures cannot demonstrate them.
+One generate/stream is one logical model operation, without login, refresh,
+agent/tool execution or follow-up inference. Caller-selected SDK/transport retries
+may make multiple HTTP attempts. Set `max_retries=0` and configure the HTTP
+transport accordingly when a single HTTP attempt is required. Individual streams
+release their response without closing a reusable client. After refresh, build a
+new provider with the returned access token; lifecycle policy belongs to the caller.
+
+401/403 responses surface sanitized provider errors; there is no automatic
+refresh or re-authentication. Account entitlement still requires live evidence.
 
 Delta/done/terminal snapshots use the existing Responses reconciliation rules,
 so overlapping text/arguments/reasoning are not duplicated. Incomplete/length

@@ -153,8 +153,9 @@ errors as causes; the Codex, Copilot and Grok OAuth adapters omit native error o
 diagnostics to protect credentials. `UnsupportedRequestError` reports unrepresentable input
 before a request is sent.
 `IncompleteStreamError` and `StreamProtocolError` describe streaming failures.
-Cancellation is never converted into a provider error or retried. The SDK does
-not automatically retry any request.
+Cancellation is never converted into a provider error or retried. Republic adds no retry loop. Owned clients default to zero SDK retries; borrowed
+client and explicitly selected retry/redirect policies are retained. One logical
+operation may therefore make multiple HTTP attempts; see [client configuration](client-configuration.md).
 
 Always use `async with stream(...)`. Breaking an `async for` alone does not close
 an iterator; leaving the enclosing context does. `aclose()` is idempotent and

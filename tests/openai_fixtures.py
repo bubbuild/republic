@@ -64,7 +64,7 @@ class Wire:
         self.client = AsyncOpenAI(
             api_key="fixture-key", base_url="https://unit.test/api/v1", max_retries=3, http_client=self.http
         )
-        self.provider = provider_type(client=self.client)
+        self.provider = provider_type(client=self.client, max_retries=0)
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)

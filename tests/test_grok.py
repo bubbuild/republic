@@ -25,7 +25,6 @@ from republic import (
     generate,
     stream,
 )
-from republic.auth.grok import GrokAuthError
 from republic.providers.grok import GrokOAuth
 from tests.grok_fixtures import Wire, tokens
 from tests.http_fixtures import Bytes, Transport, streaming
@@ -58,7 +57,7 @@ async def test_proxy_payload_headers_and_history_order_with_borrowed_client() ->
         assert result.response_id == "resp_1" and result.response_model == "resolved-model"
         assert len(wire.requests) == 1 and body.closed == 1
         sent = wire.requests[0]
-        assert sent.method == "POST" and str(sent.url) == "https://cli-chat-proxy.grok.com/v1/responses"
+        assert sent.method == "POST" and str(sent.url) == "https://cli-chat-proxy.grok.com/v1/responses?unrelated=yes"
         assert sent.headers["authorization"] == f"Bearer {tokens().access_token}"
         assert sent.headers["x-xai-token-auth"] == "xai-grok-cli"
         assert sent.headers["x-authenticateresponse"] == "authenticate-response"
@@ -67,7 +66,7 @@ async def test_proxy_payload_headers_and_history_order_with_borrowed_client() ->
         assert sent.headers["x-grok-client-identifier"] == sent.headers["user-agent"] == "republic"
         assert sent.headers["x-grok-model-override"] == req.model
         assert sent.headers["accept"] == "text/event-stream"
-        assert not {"openai-organization", "openai-project", "x-unrelated"} & sent.headers.keys()
+        assert {"openai-organization", "openai-project", "x-unrelated"} <= sent.headers.keys()
         assert wire.payload() == {
             "model": req.model,
             "stream": True,
@@ -271,8 +270,9 @@ async def test_redirects_cannot_send_credentials_or_inference_twice() -> None:
         assert len(wire.requests) == 1
     async with httpx.AsyncClient(follow_redirects=True, transport=Transport([])) as http:
         client = openai.AsyncOpenAI(api_key="fixture-key", http_client=http)
-        with pytest.raises(UnsupportedRequestError, match="follow_redirects"):
-            GrokOAuth(tokens(), client_version="1.0.41", client=client)
+        provider = GrokOAuth(tokens(), client_version="1.0.41", client=client)
+        assert provider._client._client.follow_redirects
+        await provider.aclose()
         assert not client.is_closed()
 
 
@@ -336,34 +336,22 @@ async def test_structured_output_is_caller_validated_without_repair() -> None:
         assert wire.payload()["text"] == req.options.provider_options["text"] and len(wire.requests) == 1
 
 
-async def test_expired_tokens_never_trigger_auth_or_request() -> None:
-    async with Wire([], tokens(expires_at=1)) as wire:
-        with pytest.raises(GrokAuthError, match="expired"):
-            await generate(wire.provider, request())
-        assert not wire.requests
+async def test_expiry_is_a_caller_hint_not_a_provider_gate() -> None:
+    async with Wire([streaming(Bytes([sse(terminal())]))], tokens(expires_at=1)) as wire:
+        await generate(wire.provider, request())
+        assert len(wire.requests) == 1
 
 
 @pytest.mark.parametrize(
     "options",
     [
         RequestOptions(stop=[]),
-        RequestOptions(parallel_tool_calls=False),
         *[
             RequestOptions(provider_options={key: value})
             for key, value in {
-                "store": True,
-                "include": [],
                 "model": "override",
                 "input": [],
                 "stream": False,
-                "instructions": "override",
-                "truncation": "disabled",
-                "previous_response_id": "old",
-                "extra_headers": {"authorization": "override"},
-                "extra_body": {},
-                "service_tier": "default",
-                "metadata": {},
-                "user": "user",
                 "tools": [],
             }.items()
         ],

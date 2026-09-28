@@ -72,7 +72,8 @@ stop polling. Cancelling the task closes its Authlib client and propagates
 `CancelledError`.
 
 Each auth helper owns and closes its HTTPX client and any explicitly supplied
-`transport`. Redirects and transport retries are disabled. Polling is the only
+`transport`. The auth client disables redirects and adds no retry loop; an injected transport
+retains its caller-selected retry behavior. Polling is the only
 deliberate repeated auth operation; it does not replay inference. Verification
 URLs accept only `auth.x.ai` or `accounts.x.ai`, without credentials, ports or
 fragments. Browser PKCE/callback/state handling, custom enterprise issuers,
@@ -135,11 +136,11 @@ async def answer(tokens: GrokTokens) -> str:
         return result.message.text
 ```
 
-Both `generate` and `stream` issue exactly one SSE inference request. `generate`
+Both `generate` and `stream` use an SSE inference operation. `generate`
 aggregates that stream. This follows the official source's streaming Responses
 path; it does not claim that the server cannot support JSON responses. There is
-no JSON-first fallback, SDK retry, implicit token refresh, 401 replay, tool
-execution or next-turn decision. Known expired credentials fail before HTTP.
+no JSON-first fallback, implicit token refresh, 401 replay, tool execution or
+next-turn decision. Known expiry is an optional caller hint, not a local gate.
 
 The request carries `Authorization: Bearer …`, `X-XAI-Token-Auth: xai-grok-cli`,
 `x-authenticateresponse: authenticate-response`, the explicit
@@ -149,14 +150,23 @@ The request carries `Authorization: Bearer …`, `X-XAI-Token-Auth: xai-grok-cli
 runtime or telemetry/session/agent identifiers are created. Version/identity
 acceptance is an account-backed validation item, not inferred from these headers.
 
-An optional `client=openai.AsyncOpenAI(...)` lends its HTTP transport and timeout.
-Its credentials, base URL, organization, project, custom query and headers do not
-control this OAuth route. A private SDK copy disables retries without mutating
-the caller's settings. A borrowed HTTPX client with redirects enabled is rejected;
-owned clients also disable redirects. Stream close never closes the reusable
-client. Provider `aclose()`/async context exit closes only an owned client. After
-refresh, construct a new provider with the new immutable tokens; a borrowed
-client can be reused. No credentials are embedded in messages or responses.
+Providers accept `client`, `base_url`, `headers`, `timeout` and `max_retries`.
+Owned clients default to zero SDK retries. Borrowed clients retain retries,
+redirects, headers, query, organization/project and transport configuration on a
+private SDK copy; Republic neither mutates nor closes the caller's client.
+Explicit constructor values override borrowed settings, which override service
+defaults. Request `provider_options["extra_headers"]` overrides constructor
+headers. An OAuth access token supplies the bearer credential; an explicit
+Authorization header can override it. Choose endpoints and redirect policy
+appropriate for your credentials. With a borrowed client, its base URL is used
+unless `base_url` is passed explicitly.
+
+One generate/stream is one logical model operation, without login, refresh,
+agent/tool execution or follow-up inference. Caller-selected SDK/transport retries
+may make multiple HTTP attempts. Set `max_retries=0` and configure the HTTP
+transport accordingly when a single HTTP attempt is required. Individual streams
+release their response without closing a reusable client. After refresh, build a
+new provider with the returned access token; lifecycle policy belongs to the caller.
 
 ## Supported protocol subset
 
@@ -172,7 +182,9 @@ client can be reused. No credentials are embedded in messages or responses.
 - `temperature`, `top_p`, `max_output_tokens`, and auto/none/required/named tool
   choice. Native `provider_options` accepts `text` (including Responses JSON-schema
   format), `reasoning`, `prompt_cache_key`, positive `timeout`, `store=False`, and
-  exactly `include=["reasoning.encrypted_content"]`. These last two are defaults.
+  `include=["reasoning.encrypted_content"]`. These last two are overridable defaults.
+  Parallel-tool control and shared Responses native options/extensions are forwarded;
+  acceptance of caller-selected options remains service/model-dependent.
   Structured output is unparsed text; the caller uses Pydantic validation as in
   the [Responses guide](openai-responses.md), with no model repair request.
 - Responses lifecycle/item/content/text/reasoning/function-argument events and
@@ -187,11 +199,10 @@ client can be reused. No credentials are embedded in messages or responses.
   `cost_in_usd_ticks` and `context_details`; the latter does not replace the total
   with a live agent context length. Missing values are never filled with zero.
 
-Unsupported: media, hosted search/code tools, arbitrary tool types, stop sequences,
-explicit parallel-tool control, service-tier/agent options, server-side history
-(`store=True`, `previous_response_id`), custom endpoints/headers, automatic history
-truncation, and overrides of managed fields. These inputs fail before HTTP.
-Multiple returned calls are still supported without requesting a parallel flag.
+Unsupported: media, hosted search/code tools, arbitrary tool types, stop sequences
+and managed-field conflicts. Native `store`, `include`, `previous_response_id`,
+`truncation`, headers/body and explicit constructor endpoint are configurable.
+No server-side recovery or agent behavior is implemented.
 Nonstandard agent control/check events are not requested or interpreted; if sent,
 they fail as unsupported protocol events instead of initiating recovery. Unknown
 output items are not silently dropped. Native failed-response diagnostic text is

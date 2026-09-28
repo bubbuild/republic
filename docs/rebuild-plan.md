@@ -217,6 +217,10 @@ Update this document after each increment with its commit, commands run, results
 and remaining limits. Do not claim the plan or a green generic test run proves
 live account access.
 
+> Historical implementation entries below record their original checkpoints.
+> Client/expiry/native-option restrictions and Bub credential migration instructions
+> are superseded by the caller-policy correction at the end of this document.
+
 ### Step 1 implementation
 
 - Commit: `fc10b257ca362c70741dc5f96cd4f038516462f3`
@@ -910,3 +914,33 @@ the direct-migration checkpoint below; it is not the current installation or aut
 Do not publish a package or replace `main` as part of preparing this baseline.
 The repository was archived when inspected; local commits can proceed while
 remote write/publication decisions remain separate.
+
+
+### Caller-policy and Bub OAuth compatibility correction (2026-09-28)
+
+The accepted product boundary supersedes earlier mandatory SDK retry/expiry,
+fixed-header/native-option policies and the experimental Bub credential migration.
+Republic provides auth and request mechanisms; consumers choose policy. See
+[client configuration](client-configuration.md) for the current contract.
+
+- Existing access tokens work without refresh/expiry. Codex/Grok/Copilot providers
+  no longer enforce local expiry. Refresh functions validate needed refresh data
+  only when called. Optional file helpers never impose a consumer schema/path.
+- Borrowed official clients retain retry/redirect/header/query settings and
+  ownership; explicit endpoint/header/timeout/retry configuration overrides defaults.
+  Owned clients default to zero retry. One logical model operation can use
+  caller-selected SDK/transport retry; no agent/tool loop or 401 refresh is added.
+- Responses native store/include/truncation/previous-response options and body
+  extensions are available; managed-field conflicts and unsupported output remain
+  errors. Codex gains a raw authorization-code exchange for caller-owned manual UX.
+- Bub restores its original auth.json, OAuth-token selection, URL/code manual UX,
+  120-second early refresh and still-valid-token fallback. No new credential file
+  or migration command is required. Bub explicitly selects zero inference retries.
+- All protocol evidence remains synthetic/offline; OAuth entitlement and real
+  account login → inference → refreshed inference remain unverified.
+
+- Republic verification for this correction: `make check`, `make test` (**644
+  passed / 2 expected malformed-output warnings**) and `make docs-test` passed
+  on Python 3.11. The suite blocks default HTTP transports; custom retry tests
+  assert actual request counts, configuration precedence and retained ownership.
+  Clean-wheel/lower-bound and installed Bub evidence will follow this runtime commit.

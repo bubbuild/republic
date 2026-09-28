@@ -72,7 +72,7 @@ class Wire:
         self.client = anthropic.AsyncAnthropic(
             api_key="fixture-key", base_url="https://unit.test/api", max_retries=3, http_client=self.http
         )
-        self.provider = AnthropicMessages(client=self.client)
+        self.provider = AnthropicMessages(client=self.client, max_retries=0)
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)

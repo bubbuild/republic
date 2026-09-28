@@ -9,7 +9,7 @@ import openai
 
 from republic import events
 from republic.api import stream
-from republic.auth.codex import CodexAuthError, CodexTokens
+from republic.auth.codex import CodexTokens
 from republic.errors import IncompleteStreamError, ProviderError, UnsupportedRequestError
 from republic.providers import _openai_responses as responses
 from republic.providers._openai_client import OpenAIClient, oauth_client, oauth_error
@@ -17,15 +17,12 @@ from republic.providers._openai_responses_stream import ResponsesStream
 from republic.types import Request, Response
 
 _BASE_URL = "https://chatgpt.com/backend-api/codex"
-_OPTIONS = {"text", "reasoning", "store", "include", "service_tier", "prompt_cache_key", "timeout"}
 
 
 def _payload(request: Request) -> dict[str, Any]:
     for field in ("temperature", "top_p", "max_output_tokens", "stop"):
         if getattr(request.options, field) is not None:
             raise UnsupportedRequestError(field, "not supported by the Codex adapter")
-    if request.options.provider_options.keys() - _OPTIONS:
-        raise UnsupportedRequestError("provider_options", "unsupported or managed Codex option")
     in_history = False
     for message in request.messages:
         if message.role == "system" and in_history:
@@ -33,9 +30,8 @@ def _payload(request: Request) -> dict[str, Any]:
         in_history = in_history or message.role != "system"
     # Reuse native Responses conversion/validation, including retained raw items.
     payload = responses.request_payload(request)
-    payload.pop("truncation")  # Shared converter default, never caller input.
-    if payload["include"] != ["reasoning.encrypted_content"]:
-        raise UnsupportedRequestError("include", "Codex requires encrypted reasoning replay")
+    if "truncation" not in request.options.provider_options:
+        payload.pop("truncation")
     instructions = []
     history = []
     for item in payload["input"]:
@@ -43,7 +39,10 @@ def _payload(request: Request) -> dict[str, Any]:
             instructions.extend(part["text"] for part in item["content"])
         else:
             history.append(item)
-    payload.update(instructions="\n\n".join(instructions), input=history)
+    if instructions and "instructions" in payload:
+        raise UnsupportedRequestError("instructions", "conflicts with leading system messages")
+    payload.setdefault("instructions", "\n\n".join(instructions))
+    payload["input"] = history
     payload.setdefault("tools", [])
     payload.setdefault("tool_choice", "auto")
     payload.setdefault("parallel_tool_calls", True)
@@ -53,18 +52,36 @@ def _payload(request: Request) -> dict[str, Any]:
 class OpenAICodex(OpenAIClient):
     """Codex-only bearer tokens; generate aggregates one streaming wire request.
 
-    A borrowed AsyncOpenAI contributes its HTTP transport/timeout, not its API
-    key, endpoint, organization or custom headers/query. Its settings and lifetime
-    remain untouched. After explicit refresh, construct a new provider with the
-    new immutable tokens (the same borrowed client may be reused).
+    Accept existing access tokens or optional lifecycle data. Borrowed client
+    settings are retained unless explicitly overridden. Refresh, storage and
+    expiry policy belong to the caller; providers never initiate authentication.
     """
 
-    def __init__(self, tokens: CodexTokens, *, client: openai.AsyncOpenAI | None = None) -> None:
-        if tokens.account_id is None:
-            raise CodexAuthError("missing_account")
-        self._tokens = tokens
-        headers = {"chatgpt-account-id": tokens.account_id, "originator": "republic"}
-        self._client, self._owns_client = oauth_client(tokens.access_token, _BASE_URL, headers, client)
+    def __init__(
+        self,
+        tokens: CodexTokens | str,
+        *,
+        account_id: str | None = None,
+        client: openai.AsyncOpenAI | None = None,
+        base_url: str | None = None,
+        headers: dict[str, str] | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> None:
+        credentials = CodexTokens(tokens, account_id=account_id) if isinstance(tokens, str) else tokens
+        defaults = {"originator": "republic"}
+        if (account := account_id or credentials.account_id) is not None:
+            defaults["chatgpt-account-id"] = account
+        self._client, self._owns_client = oauth_client(
+            credentials.access_token,
+            _BASE_URL,
+            defaults,
+            client,
+            endpoint=base_url,
+            extra_headers=headers,
+            max_retries=max_retries,
+            timeout=timeout,
+        )
         self._closed = False
 
     def _ensure_open(self) -> None:
@@ -84,10 +101,9 @@ class OpenAICodex(OpenAIClient):
     async def stream(self, request: Request) -> AsyncGenerator[events.Event, None]:
         """Use native Responses events and release the wire before StreamEnd."""
         self._ensure_open()
-        if self._tokens.is_expired():
-            raise CodexAuthError("expired")
         payload = _payload(request)
         state = ResponsesStream()
+        self._request_headers(payload)
         try:
             source = await self._client.responses.create(**payload, stream=True)
             async with source:

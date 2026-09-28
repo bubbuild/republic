@@ -17,14 +17,8 @@ from republic.providers._openai_client import OpenAIClient, oauth_client, oauth_
 from republic.providers._openai_stream import ChatStream
 from republic.types import FilePart, ReasoningPart, Request, Response
 
-_OPTIONS = {"timeout"}
-
 
 def _payload(request: Request) -> dict[str, Any]:
-    if request.options.provider_options.keys() - _OPTIONS:
-        raise UnsupportedRequestError("provider_options", "unsupported or managed Copilot option")
-    if request.options.parallel_tool_calls is not None:
-        raise UnsupportedRequestError("parallel_tool_calls", "not in the sourced Copilot Chat request subset")
     if request.options.tool_choice == "required":
         raise UnsupportedRequestError(
             "tool_choice", "Copilot Chat does not support required in the referenced protocol"
@@ -64,23 +58,29 @@ class GitHubCopilot(OpenAIClient):
 
     integration_id must be the caller's service-recognized integration. Republic
     does not impersonate a first-party editor or promise third-party entitlement.
-    Owned/borrowed clients follow the same no-retry/redirect rules as Codex.
+    Borrowed client policy is retained; owned clients default to zero retries.
     """
 
     def __init__(
         self,
-        token: CopilotToken,
+        token: CopilotToken | str,
         *,
         integration_id: str,
         client: openai.AsyncOpenAI | None = None,
+        base_url: str | None = None,
+        headers: dict[str, str] | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> None:
+        if isinstance(token, str):
+            token = CopilotToken(token)
         if not isinstance(token, CopilotToken):
             raise CopilotAuthError("inference_token_required")
         if not isinstance(integration_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", integration_id):
             raise UnsupportedRequestError("integration_id", "expected a nonempty service integration identifier")
         self._token = token
         identity = f"republic/{version('republic')}"
-        headers = {
+        defaults = {
             "User-Agent": "republic",
             "Editor-Version": identity,
             "Editor-Plugin-Version": identity,
@@ -88,7 +88,16 @@ class GitHubCopilot(OpenAIClient):
             "X-GitHub-Api-Version": "2025-10-01",
             "OpenAI-Intent": "conversation-panel",
         }
-        self._client, self._owns_client = oauth_client(token.token, token.api_endpoint, headers, client)
+        self._client, self._owns_client = oauth_client(
+            token.token,
+            token.api_endpoint,
+            defaults,
+            client,
+            endpoint=base_url,
+            extra_headers=headers,
+            max_retries=max_retries,
+            timeout=timeout,
+        )
         self._closed = False
 
     def _ensure_open(self) -> None:
@@ -97,13 +106,12 @@ class GitHubCopilot(OpenAIClient):
 
     def _request(self, request: Request) -> dict[str, Any]:
         self._ensure_open()
-        if self._token.is_expired():
-            raise CopilotAuthError("copilot_token_expired")
         return _payload(request)
 
     async def generate(self, request: Request) -> Response:
         """One non-streaming POST /chat/completions; never exchange/refresh tokens."""
         payload = self._request(request)
+        self._request_headers(payload)
         try:
             result = await self._client.chat.completions.create(**payload, stream=False)
             return chat.response(_check_output(result.model_dump(mode="json", exclude_none=True)))
@@ -117,6 +125,7 @@ class GitHubCopilot(OpenAIClient):
         """One SSE request; consume tail usage and close the response before end."""
         payload = self._request(request)
         state = ChatStream()
+        self._request_headers(payload)
         try:
             source = await self._client.chat.completions.create(
                 **payload,

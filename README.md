@@ -25,10 +25,10 @@ unverified. Step 7 code/offline evidence is complete; live acceptance is pending
 This branch does not describe the currently published package.
 
 Step 8 validates Republic as Bub’s required model SDK, with installed local wheels,
-Codex login migration and fresh-process tape continuation. The SDK contract did
-not need to change. See the [support/acceptance matrix](docs/support-matrix.md) and
+Codex credential compatibility and fresh-process tape continuation. Authentication, storage and transport policy remain caller-owned; see
+[client configuration](docs/client-configuration.md). See the [support/acceptance matrix](docs/support-matrix.md) and
 [Bub integration guide](docs/bub-integration.md) for protocol selections, the exact
-wheel artifact, reproducible offline acceptance and OAuth migration limits.
+wheel artifact, reproducible offline acceptance and OAuth acceptance limits.
 
 Install this checkout with `uv sync` for development or `pip install .` for
 runtime use. Pydantic, OpenAI 2.x, Anthropic 0.x, Authlib and HTTPX are included runtime
@@ -86,7 +86,8 @@ Responses reasoning replay and the boundary between protocol and live evidence.
 See the [single-call contract](docs/contracts.md) for a runnable offline example,
 data types, metadata rules, event ordering, and stream ownership. Each call
 performs one provider operation. Republic does not execute tools, start another
-turn, retry requests, or repair history. Caller cancellation remains
+turn or repair history. Owned clients default to zero retries; borrowed/configured
+SDK and transport policies belong to the caller. Caller cancellation remains
 `asyncio.CancelledError`; premature stream exhaustion raises
 `IncompleteStreamError` and leaves partial output inspectable.
 

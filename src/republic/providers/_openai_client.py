@@ -1,11 +1,12 @@
 """Shared OpenAI client ownership and transport error mapping."""
 
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 
+import httpx
 import openai
 
-from republic.errors import ProviderError, UnsupportedRequestError
+from republic.errors import ProviderError
 
 
 def oauth_client(
@@ -13,26 +14,35 @@ def oauth_client(
     base_url: str,
     headers: dict[str, str],
     client: openai.AsyncOpenAI | None,
+    *,
+    endpoint: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+    max_retries: int | None = None,
+    timeout: float | httpx.Timeout | None = None,
 ) -> tuple[openai.AsyncOpenAI, bool]:
-    """Private SDK copy with explicit OAuth routing, no retries or redirects."""
-    if client is not None and client._client.follow_redirects:
-        raise UnsupportedRequestError("client.follow_redirects", "disable redirects for a single HTTP attempt")
+    """Service defaults < borrowed settings < explicit overrides, on a private copy."""
+    merged = httpx.Headers(headers)
+    if client is not None:
+        merged.update(client._custom_headers)
+    merged.update(extra_headers or {})
+    canonical = {
+        "user-agent": "User-Agent",
+        "authorization": "Authorization",
+        "accept": "Accept",
+        "content-type": "Content-Type",
+    }
+    configured = {canonical.get(key, key): value for key, value in merged.items()}
+    options: dict[str, Any] = {"api_key": access_token}
+    options["default_headers" if client is None else "set_default_headers"] = configured
+    if endpoint is not None or client is None:
+        options["base_url"] = endpoint or base_url
+    if max_retries is not None or client is None:
+        options["max_retries"] = 0 if max_retries is None else max_retries
+    if timeout is not None:
+        options["timeout"] = timeout
     if client is None:
-        result = openai.AsyncOpenAI(
-            api_key=access_token,
-            base_url=base_url,
-            max_retries=0,
-            default_headers=headers,
-            http_client=openai.DefaultAsyncHttpxClient(follow_redirects=False),
-        )
-    else:
-        result = client.with_options(
-            api_key=access_token, base_url=base_url, max_retries=0, set_default_headers=headers, set_default_query={}
-        )
-    # SDK copy(None) inherits these; change only the new, private object.
-    result.organization = None
-    result.project = None
-    return result, client is None
+        return openai.AsyncOpenAI(**options, http_client=openai.DefaultAsyncHttpxClient(follow_redirects=False)), True
+    return client.with_options(**options), False
 
 
 def oauth_error(exc: Exception, *, provider: str) -> ProviderError:
@@ -64,16 +74,33 @@ class OpenAIClient:
         api_key: str | None = None,
         base_url: str | None = None,
         client: openai.AsyncOpenAI | None = None,
+        headers: dict[str, str] | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> None:
-        if client is not None and (api_key is not None or base_url is not None):
-            raise UnsupportedRequestError("client.configuration", "use client or api_key/base_url, not both")
+        options: dict[str, Any] = {}
+        if api_key is not None:
+            options["api_key"] = api_key
+        if base_url is not None:
+            options["base_url"] = base_url
+        if headers is not None:
+            options["default_headers"] = headers
+        if timeout is not None:
+            options["timeout"] = timeout
+        if max_retries is not None or client is None:
+            options["max_retries"] = 0 if max_retries is None else max_retries
         self._owns_client = client is None
-        self._client = (
-            openai.AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0)
-            if client is None
-            else client.with_options(max_retries=0)
-        )
+        self._client = openai.AsyncOpenAI(**options) if client is None else client.with_options(**options)
         self._closed = False
+
+    def _request_headers(self, payload: dict[str, Any]) -> None:
+        # The SDK merges dictionaries before creating case-insensitive HTTP headers.
+        # Match existing key casing so a lower-case override does not get appended.
+        if "extra_headers" in payload:
+            names = {key.lower(): key for key in self._client.default_headers}
+            payload["extra_headers"] = {
+                names.get(key.lower(), key): value for key, value in payload["extra_headers"].items()
+            }
 
     def _ensure_open(self) -> None:
         if self._closed:

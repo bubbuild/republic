@@ -60,6 +60,7 @@ async def test_pkce_s256_and_full_offline_login_inference_refresh_flow(
         "redirect_uri": [authorization.redirect_uri],
         "code_verifier": [authorization.code_verifier],
     }
+    assert credentials.expires_at is not None
     assert time.time() + 1700 < credentials.expires_at <= time.time() + 1800
     path = tmp_path / "chosen.json"
     write_tokens(path, credentials)
@@ -99,6 +100,7 @@ async def test_pkce_s256_and_full_offline_login_inference_refresh_flow(
         "private-code",
         authorization.code_verifier,
     ):
+        assert secret is not None
         assert secret not in caplog.text + repr(credentials) + repr(authorization)
 
 
@@ -191,7 +193,6 @@ async def test_refresh_keeps_unrotated_token_and_updates_claim_hints() -> None:
     [
         [],
         {},
-        {"access_token": "opaque"},
         token_payload(access_token=""),
         token_payload(refresh_token=""),
         token_payload(**{"token_type": "mac"}),
@@ -207,6 +208,7 @@ async def test_invalid_token_payload(raw: Any) -> None:
 @pytest.mark.parametrize("kind", ["oauth", "http", "network", "json"])
 async def test_errors_never_include_response_or_native_cause(refresh: bool, kind: str) -> None:
     secret = tokens().refresh_token
+    assert secret is not None
     replies = {
         "oauth": httpx.Response(400, json={"error": "invalid_grant", "error_description": secret}),
         "http": httpx.Response(503, text=secret),
@@ -250,7 +252,7 @@ def test_expiry_and_explicit_file_failures(tmp_path: Path, monkeypatch: pytest.M
         write_tokens(tmp_path / "absent" / "tokens", tokens())
 
 
-@pytest.mark.parametrize("raw", [[], {"unexpected": "private"}, {"access_token": "private"}, {"expires_at": "private"}])
+@pytest.mark.parametrize("raw", [[], {"unexpected": "private"}, {"expires_at": "private"}])
 def test_bad_file_does_not_echo_values(tmp_path: Path, raw: Any) -> None:
     path = tmp_path / "chosen.json"
     path.write_text(json.dumps(raw))

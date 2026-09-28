@@ -627,8 +627,11 @@ async def test_malformed_wire_json_preserves_parser_error(streaming_call: bool) 
 
 async def test_injected_client_configuration_cannot_be_overridden() -> None:
     async with Wire([]) as wire:
-        with pytest.raises(UnsupportedRequestError):
-            OpenAIChatCompletions(client=wire.client, api_key="conflict")
-        with pytest.raises(UnsupportedRequestError):
-            OpenAIChatCompletions(client=wire.client, base_url="https://other.test")
+        override = OpenAIChatCompletions(client=wire.client, api_key="conflict")
+        assert override._client.api_key == "conflict"
+        assert wire.client.api_key == "fixture-key"
+        await override.aclose()
+        override = OpenAIChatCompletions(client=wire.client, base_url="https://other.test")
+        assert str(override._client.base_url) == "https://other.test"
+        await override.aclose()
         assert not wire.client.is_closed()

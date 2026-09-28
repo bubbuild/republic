@@ -486,10 +486,13 @@ async def test_explicit_max_tokens_and_credentials_are_required() -> None:
     with pytest.raises(UnsupportedRequestError, match="api_key"):
         AnthropicMessages()
     async with Wire([]) as w:
-        with pytest.raises(UnsupportedRequestError):
-            AnthropicMessages(client=w.client, api_key="override")
-        with pytest.raises(UnsupportedRequestError):
-            AnthropicMessages(client=w.client, base_url="https://other.test")
+        override = AnthropicMessages(client=w.client, api_key="override")
+        assert override._client.api_key == "override"
+        assert w.client.api_key == "fixture-key"
+        await override.aclose()
+        override = AnthropicMessages(client=w.client, base_url="https://other.test")
+        assert str(override._client.base_url) == "https://other.test"
+        await override.aclose()
         req = request()
         req.options.max_output_tokens = None
         with pytest.raises(UnsupportedRequestError, match="max_output_tokens"):

@@ -1,11 +1,11 @@
 # Copyright 2026 Vercel, Inc. Licensed under the Apache License, Version 2.0.
-# Modified for Republic: native generate, owned/borrowed clients, no retries.
+# Modified for Republic: native generate, owned/borrowed clients, caller-configurable retries.
 # Source: ai-python c788059dd1db2d93ae1c3da6daffb660eca07dbb; see NOTICE.
 """Explicit Anthropic Messages adapter using the official asynchronous client."""
 
 from collections.abc import AsyncGenerator
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 
 import anthropic
 import httpx
@@ -34,25 +34,36 @@ class AnthropicMessages:
     """One Messages request with explicit credentials and client ownership.
 
     Pass api_key (and optionally base_url) to create an owned AsyncAnthropic, or
-    client to borrow its transport without changing its settings/lifetime. Both
-    paths disable SDK retries. Custom transports/services must not independently
+    client to borrow its transport without changing its settings/lifetime. Owned clients default to zero retries; borrowed settings are retained. Custom transports/services must not independently
     retry if one HTTP attempt is required. No credential discovery is performed
     by Republic; a borrowed client's authentication remains caller-controlled.
     """
 
     def __init__(
-        self, *, api_key: str | None = None, base_url: str | None = None, client: anthropic.AsyncAnthropic | None = None
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        client: anthropic.AsyncAnthropic | None = None,
+        headers: dict[str, str] | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> None:
-        if client is not None and (api_key is not None or base_url is not None):
-            raise UnsupportedRequestError("client.configuration", "use client or api_key/base_url, not both")
         if client is None and not api_key:
             raise UnsupportedRequestError("api_key", "pass an API key explicitly or supply a client")
+        options: dict[str, Any] = {}
+        if api_key is not None:
+            options["api_key"] = api_key
+        if base_url is not None:
+            options["base_url"] = base_url
+        if headers is not None:
+            options["default_headers"] = headers
+        if timeout is not None:
+            options["timeout"] = timeout
+        if max_retries is not None or client is None:
+            options["max_retries"] = 0 if max_retries is None else max_retries
         self._owns_client = client is None
-        self._client = (
-            anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url, max_retries=0)
-            if client is None
-            else client.with_options(max_retries=0)
-        )
+        self._client = anthropic.AsyncAnthropic(**options) if client is None else client.with_options(**options)
         self._closed = False
 
     def _ensure_open(self) -> None:

@@ -50,11 +50,17 @@ class Wire:
             max_retries=4,
             organization="unrelated-org",
             project="unrelated-project",
-            default_headers={"Authorization": "unrelated-auth", "x-unrelated": "yes"},
+            default_headers={"x-unrelated": "yes"},
             default_query={"unrelated": "yes"},
             http_client=httpx.AsyncClient(transport=self.transport),
         )
-        self.provider = GrokOAuth(credentials or tokens(), client_version="1.0.41", client=self.client)
+        self.provider = GrokOAuth(
+            credentials or tokens(),
+            client_version="1.0.41",
+            client=self.client,
+            base_url="https://cli-chat-proxy.grok.com/v1",
+            max_retries=0,
+        )
 
     @property
     def requests(self) -> list[httpx.Request]:

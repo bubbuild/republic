@@ -7,26 +7,25 @@ commit is `bb89a96db9c13034aa8de87f30d8ac9880755f9c`
 (`refactor: use Republic as the sole model SDK`). The original
 Bub integration baseline is `357901db1a3f82d7f696024574225e595b09d4ac`.
 Republic remains a provider SDK: no Bub dependency, agent loop, tool execution,
-hook, model router or tape implementation was added here. No public SDK contract
-change was required by this consumer.
+hook, model router or tape implementation was added here. The caller-policy correction now makes client configuration and OAuth lifecycle
+policy composable; see [client configuration](client-configuration.md).
 
 ## Install the local baseline
 
-The validated SDK artifact was built from clean Republic commit
+Historical direct-migration artifact (before the caller-policy correction): clean Republic commit
 `5dff4aa7bdbf6f81411f16d64f74307d4d83f167`:
 
 - File: `republic-0.5.9.dev17+g5dff4aa7b-py3-none-any.whl`.
 - Version: `0.5.9.dev17+g5dff4aa7b`.
 - SHA256: `217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`.
-- Build: `uv build --wheel` in the clean Republic checkout. This Step 8 Republic
-  increment changes documentation only; the validated SDK implementation is that
-  source commit. Hashes identify exact artifacts, not reproducible-build guarantees.
+- Build: `uv build --wheel` in the clean Republic checkout. This artifact predates the capability correction and must not be used for the
+  updated Bub credential path. Build the new clean SDK commit instead. Hashes identify exact artifacts, not reproducible-build guarantees.
 
 For source development, place `bub-republic-dev` beside `republic-dev`, then run
 `uv sync --locked --extra trace` in Bub. Its normal runtime dependency is
-`republic>=0.5.9.dev17,<0.6`; the local uv source is the repository-relative
+`republic>=0.5.9.dev20,<0.6`; the local uv source is the repository-relative
 `../republic-dev`, not an absolute path or unavailable remote commit. The sibling
-checkout may include later documentation commits; the accepted runtime is unchanged.
+checkout may include later documentation commits; the minimum runtime must include the caller-policy correction.
 The trace extra is optional telemetry; Republic is required for imports and tests.
 
 For wheel deployment, build both wheels and install their explicit paths together:
@@ -34,7 +33,7 @@ For wheel deployment, build both wheels and install their explicit paths togethe
 ```bash
 uv pip install --python /explicit/venv/bin/python \
   /explicit/path/to/bub-VERSION-py3-none-any.whl \
-  /explicit/path/to/republic-0.5.9.dev17+g5dff4aa7b-py3-none-any.whl
+  /explicit/path/to/republic-VERSION-py3-none-any.whl
 uv pip check --python /explicit/venv/bin/python
 ```
 
@@ -73,30 +72,37 @@ The default factory owns an adapter/client per attempt and closes both on exit.
 An embedding application can override async `ModelRunner.create_provider`
 to return an adapter borrowing its official async client. The caller still owns
 that client; individual response streams close on completion, failure, early exit
-and cancellation. Republic does not retry or refresh inference; Bub owns the
+and cancellation. Republic preserves caller-selected retries and never refreshes inference; Bub owns the
 pre-call refresh point described below.
 
 ## Bub Codex authentication
 
-`bub login openai` now delegates PKCE/state, exchange and refresh to Republic's
-Authlib implementation and inference to `OpenAICodex`. Bub retains browser, local
-callback server and manual full-URL entry. It saves `bub-republic.json` in the
-selected Codex directory; set runtime `codex_home` / `BUB_CODEX_HOME` to match a
-custom login `--codex-home`. Otherwise `CODEX_HOME` / `~/.codex` applies.
+`bub login openai` delegates PKCE/state, exchange and refresh to Republic's
+Authlib functions. Bub owns browser/local callback reception and manual URL/code
+input. A complete URL is state-validated; a manually received bare code uses the
+lower-level PKCE exchange. Login and refresh use the original nested `tokens`
+format in `CODEX_HOME/auth.json` (default `~/.codex/auth.json`). `--codex-home`
+selects the login directory; runtime `codex_home` / `BUB_CODEX_HOME` can select
+that same directory. Existing credentials work directly; reads never write or
+move them, and no credential migration command/file is required.
 
-`bub login openai --migrate --codex-home /explicit/directory` explicitly imports
-legacy `auth.json`, preserving the old file and refusing to overwrite an existing
-new destination. Actual expiry is required; no guessed one-hour fallback. JWT
-account/expiry claims are unverified hints. Republic supplies atomic 0600 writes.
+Automatic Codex selection applies only to `openai:` without explicit base/protocol.
+Normal API keys use the API; an access token with a ChatGPT account hint selects
+Codex without refresh/expiry. Without an explicit key/base, a parseable auth.json
+selects Codex. Neither filename existence nor model name alone determines this.
+Explicit protocol and endpoint/credential configuration remain available.
 
-An `openai:` model with no API key/base/protocol override selects the saved Bub
-Codex login; explicit `republic_protocols.openai: codex` is also available. Bub
-refreshes at its pre-call factory boundary when expiry is within 120 seconds,
-saves the returned tokens and creates a new adapter. Refresh failure stops the
-call; inference 401 does not refresh or replay. Cross-process refresh coordination
-remains caller-owned. Only leading system messages become Codex instructions;
-all remaining native Responses history is retained. One model request uses one
-SSE connection. ChatGPT OAuth is never used as a general OpenAI API key.
+Bub retains its original expiry policy: `tokens.expires_at` (numeric or RFC3339),
+then access JWT `exp`, then `last_refresh + 3600`, or current time plus 3600 when
+no hints exist. JWT hints and fallback estimates are not verified identity or
+server guarantees. The SDK does not impose these estimates. Bub refreshes 120
+seconds early before inference; failure can use a still-valid old token, but an
+expired token fails. Successful refresh updates the same auth.json, retaining
+unknown fields and prior account if no replacement is supplied. Atomic 0600 writes
+precede inference; persistence failure after rotation prevents inference. There
+is no implicit refresh/replay after 401, login UI during inference or concurrent
+refresh locking. Only leading system messages become Codex instructions, without
+reordering native history.
 
 Copilot/Grok login UX is not selectable here. Their live acceptance and all real
 Codex account login/inference/refresh remain open in the [matrix](support-matrix.md).
@@ -126,8 +132,8 @@ error result JSON. Usage/raw fields and finish reason remain in Bub run records.
 
 The agent loop, hooks and configured model fallback belong to Bub. Fallback may
 try another candidate only on a provider error before any native event; it does
-not replay after output, invalid input or an incomplete result. Each candidate
-makes one HTTP request. Tape write errors still propagate without retrying tools.
+not replay after output, invalid input or an incomplete result. The default Bub factory explicitly sets zero SDK retries, so each candidate
+makes one HTTP attempt. Custom factories choose their own transport policy. Tape write errors still propagate without retrying tools.
 External tool effects and tape persistence are not an atomic transaction; no
 process-crash exactly-once guarantee is added.
 
@@ -137,8 +143,8 @@ The Bub branch includes a standalone acceptance entry point:
 
 ```bash
 python scripts/check_republic_wheel.py \
-  /explicit/path/to/republic-0.5.9.dev17+g5dff4aa7b-py3-none-any.whl \
-  --source-commit 5dff4aa7bdbf6f81411f16d64f74307d4d83f167
+  /explicit/path/to/republic-VERSION-py3-none-any.whl \
+  --source-commit FULL_REPUBLIC_COMMIT
 ```
 
 It creates a clean Python 3.12 environment, builds and installs the current Bub
@@ -162,7 +168,7 @@ HTTP/SSE MockTransport fixtures. Separate OS processes prove, for **Responses, A
    on-disk execution log contains exactly one tool effect across both processes.
 
 Additional cases exercise the real Bub agent loop, Chat/OpenRouter factory,
-Codex authorization/exchange/refresh/file migration, CLI/config, tracing,
+Codex authorization/exchange/refresh/auth.json compatibility, CLI/config, tracing,
 tool failure/denial, hooks, explicit fallback, incomplete outcomes, history
 rejection, tape-write failure, cancellation and borrowed client reuse. These are
 not isolated conversion tests and do not substitute for live service acceptance.

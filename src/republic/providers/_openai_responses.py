@@ -38,6 +38,10 @@ _OPTIONS = {
     "prompt_cache_key",
     "extra_headers",
     "timeout",
+    "extra_body",
+    "extra_query",
+    "previous_response_id",
+    "instructions",
 }
 
 
@@ -172,15 +176,23 @@ def _options(request: Request) -> dict[str, Any]:
     options = dict(request.options.provider_options)
     if unknown := options.keys() - _OPTIONS:
         raise UnsupportedRequestError("provider_options", f"unsupported or managed keys: {sorted(unknown)}")
-    if options.get("store", False) is not False:
-        raise UnsupportedRequestError("store", "only store=False with full history is supported")
-    if options.get("truncation", "disabled") != "disabled":
-        raise UnsupportedRequestError("truncation", "automatic history truncation is not supported")
+    body = options.get("extra_body", {})
+    managed = {
+        "model",
+        "input",
+        "tools",
+        "stream",
+        "temperature",
+        "top_p",
+        "max_output_tokens",
+        "tool_choice",
+        "parallel_tool_calls",
+    }
+    if not isinstance(body, dict) or body.keys() & (managed | (_OPTIONS - {"extra_body"})):
+        raise UnsupportedRequestError("extra_body", "expected native fields without managed or duplicate keys")
     includes = options.get("include", ["reasoning.encrypted_content"])
-    if not isinstance(includes, list) or any(
-        v not in ("reasoning.encrypted_content", "message.output_text.logprobs") for v in includes
-    ):
-        raise UnsupportedRequestError("include", "only encrypted reasoning and output text logprobs are supported")
+    if not isinstance(includes, list) or any(not isinstance(value, str) for value in includes):
+        raise UnsupportedRequestError("include", "expected a list of native include names")
     headers = options.get("extra_headers", {})
     if not isinstance(headers, dict) or any(not isinstance(v, str) for v in headers.values()):
         raise UnsupportedRequestError("extra_headers", "expected string header values")

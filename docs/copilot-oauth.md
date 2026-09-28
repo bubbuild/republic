@@ -191,8 +191,8 @@ repair. Parallel tool *outputs* are supported without executing them locally.
 | Messages | Ordered system/user/assistant text and assistant function calls; explicit tool results with matching call IDs. Later system messages stay in place. |
 | Tools | Function JSON schemas, description, optional strict metadata; auto/none/named tool choice. Raw model arguments may be malformed JSON and remain unchanged. |
 | Common options | Temperature, top-p, stop sequences, `max_output_tokens` mapped to Copilot's `max_tokens`. No guessed token limit. |
-| Native options | Positive `provider_options["timeout"]` only. |
-| Rejected options | `tool_choice="required"` (explicitly unsupported in the pinned Chat definition), explicit parallel-tool setting, structured response format, reasoning effort, overrides of model/messages/tools/stream/headers/base URL, and other unknown options. |
+| Native options | Shared Chat options, including parallel control, native response format, `store`, `extra_headers` and `extra_body`. Service/model acceptance is caller-verified. |
+| Rejected options | `tool_choice="required"` (explicitly unsupported in the pinned Chat definition), overrides of managed model/messages/tools/stream/common fields, and unrecognized SDK keyword arguments (use `extra_body` for native extensions). |
 | Output | Text, function-call data, identity/model, finish reason, raw/normalized usage, cached/reasoning token counts, and the existing Chat response-record metadata. |
 | Outside this subset | Media, native reasoning/opaque reasoning, citations/references, hosted tools, legacy functions, Copilot agents, CLI, Responses/Messages and model-specific automatic history transformations. |
 
@@ -213,20 +213,29 @@ machine/session IDs or telemetry. Acceptance of this identity remains unverified
 
 ## Client lifetime and failures
 
-Pass `client=your_async_openai_client` to borrow its HTTP transport. The provider
-creates a private SDK copy with its token, validated origin and fixed headers,
-clearing unrelated SDK query, organization and project settings. SDK retries are
-zero on both owned and borrowed paths, without changing the caller's client.
-Borrowed HTTPX clients must have `follow_redirects=False`; owned clients disable
-redirects. Custom transports/hooks are caller infrastructure and must not add
-retries, replace auth or log secrets independently.
+Providers accept `client`, `base_url`, `headers`, `timeout` and `max_retries`.
+Owned clients default to zero SDK retries. Borrowed clients retain retries,
+redirects, headers, query, organization/project and transport configuration on a
+private SDK copy; Republic neither mutates nor closes the caller's client.
+Explicit constructor values override borrowed settings, which override service
+defaults. Request `provider_options["extra_headers"]` overrides constructor
+headers. An OAuth access token supplies the bearer credential; an explicit
+Authorization header can override it. Choose endpoints and redirect policy
+appropriate for your credentials. With a borrowed client, its base URL is used
+unless `base_url` is passed explicitly.
 
-`aclose()` or the provider's async context closes an owned client; a borrowed
-client remains open. Each response stream closes on normal completion, early
-exit, error or cancellation, leaving a reusable client open. After explicit
-exchange/renewal, construct a new `GitHubCopilot(new_token, ..., client=client)`;
-an existing provider retains its immutable original token. Expired inference
-tokens fail before HTTP. There is no background renewal or exchange on 401.
+One generate/stream is one logical model operation, without login, refresh,
+agent/tool execution or follow-up inference. Caller-selected SDK/transport retries
+may make multiple HTTP attempts. Set `max_retries=0` and configure the HTTP
+transport accordingly when a single HTTP attempt is required. Individual streams
+release their response without closing a reusable client. After refresh, build a
+new provider with the returned access token; lifecycle policy belongs to the caller.
+
+A raw access string here must already be a Copilot inference token; ordinary
+GitHub OAuth login is not interchangeable. Expiry can be unknown and is not
+checked by the provider. Server-issued endpoints from token exchange remain
+validated against known Copilot origins; an explicit caller `base_url` is a
+separate, trusted configuration decision.
 
 `ProviderError` identifies `github-copilot`, HTTP status and fixed codes such as
 `unauthorized`, `forbidden`, `rate_limit`, `request_failed`, `invalid_response`

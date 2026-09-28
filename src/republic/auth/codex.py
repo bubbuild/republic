@@ -58,16 +58,18 @@ class CodexTokens:
     """
 
     access_token: str = field(repr=False)
-    refresh_token: str = field(repr=False)
-    expires_at: float
+    refresh_token: str | None = field(default=None, repr=False)
+    expires_at: float | None = None
     account_id: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         _secret(self.access_token)
-        _secret(self.refresh_token)
+        if self.refresh_token is not None:
+            _secret(self.refresh_token)
         if not self.access_token.isascii():
             raise CodexAuthError("invalid_token")
-        _number(self.expires_at)
+        if self.expires_at is not None:
+            _number(self.expires_at)
         if self.account_id is not None and (
             not isinstance(self.account_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", self.account_id)
         ):
@@ -77,7 +79,7 @@ class CodexTokens:
         """Check locally; never refresh or validate the token with a server."""
         if type(leeway) not in (int, float) or not math.isfinite(leeway) or leeway < 0:
             raise CodexAuthError("invalid_leeway")
-        return time.time() + leeway >= self.expires_at
+        return self.expires_at is not None and time.time() + leeway >= self.expires_at
 
 
 @dataclass(frozen=True)
@@ -187,7 +189,7 @@ def _claims(token: str) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _expiry(raw: dict[str, Any]) -> float:
+def _expiry(raw: dict[str, Any]) -> float | None:
     # Validate *all* supplied expiry fields, even when another one takes priority.
     for key in ("expires_in", "expires_at"):
         if key in raw:
@@ -196,7 +198,8 @@ def _expiry(raw: dict[str, Any]) -> float:
         return raw["expires_at"]
     if "expires_in" in raw:
         return time.time() + raw["expires_in"]
-    return _number(_claims(raw["access_token"]).get("exp"))
+    expiry = _claims(raw["access_token"]).get("exp")
+    return _number(expiry) if expiry is not None else None
 
 
 def _token_response(response: httpx.Response) -> httpx.Response:
@@ -243,6 +246,27 @@ async def exchange_code(
     """Validate the full callback and exchange once. Own/close the supplied transport."""
     try:
         code = _callback(authorization, callback_url)
+    except AuthlibBaseError:
+        error = CodexAuthError("missing_code")
+    else:
+        return await exchange_authorization_code(authorization, code, transport=transport, timeout=timeout)
+    raise error
+
+
+async def exchange_authorization_code(
+    authorization: CodexAuthorization,
+    code: str,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    timeout: float = 30,
+) -> CodexTokens:
+    """Exchange a caller-received code with PKCE. The caller validates its callback state.
+
+    Use exchange_code for complete callback URLs with built-in state validation.
+    """
+    if not isinstance(code, str) or not code.strip():
+        raise CodexAuthError("missing_code")
+    try:
         async with _client(redirect_uri=authorization.redirect_uri, transport=transport, timeout=timeout) as client:
             raw = await client.fetch_token(
                 _EXCHANGE_URL, grant_type="authorization_code", code=code, code_verifier=authorization.code_verifier
@@ -262,6 +286,8 @@ async def refresh_tokens(
     tokens: CodexTokens, *, transport: httpx.AsyncBaseTransport | None = None, timeout: float = 30
 ) -> CodexTokens:
     """Refresh once, explicitly; never mutate tokens, save or replay inference."""
+    if tokens.refresh_token is None:
+        raise CodexAuthError("no_refresh_token")
     try:
         async with _client(transport=transport, timeout=timeout) as client:
             raw = await client.refresh_token(_EXCHANGE_URL, refresh_token=tokens.refresh_token)

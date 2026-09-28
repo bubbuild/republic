@@ -39,15 +39,23 @@ Use `base_url="https://your-endpoint.example/v1"` for an explicit endpoint. The
 provider creates and owns its client unless you pass `client=AsyncOpenAI(...)`.
 Use `async with` or `await provider.aclose()` to close an owned client. An injected
 client is borrowed: Republic closes each response stream, but never that client.
-Do not combine `client` with `api_key` or `base_url`.
+Providers accept `client`, `base_url`, `headers`, `timeout` and `max_retries`.
+Owned clients default to zero SDK retries. Borrowed clients retain retries,
+redirects, headers, query, organization/project and transport configuration on a
+private SDK copy; Republic neither mutates nor closes the caller's client.
+Explicit constructor values override borrowed settings, which override service
+defaults. Request `provider_options["extra_headers"]` overrides constructor
+headers. An OAuth access token supplies the bearer credential; an explicit
+Authorization header can override it. Choose endpoints and redirect policy
+appropriate for your credentials. With a borrowed client, its base URL is used
+unless `base_url` is passed explicitly.
 
-Both protocols share the same lifetime and no-retry implementation. An owned
-client uses `max_retries=0`; an injected client is copied with
-`with_options(max_retries=0)`, sharing its transport without changing the caller's
-settings. Independently retrying transports, proxies or gateways are outside
-this guarantee. Each `generate` or `stream` makes one SDK create call, with no
-polling, parsing helper, automatic repair, tool execution or follow-up inference.
-Close active streams before closing their provider.
+One generate/stream is one logical model operation, without login, refresh,
+agent/tool execution or follow-up inference. Caller-selected SDK/transport retries
+may make multiple HTTP attempts. Set `max_retries=0` and configure the HTTP
+transport accordingly when a single HTTP attempt is required. Individual streams
+release their response without closing a reusable client. After refresh, build a
+new provider with the returned access token; lifecycle policy belongs to the caller.
 
 ## Full history and native reasoning
 
@@ -58,9 +66,12 @@ complete history and request encrypted reasoning explicitly. An explicit
 the endpoint omits it. See the official guidance on
 [preserving reasoning without stored responses](https://developers.openai.com/api/docs/guides/reasoning).
 
-Only `store=False` is supported in this increment. `previous_response_id`,
-`conversation`, item references, background mode and automatic truncation are
-rejected. There is no server-side history recovery or local conversation store.
+These are defaults, not required caller policies. Native `store`, `truncation`,
+`include`, `previous_response_id` and `instructions` are forwarded. `extra_body`
+provides a native extension path without overriding managed/common fields. A
+previous response ID relies on the server's actual retention and access rules;
+it does not guarantee recovery of arbitrary history. Republic does not poll
+background jobs, recover conversations or interpret unsupported output items.
 
 Each native output item becomes one Republic part, in output order:
 

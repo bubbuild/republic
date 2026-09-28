@@ -47,19 +47,13 @@ variable, as above, is the caller's choice; Republic does not discover credentia
 files or log in. `base_url="https://your-endpoint.example"` sets an explicit
 endpoint; the SDK appends `/v1/messages`.
 
-Alternatively, pass `client=anthropic.AsyncAnthropic(...)`. Do not combine that
-with `api_key` or `base_url`. An injected client remains caller-owned, including
-its authentication. Republic borrows its HTTP transport using
-`with_options(max_retries=0)` without mutating its settings or closing it.
-
-An owned client also uses `max_retries=0`. Use the provider as an async context
-manager or call `await provider.aclose()`. Close active streams first. Closing a
-single response stream leaves either kind of reusable client open. A closed
-provider rejects new operations.
-
-Each operation performs one SDK create call. Neither errors, `pause_turn`, tool
-calls nor incomplete output trigger retries or another inference request. Custom
-transports or services that independently retry remain outside this guarantee.
+Alternatively, pass `client=anthropic.AsyncAnthropic(...)`.
+Explicit constructor `api_key`, `base_url`, `headers`, `timeout` and `max_retries`
+override borrowed settings without mutating or closing the caller's client.
+Owned clients default to zero SDK retries; borrowed retry/redirect policy is
+retained. A response stream closes independently of its reusable client. See
+[client configuration](client-configuration.md) for logical operation versus HTTP
+attempt semantics. No tool execution, history repair or next turn is added.
 
 ## Messages, tools and options
 

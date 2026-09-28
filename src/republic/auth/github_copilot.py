@@ -124,13 +124,14 @@ class CopilotToken:
     """Short-lived inference token. Renew by explicitly exchanging GitHubToken again."""
 
     token: str = field(repr=False)
-    expires_at: float
-    api_endpoint: str
+    expires_at: float | None = None
+    api_endpoint: str = "https://api.githubcopilot.com"
     refresh_at: float | None = None
 
     def __post_init__(self) -> None:
         _secret(self.token)
-        _positive(self.expires_at)
+        if self.expires_at is not None:
+            _positive(self.expires_at)
         if self.refresh_at is not None:
             _positive(self.refresh_at)
         # Exact, public service origins only: no path/query/userinfo/port/redirect.
@@ -138,7 +139,7 @@ class CopilotToken:
             raise CopilotAuthError("untrusted_endpoint")
 
     def is_expired(self) -> bool:
-        return time.time() >= self.expires_at
+        return self.expires_at is not None and time.time() >= self.expires_at
 
 
 def _client(client_id: str, transport: httpx.AsyncBaseTransport | None, timeout: float) -> AsyncOAuth2Client:
@@ -315,8 +316,6 @@ async def refresh_github_token(
     """Explicit OAuth refresh ONLY when GitHub actually issued a refresh token."""
     if token.refresh_token is None:
         raise CopilotAuthError("no_refresh_token")
-    if token.refresh_expires_at is not None and time.time() >= token.refresh_expires_at:
-        raise CopilotAuthError("refresh_expired")
     result = None
 
     def validate(response: httpx.Response) -> httpx.Response:
@@ -350,8 +349,6 @@ async def exchange_copilot_token(
     timeout: float = 30,
 ) -> CopilotToken:
     """Exchange once (also how to renew). GitHub login alone does not grant Copilot."""
-    if github_token.is_expired():
-        raise CopilotAuthError("github_token_expired")
     _positive(timeout, "invalid_timeout")
     try:
         async with httpx.AsyncClient(transport=transport, timeout=timeout, follow_redirects=False) as client:
@@ -373,7 +370,7 @@ async def exchange_copilot_token(
             refresh_at = time.time() + _positive(raw["refresh_in"]) if "refresh_in" in raw else None
             return CopilotToken(
                 token=raw["token"],
-                expires_at=raw["expires_at"],
+                expires_at=_positive(raw["expires_at"]) if "expires_at" in raw else None,
                 refresh_at=refresh_at,
                 api_endpoint=endpoints.get("api", "https://api.githubcopilot.com"),
             )

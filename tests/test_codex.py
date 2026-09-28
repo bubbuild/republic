@@ -24,7 +24,6 @@ from republic import (
     generate,
     stream,
 )
-from republic.auth.codex import CodexAuthError
 from republic.providers.codex import OpenAICodex
 from tests.codex_fixtures import Transport, Wire, tokens
 from tests.http_fixtures import Bytes, streaming
@@ -55,12 +54,12 @@ async def test_request_endpoint_headers_options_instructions_and_borrowed_client
         assert result.response_id == "resp_1" and result.response_model == "resolved-model"
         assert len(wire.requests) == 1 and body.closed == 1
         sent = wire.requests[0]
-        assert str(sent.url) == "https://chatgpt.com/backend-api/codex/responses"
+        assert str(sent.url) == "https://chatgpt.com/backend-api/codex/responses?unrelated=yes"
         assert sent.method == "POST"
         assert sent.headers["authorization"] == f"Bearer {tokens().access_token}"
         assert sent.headers["chatgpt-account-id"] == "acct_fixture"
         assert sent.headers["originator"] == "republic"
-        assert not {"openai-organization", "openai-project", "x-unrelated"} & sent.headers.keys()
+        assert {"openai-organization", "openai-project", "x-unrelated"} <= sent.headers.keys()
         payload = wire.payload()
         assert payload == {
             "model": req.model,
@@ -164,7 +163,7 @@ async def test_terminal_status_and_no_continuation(status: str, details: Any, fi
         assert result is not None and result.finish_reason == finish
         assert len(wire.requests) == 1 and body.closed == 1
         if status == "failed":
-            assert tokens().refresh_token not in result.model_dump_json()
+            assert "fixture-refresh-private" not in result.model_dump_json()
 
 
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
@@ -182,6 +181,7 @@ async def test_http_errors_do_not_refresh_retry_or_leak_secrets(status: int) -> 
         )
         assert caught.value.__cause__ is None and caught.value.__context__ is None
         rendered = "".join(traceback.format_exception(caught.value))
+        assert credentials.refresh_token is not None
         assert credentials.access_token not in rendered and credentials.refresh_token not in rendered
         assert len(wire.requests) == 1 and not wire.client.is_closed()
 
@@ -261,18 +261,19 @@ async def test_redirects_cannot_send_credentials_or_inference_twice() -> None:
         assert len(wire.requests) == 1
     async with httpx.AsyncClient(follow_redirects=True, transport=Transport([])) as http:
         client = openai.AsyncOpenAI(api_key="fixture-key", http_client=http)
-        with pytest.raises(UnsupportedRequestError, match="follow_redirects"):
-            OpenAICodex(tokens(), client=client)
+        provider = OpenAICodex(tokens(), client=client)
+        assert provider._client._client.follow_redirects
+        await provider.aclose()
         assert not client.is_closed()
 
 
-async def test_expired_and_missing_account_never_start_login_or_request() -> None:
-    with pytest.raises(CodexAuthError, match="missing_account"):
-        OpenAICodex(tokens(account_id=None))
-    async with Wire([], tokens(expires_at=1)) as wire:
-        with pytest.raises(CodexAuthError, match="expired"):
-            await generate(wire.provider, request())
-        assert not wire.requests
+async def test_expiry_and_account_are_optional_caller_hints() -> None:
+    credentials = tokens(expires_at=1, account_id=None)
+    assert credentials.is_expired()
+    async with Wire([streaming(Bytes([sse(terminal())]))], credentials) as wire:
+        await generate(wire.provider, request())
+        assert "chatgpt-account-id" not in wire.requests[0].headers
+        assert len(wire.requests) == 1
 
 
 @pytest.mark.parametrize(
@@ -285,18 +286,9 @@ async def test_expired_and_missing_account_never_start_login_or_request() -> Non
         *[
             RequestOptions(provider_options={key: value})
             for key, value in {
-                "store": True,
-                "include": [],
                 "model": "override",
                 "input": [],
                 "stream": False,
-                "instructions": "override",
-                "truncation": "disabled",
-                "previous_response_id": "resp_old",
-                "extra_headers": {"Authorization": "override"},
-                "extra_body": {},
-                "metadata": {},
-                "user": "user",
             }.items()
         ],
     ],

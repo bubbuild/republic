@@ -108,17 +108,23 @@ async with AsyncOpenAI(api_key="your-key", base_url="https://your-service.exampl
     # client is still open here and belongs to this outer context.
 ```
 
-`client=` cannot be combined with `api_key=` or `base_url=`. The adapter borrows
-the transport through the official client's `with_options(max_retries=0)`;
-it does not mutate the original client's retry setting or close its transport.
-It snapshots the other client settings at construction.
+Providers accept `client`, `base_url`, `headers`, `timeout` and `max_retries`.
+Owned clients default to zero SDK retries. Borrowed clients retain retries,
+redirects, headers, query, organization/project and transport configuration on a
+private SDK copy; Republic neither mutates nor closes the caller's client.
+Explicit constructor values override borrowed settings, which override service
+defaults. Request `provider_options["extra_headers"]` overrides constructor
+headers. An OAuth access token supplies the bearer credential; an explicit
+Authorization header can override it. Choose endpoints and redirect policy
+appropriate for your credentials. With a borrowed client, its base URL is used
+unless `base_url` is passed explicitly.
 
-Both owned and borrowed clients therefore disable the official SDK's automatic
-retry loop for Republic calls. Fixtures assert one HTTP attempt for 429/500,
-connection and timeout failures, as well as failures after streamed output.
-An injected custom transport or remote gateway may independently retry; the
-caller must configure those layers if exactly one end-to-end attempt is needed.
-Republic has no generate-to-stream fallback or automatic next turn.
+One generate/stream is one logical model operation, without login, refresh,
+agent/tool execution or follow-up inference. Caller-selected SDK/transport retries
+may make multiple HTTP attempts. Set `max_retries=0` and configure the HTTP
+transport accordingly when a single HTTP attempt is required. Individual streams
+release their response without closing a reusable client. After refresh, build a
+new provider with the returned access token; lifecycle policy belongs to the caller.
 
 ## Messages, tools and options
 

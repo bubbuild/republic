@@ -387,14 +387,10 @@ async def test_protocol_conflicts_fail_without_repair(tail: dict[str, Any]) -> N
         {"tools": []},
         {"stream": False},
         {"max_output_tokens": 2},
-        {"previous_response_id": "resp_old"},
         {"conversation": "conv_1"},
-        {"store": True},
         {"background": True},
         {"extra_body": {"model": "override"}},
-        {"truncation": "auto"},
         {"seed": 2},
-        {"include": ["file_search_call.results"]},
         {"include": "reasoning.encrypted_content"},
         {"extra_headers": {"x": 1}},
         {"timeout": 0},
@@ -576,8 +572,10 @@ async def test_malformed_wire_json_preserves_cause(streamed: bool) -> None:
 
 async def test_stop_and_conflicting_client_settings_are_rejected() -> None:
     async with wire([]) as w:
-        with pytest.raises(UnsupportedRequestError):
-            OpenAIResponses(client=w.client, api_key="override")
+        override = OpenAIResponses(client=w.client, api_key="override")
+        assert override._client.api_key == "override"
+        assert w.client.api_key == "fixture-key"
+        await override.aclose()
         req = request()
         req.options.stop = ["END"]
         with pytest.raises(UnsupportedRequestError, match="stop"):

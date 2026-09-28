@@ -1,5 +1,5 @@
 # Copyright 2026 Vercel, Inc. Licensed under the Apache License, Version 2.0.
-# Modified for Republic: native generate, explicit ownership and no SDK retries.
+# Modified for Republic: native generate, explicit ownership and caller-configurable retries.
 # Source: ai-python c788059dd1db2d93ae1c3da6daffb660eca07dbb; see NOTICE.
 """Explicit Chat Completions and Responses adapters using the official async client."""
 
@@ -21,7 +21,7 @@ class OpenAIChatCompletions(OpenAIClient):
     """One request per operation, with owned or borrowed AsyncOpenAI clients.
 
     Without client, Republic creates and owns an AsyncOpenAI(max_retries=0).
-    With client, it borrows the transport through with_options(max_retries=0),
+    With client, it preserves configuration through with_options(),
     leaving the caller's settings and lifetime unchanged. Custom transports and
     endpoints must not independently retry if one HTTP attempt is required.
     """
@@ -30,6 +30,7 @@ class OpenAIChatCompletions(OpenAIClient):
         """Perform one non-streaming POST /chat/completions."""
         self._ensure_open()
         payload = chat.request_payload(request)
+        self._request_headers(payload)
         try:
             result = await self._client.chat.completions.create(**payload, stream=False)
             return chat.response(result.model_dump(mode="json", exclude_none=True))
@@ -43,6 +44,7 @@ class OpenAIChatCompletions(OpenAIClient):
         self._ensure_open()
         payload = chat.request_payload(request)
         state = ChatStream()
+        self._request_headers(payload)
         try:
             source = await self._client.chat.completions.create(
                 **payload,
@@ -63,9 +65,9 @@ class OpenAIChatCompletions(OpenAIClient):
 
 
 class OpenAIResponses(OpenAIClient):
-    """One Responses call with full, self-contained history and store=False.
+    """One Responses call with self-contained history and store=False defaults.
 
-    Uses the same owned/borrowed client and no-retry contract as Chat Completions.
+    Uses the same owned/borrowed client configuration as Chat Completions.
     Reasoning and output item metadata survive serialization and history replay.
     """
 
@@ -73,6 +75,7 @@ class OpenAIResponses(OpenAIClient):
         """Perform one non-streaming POST /responses; no parsing/repair turns."""
         self._ensure_open()
         payload = responses.request_payload(request)
+        self._request_headers(payload)
         try:
             result = await self._client.responses.create(**payload, stream=False)
             return responses.response(result.model_dump(mode="json", exclude_none=True))
@@ -86,6 +89,7 @@ class OpenAIResponses(OpenAIClient):
         self._ensure_open()
         payload = responses.request_payload(request)
         state = ResponsesStream()
+        self._request_headers(payload)
         try:
             source = await self._client.responses.create(**payload, stream=True)
             async with source:
