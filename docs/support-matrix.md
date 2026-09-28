@@ -3,13 +3,14 @@
 This matrix describes the unreleased `dev` implementation, not the previously
 published Republic API. Python 3.11+ remains the SDK requirement; the Bub consumer
 requires Python 3.12+. All service evidence below is **offline protocol fixtures**
-through real official clients. No provider or OAuth account has live acceptance.
+through real official clients or the direct HTTPX rerank adapter. No provider or
+OAuth account has live acceptance.
 
 ## Provider entry points
 
 | Import / class | Wire and credentials | Implemented subset | Bub selection |
 | --- | --- | --- | --- |
-| `republic.providers.openai.OpenAIChatCompletions` | API key; `/chat/completions`; explicit compatible base URL | Text, user images/audio/PDF, compatible video and native reasoning extensions, function tools/results, common/native options | `openai:`, `openrouter:` with `chat`; text input only in Bub |
+| `republic.providers.openai.OpenAIChatCompletions` | API key; `/chat/completions`; explicit compatible base URL | Text, user images/audio/PDF, compatible video and native reasoning extensions, function tools/results, common/native options | `openai:`, `openrouter:` with `chat`; images/audio and compatible video in Bub |
 | `republic.providers.openai.OpenAIResponses` | API key; `/responses`; full inline history by default | Text, user images/PDF, native reasoning/summary/encrypted items, functions, structured output wire schema | `openai:` with explicit `responses` |
 | `republic.providers.anthropic.AnthropicMessages` | API key; `/v1/messages`; explicit required output limit | Text, user images/documents, signed/redacted thinking, functions/error results, cache controls/usage | `anthropic:` with `messages` |
 | `republic.providers.codex.OpenAICodex` | Existing ChatGPT access token or token data; Codex Responses SSE endpoint | Sourced Codex text/image/reasoning/function subset; generate aggregates one SSE request | `openai:` with `codex`, or saved Bub Codex login without API-key/base/protocol overrides |
@@ -35,7 +36,9 @@ vectors, usage and native metadata are covered by offline HTTP fixtures. No
 implicit batching, retrieval or agent facade is included. See [embeddings](embeddings.md)
 and the [capability restoration inventory](capability-restoration.md). `republic.providers.cohere.CohereRerank` implements direct `/v2/rerank` with
 string documents, top_n, original indexes/scores and native billing metadata.
-See [reranking](reranking.md). [SDK media inputs](media-inputs.md) are implemented; Bub consumption is the next increment.
+See [reranking](reranking.md). [SDK media inputs](media-inputs.md) and actual
+[Bub consumption](bub-integration.md) are implemented, including ordered image/audio/video
+history across fresh processes. Bub adds no embedding/rerank orchestration.
 
 ## Authentication helpers
 

@@ -12,6 +12,7 @@ nav:
   - Single-call Contract: contracts.md
   - Support and Acceptance Matrix: support-matrix.md
   - Capability Restoration: capability-restoration.md
+  - Interface Proposal: capability-design.md
   - Embeddings: embeddings.md
   - Reranking: reranking.md
   - Media Inputs: media-inputs.md

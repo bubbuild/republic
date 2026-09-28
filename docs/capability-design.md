@@ -3,7 +3,9 @@
 Status: **design for review, not an implemented API** (2026-09-28).
 This supersedes the Gateway delivery choice in the initial restoration inventory.
 Republic will not integrate AI Gateway. The uncommitted Gateway/media prototypes
-were archived outside the repository; no Bub runtime change was made.
+were archived outside the repository before this proposal. The subsequent direct
+Cohere and protocol-specific media increments follow the confirmed delivery scope;
+provider registration and the broader API refinements below remain proposals.
 The local embedding checkpoint `d690c81` is also subject to this API review.
 
 ## What to borrow from the references

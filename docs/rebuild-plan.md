@@ -1035,3 +1035,59 @@ opaque context and indexed/id-bearing fragments through serialization/replay.
 no-fetch failures and retained reasoning/signatures. `make check`, `make test`
 (742 passed, two existing expected warnings) and `make docs-test` passed.
 Actual Bub media consumption and committed-wheel evidence follow separately.
+
+
+#### Consumer media restoration and clean-wheel evidence
+
+Completed 2026-09-28, with no live requests or account changes:
+
+- Republic commits: `d690c8171273b72a9cd3aefbd894f86dc8253108` embeddings;
+  `8e2447dbe5acb6ad556764740a258f665d559bb9` direct Cohere v2 reranking;
+  `95af41ce17b492f4bdbfbeccda4d535ae6893e77` protocol-specific media;
+  `3c5638118952744cd53738be956d1c02354f5fc8` accepts opaque Anthropic image URL
+  references without inventing a MIME subtype. Unknown MIME is still rejected
+  for inline image bytes. That actual-consumer correction adds two regressions.
+- Bub commit `696a3b56506f69b306148ea079be62a1133c9610` connects existing
+  build_prompt media to FilePart and preserves recognized URL/base64 media fields
+  in ForkTapeStore. The previous text-only conversion and tape filtering both
+  broke media continuation. Unknown blocks/extra media fields retain the existing
+  filtering behavior. No auth/settings/agent policy was replaced.
+- Bub's real runner/ToolExecutor/FileTapeStore flow runs in separate Python
+  processes for Chat/OpenRouter, Responses, Messages and Codex. Ordered images
+  survive all four; Chat also replays inline audio and compatible video. Original
+  tool IDs, Responses/Codex encrypted reasoning and Anthropic signatures survive
+  with them. Two explicit model operations issue one HTTP each; the tool executes
+  once. Legacy media tape, native file-reference JSON, close/cancel/interruption
+  with media and unknown fields have behavior coverage.
+- Both repositories passed `make check`, `make test`, `make docs-test`. Republic:
+  **744 passed / 2 existing expected warnings**. Bub with trace: **604 passed /
+  1 existing skip**. Bub docs initially hit pnpm 11's existing build-script
+  approval requirement; locally approving the locked esbuild/sharp/workerd builds
+  allowed the normal build. The generated local approval file was removed;
+  no check or dependency policy was disabled in source.
+- Python 3.11.15 installed the committed Republic wheel against declared lower
+  bounds: OpenAI 2.16.0, Anthropic 0.83.0, Authlib 1.6.5, HTTPX 0.28.1 and
+  Pydantic 2.7.0. All **744 tests** passed and `uv pip check` passed.
+- Republic artifact: `republic-0.5.9.dev26+g3c5638118-py3-none-any.whl`, from
+  clean runtime commit `3c5638118952744cd53738be956d1c02354f5fc8`;
+  SHA256 `4053168afadc79e5f9e0e913eb173c2de11e96782f971d6dce6f51fed1d7ecdc`.
+  Bub now requires `republic>=0.5.9.dev26,<0.6`; the relative sibling uv source
+  remains unchanged, with lock consistency checked.
+- From clean committed Bub, `scripts/check_republic_wheel.py` built
+  `bub-0.4.5.dev19+g696a3b565-py3-none-any.whl`, SHA256
+  `bddd9d9a264460584d9f517932d63fff30ee86a8867dfd8c720ef9f9020cc61e`.
+  A fresh Python 3.12 environment installed both wheels with required dependencies
+  and trace, passed `uv pip check`, then **604 passed / 1 skipped**. The probe
+  verified site-packages imports, archive/file identity, the required dependency,
+  new embedding/rerank/FilePart APIs, and absence of any-llm/model_backend.
+  Local evidence: `/tmp/bub-republic-wheel-tcavxdoj/report.json`.
+- All added service requests use real SDK/HTTPX MockTransport fixtures. Default
+  HTTP transports remain blocked, including the child-process SDK helper.
+  Synthetic media bytes test wire preservation, not codec validity or model
+  understanding. OAuth live login/inference/renewal, service entitlement and
+  actual media/model availability remain unverified. No push or release occurred.
+
+This completes the current embedding/rerank/message-media restoration. It does
+not claim independent image/speech/video generation or transcription; their
+concrete next increments remain in the capability inventory. The registration
+sketch is a reviewable proposal, not a shipped framework or AI Gateway integration.

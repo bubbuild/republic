@@ -4,7 +4,8 @@ Republic is being rebuilt on `dev` as a small LLM provider SDK for Python,
 with Bub as its first integration target.
 
 The intended scope is typed messages and results, single-call generation and
-streaming, OpenAI and Anthropic protocol adapters, and concrete OAuth helpers
+streaming, independent embeddings/reranking, protocol-specific media inputs,
+OpenAI and Anthropic protocol adapters, and concrete OAuth helpers
 for GitHub Copilot, ChatGPT/Codex, and Grok using Authlib.
 
 Agent loops, local tool execution, tape persistence, and context orchestration
@@ -91,8 +92,13 @@ SDK and transport policies belong to the caller. Caller cancellation remains
 `asyncio.CancelledError`; premature stream exhaustion raises
 `IncompleteStreamError` and leaves partial output inspectable.
 
-See [embeddings](docs/embeddings.md) for the independent async capability and
-[restoration inventory](docs/capability-restoration.md) for the corrected scope.
+Independent async capabilities use separate request/result protocols:
+[OpenAI embeddings](docs/embeddings.md) and [direct Cohere v2 reranking](docs/reranking.md).
+[Message media inputs](docs/media-inputs.md) cover protocol-specific images, audio,
+video and documents, including Bub's durable input path. The
+[restoration inventory](docs/capability-restoration.md) lists later independent
+media operations; the [interface proposal](docs/capability-design.md) contains
+reviewable provider registration sketches, not an implemented registry.
 
 ## Development
 
@@ -113,7 +119,3 @@ See the plan's completion evidence for verification results and remaining limits
 [Apache License 2.0](LICENSE). [NOTICE](NOTICE) records Vercel AI Python, Bub and
 OpenAI Codex, Microsoft VS Code/Copilot Chat and SpaceXAI Grok Build sources, revisions, applicable
 copyrights/licenses, and Republic's changes.
-
-Independent document reranking uses the [direct Cohere v2 adapter](docs/reranking.md).
-
-[Message media inputs](docs/media-inputs.md) cover protocol-specific images, audio, video and documents.
