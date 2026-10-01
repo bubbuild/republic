@@ -1,79 +1,23 @@
 # Republic
 
-> [!WARNING]
-> This project is currently "archived/maintained"; the main work was implemented in [bub v0.4.x](https://github.com/bubbuild/bub/releases/tag/0.4.0).
+A Python library for AI providers.
 
-[![Release](https://img.shields.io/github/v/release/bubbuild/republic)](https://img.shields.io/github/v/release/bubbuild/republic)
-[![Build status](https://img.shields.io/github/actions/workflow/status/bubbuild/republic/main.yml?branch=main)](https://github.com/bubbuild/republic/actions/workflows/main.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/bubbuild/republic/branch/main/graph/badge.svg)](https://codecov.io/gh/bubbuild/republic)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/bubbuild/republic)](https://img.shields.io/github/commit-activity/m/bubbuild/republic)
-[![License](https://img.shields.io/github/license/bubbuild/republic)](https://img.shields.io/github/license/bubbuild/republic)
+> [!IMPORTANT]
+> Under reconstruction. This branch is a package scaffold with no provider API yet.
 
-Build LLM workflows like normal Python while keeping a full audit trail by default.
+[Pydantic AI](https://pydantic.dev/docs/ai/overview/) and [ai-python](https://github.com/vercel-labs/ai-python) include agent runtimes. [LiteLLM](https://docs.litellm.ai/docs/) and the [any-llm](https://github.com/mozilla-ai/any-llm)/[Otari](https://github.com/mozilla-ai/otari) ecosystem also provide gateways.
 
-> Visit https://getrepublic.org for concepts, guides, and API reference.
-
-Republic is a **tape-first** LLM client: messages, tool calls, tool results, errors, and usage are all recorded as structured data. You can make the workflow explicit first, then decide where intelligence should be added.
-
-## Quick Start
-
-```bash
-pip install republic
-```
-
-```python
-from __future__ import annotations
-
-import os
-
-from republic import LLM
-
-api_key = os.getenv("LLM_API_KEY")
-if not api_key:
-    raise RuntimeError("Set LLM_API_KEY before running this example.")
-
-llm = LLM(model="openrouter:openrouter/free", api_key=api_key)
-result = llm.chat("Describe Republic in one sentence.", max_tokens=48)
-print(result)
-```
-
-## Why It Feels Natural
-
-- **Plain Python**: The main flow is regular functions and branches, no extra DSL.
-- **Structured error handling**: Errors are explicit and typed, so retry and fallback logic stays deterministic.
-- **Tools without magic**: Supports both automatic and manual tool execution with clear debugging and auditing.
-- **Tape-first memory**: Use anchor/handoff to bound context windows and replay full evidence.
-- **Event streaming**: Subscribe to text deltas, tool calls, tool results, usage, and final state.
-
-## Authentication
-
-Republic supports:
-
-- static `api_key`
-- provider maps such as `api_key={"openai": "...", "anthropic": "..."}`
-- dynamic `api_key_resolver`
-- provider-specific OAuth resolvers for OpenAI Codex and GitHub Copilot
-
-Keep the README short and move auth setup into the docs:
-
-- Quickstart: [docs/quickstart.md](./docs/quickstart.md)
-- Authentication guide: [docs/guides/authentication.md](./docs/guides/authentication.md)
-- OpenAI Codex example: [examples/06_openai_codex_oauth.py](./examples/06_openai_codex_oauth.py)
-- GitHub Copilot example: [examples/07_github_copilot_oauth.py](./examples/07_github_copilot_oauth.py)
+Republic stops at providers. Gateways, agent loops, and tool execution stay out. Application logic stays in your code.
 
 ## Development
 
-```bash
+```sh
+uv sync
 make check
 make test
+make build
 ```
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for local setup, testing, and release guidance.
 
 ## License
 
-[Apache 2.0](./LICENSE)
-
----
-
-> This project is derived from [lightning-ai/litai](https://github.com/lightning-ai/litai) and inspired by [pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai); we hope you like them too.
+[Apache 2.0](LICENSE).
