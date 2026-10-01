@@ -1,1 +1,1 @@
-"""Test package for republic."""
+"""Tests for the Republic package scaffold."""

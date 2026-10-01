@@ -1,33 +1,17 @@
 [project]
 name = "republic"
 dynamic = ["version"]
-description = "Build LLM workflows like normal Python while keeping a full audit trail by default."
+description = "A Python library focused on AI providers. Under reconstruction."
 authors = [
     { name = "Chojan Shang", email = "psiace@apache.org" },
     { name = "Frost Ming", email = "me@frostming.com" },
 ]
 readme = "README.md"
-keywords = [
-    "ai",
-    "agents",
-    "any-llm",
-    "context",
-    "llm",
-    "openai",
-    "openrouter",
-    "python",
-    "routing",
-    "tape",
-    "tools",
-]
+keywords = ["ai", "ai-provider", "python"]
 requires-python = ">=3.11,<4.0"
-dependencies = [
-    "any-llm-sdk>=1.15.0",
-    "authlib>=1.6.5",
-    "httpx>=0.28.1",
-    "pydantic>=2.7.0",
-]
+dependencies = []
 classifiers = [
+    "Private :: Do Not Upload",
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -39,9 +23,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://getrepublic.org"
+Homepage = "https://github.com/bubbuild/republic"
 Repository = "https://github.com/bubbuild/republic"
-Documentation = "https://getrepublic.org"
+Issues = "https://github.com/bubbuild/republic/issues"
 
 [dependency-groups]
 dev = [
@@ -50,10 +34,6 @@ dev = [
     "tox-uv>=1.29.0",
     "ty>=0.0.8",
     "ruff>=0.14.10",
-    "mkdocs>=1.6.1",
-    "mkdocs-terminal>=4.8.0",
-    "mkdocstrings[python]>=1.0.0",
-    "pymdown-extensions>=10.12",
     "pytest-asyncio>=1.3.0",
     "prek>=0.3.2",
 ]
@@ -62,12 +42,8 @@ dev = [
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
-
 [tool.hatch.version]
 source = "vcs"
-
-[tool.hatch.build.hooks.vcs]
-version-file = "src/republic/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/republic"]
