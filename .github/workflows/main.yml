@@ -92,7 +92,7 @@ jobs:
         id: landing
         timeout-minutes: 20
         continue-on-error: true
-        uses: bubbuild/landing@b76d1640702fa840189b5107a334bb7c364c6c05
+        uses: bubbuild/landing@main
         env:
           GH_TOKEN: ${{ github.token }}
           LANDING_MODEL: ${{ vars.LANDING_MODEL }}

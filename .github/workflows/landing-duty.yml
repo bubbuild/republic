@@ -44,7 +44,7 @@ jobs:
       - name: Prepare Git authentication
         run: gh auth setup-git
       - name: Handle the delegation or native failure
-        uses: bubbuild/landing@b76d1640702fa840189b5107a334bb7c364c6c05
+        uses: bubbuild/landing@main
         env:
           LANDING_MODEL: ${{ vars.LANDING_MODEL }}
           LANDING_API_KEY: ${{ secrets.LANDING_API_KEY }}
