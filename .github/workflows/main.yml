@@ -94,13 +94,15 @@ jobs:
         continue-on-error: true
         uses: bubbuild/landing@main
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_ADMISSION_TOKEN: ${{ secrets.LANDING_ADMISSION_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.LANDING_GITHUB_TOKEN || github.token }}
           LANDING_MODEL: ${{ vars.LANDING_MODEL }}
           LANDING_API_KEY: ${{ secrets.LANDING_API_KEY }}
           LANDING_API_BASE: ${{ vars.LANDING_API_BASE }}
           LANDING_COMPLETION_ARGS: ${{ vars.LANDING_COMPLETION_ARGS || '{}' }}
           LANDING_MODEL_TIMEOUT_SECONDS: '120'
         with:
+          trust: ${{ vars.LANDING_TRUST || 'repository' }}
           command: review
           number: ${{ format('{0}', github.event.pull_request.number || inputs.number || 0) }}
           head: ${{ github.event.pull_request.head.sha || inputs.head || '' }}
