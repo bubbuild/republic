@@ -1,0 +1,69 @@
+name: Landing duty
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  workflow_run:
+    workflows: [Main]
+    types: [completed]
+
+jobs:
+  duty:
+    if: >-
+      vars.LANDING_MODEL != '' &&
+      ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' &&
+        (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+        github.event.workflow_run.head_branch == github.event.repository.default_branch) ||
+       contains(github.event.comment.body, '/landing'))
+    concurrency:
+      group: republic-duty-${{ github.repository_id }}-${{ github.event.issue.number || github.event.pull_request.number || github.event.workflow_run.id }}
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    env:
+      GH_ADMISSION_TOKEN: ${{ secrets.LANDING_ADMISSION_TOKEN || github.token }}
+      GH_TOKEN: ${{ secrets.LANDING_GITHUB_TOKEN || github.token }}
+      GIT_AUTHOR_NAME: ${{ vars.LANDING_GIT_NAME || 'github-actions[bot]' }}
+      GIT_AUTHOR_EMAIL: ${{ vars.LANDING_GIT_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}
+      GIT_COMMITTER_NAME: ${{ vars.LANDING_GIT_NAME || 'github-actions[bot]' }}
+      GIT_COMMITTER_EMAIL: ${{ vars.LANDING_GIT_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+      - name: Prepare Git authentication
+        run: gh auth setup-git
+      - name: Handle the delegation or native failure
+        uses: bubbuild/landing@main
+        env:
+          LANDING_MODEL: ${{ vars.LANDING_MODEL }}
+          LANDING_API_KEY: ${{ secrets.LANDING_API_KEY }}
+          LANDING_API_BASE: ${{ vars.LANDING_API_BASE }}
+          LANDING_COMPLETION_ARGS: ${{ vars.LANDING_COMPLETION_ARGS || '{}' }}
+          LANDING_MODEL_TIMEOUT_SECONDS: '120'
+        with:
+          trust: ${{ vars.LANDING_TRUST || 'repository' }}
+          command: triage
+          upstream-workflow: Main
+          checked-revision: ${{ github.event_name != 'workflow_run' && github.sha || '' }}
+          delivery-key: ${{ format('duty:{0}', github.event.comment.id || github.run_id) }}
+          instruction: >-
+            Triage only the triggering native failure. Read affected jobs through gh and reuse a matching issue; publish only useful new evidence, changed conditions or verified progress. Do not scan unrelated issues or resolved historical failures.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: landing-duty-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/landing/
+          retention-days: 30
+          if-no-files-found: warn

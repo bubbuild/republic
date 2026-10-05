@@ -1,11 +1,25 @@
 name: Main
 
 on:
+  workflow_dispatch:
+    inputs:
+      number:
+        description: Candidate PR number (zero for branch maintenance)
+        type: string
+        default: '0'
+      head:
+        description: Candidate head to review
+        type: string
+        default: ''
   push:
     branches:
       - dev
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: republic-ci-${{ github.repository_id }}-${{ github.event.pull_request.number || (inputs.number != '' && inputs.number != '0' && inputs.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (inputs.number != '' && inputs.number != '0') }}
 
 jobs:
   quality:
@@ -53,3 +67,57 @@ jobs:
 
       - name: Build package
         run: uv build
+
+  landing-feedback:
+    name: Landing review
+    needs: [quality, tests-and-type-check, build]
+    if: >-
+      always() && !cancelled() && vars.LANDING_MODEL != '' &&
+      ((github.event_name == 'pull_request' && !github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name == 'workflow_dispatch' && inputs.number != '' && inputs.number != '0'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+      - name: Review the candidate
+        id: landing
+        timeout-minutes: 20
+        continue-on-error: true
+        uses: bubbuild/landing@main
+        env:
+          GH_ADMISSION_TOKEN: ${{ secrets.LANDING_ADMISSION_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.LANDING_GITHUB_TOKEN || github.token }}
+          LANDING_MODEL: ${{ vars.LANDING_MODEL }}
+          LANDING_API_KEY: ${{ secrets.LANDING_API_KEY }}
+          LANDING_API_BASE: ${{ vars.LANDING_API_BASE }}
+          LANDING_COMPLETION_ARGS: ${{ vars.LANDING_COMPLETION_ARGS || '{}' }}
+          LANDING_MODEL_TIMEOUT_SECONDS: '120'
+        with:
+          trust: ${{ vars.LANDING_TRUST || 'repository' }}
+          command: review
+          number: ${{ format('{0}', github.event.pull_request.number || inputs.number || 0) }}
+          head: ${{ github.event.pull_request.head.sha || inputs.head || '' }}
+          checked-revision: ${{ github.sha }}
+          instruction: >-
+            Native checks: quality=${{ needs.quality.result }}, tests-and-type-check=${{ needs.tests-and-type-check.result }}, build=${{ needs.build.result }}.
+            Ignore the Landing review job when assessing native check completion.
+            Review affected user-visible behavior against repository guidance. Reuse these check results and relevant review history; investigate unresolved questions and publish useful findings or a brief clean verdict.
+      - name: Report unsuccessful feedback
+        if: ${{ !cancelled() && steps.landing.outcome == 'failure' }}
+        run: echo "::warning::Landing feedback failed. Inspect the task artifact; native checks determine acceptance."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: landing-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/landing/
+          retention-days: 30
+          if-no-files-found: warn
