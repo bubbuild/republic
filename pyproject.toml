@@ -9,7 +9,10 @@ authors = [
 readme = "README.md"
 keywords = ["ai", "ai-provider", "python"]
 requires-python = ">=3.11,<4.0"
-dependencies = []
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic>=2.13.5",
+]
 classifiers = [
     "Private :: Do Not Upload",
     "Intended Audience :: Developers",
@@ -27,6 +30,11 @@ Homepage = "https://github.com/bubbuild/republic"
 Repository = "https://github.com/bubbuild/republic"
 Issues = "https://github.com/bubbuild/republic/issues"
 
+[project.optional-dependencies]
+image = [
+    "pillow>=12.3.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
@@ -36,6 +44,7 @@ dev = [
     "ruff>=0.14.10",
     "pytest-asyncio>=1.3.0",
     "prek>=0.3.2",
+    "pillow>=12.3.0",
 ]
 
 [build-system]
@@ -58,7 +67,7 @@ exclude = ["refer", "site", ".venv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["asyncio: mark async tests"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py311"
@@ -103,6 +112,8 @@ ignore = [
     "E501",
     # DoNotAssignLambda
     "E731",
+    # RaiseVanillaArgs: contextual messages beat one exception class per message
+    "TRY003",
 ]
 
 [tool.ruff.lint.per-file-ignores]

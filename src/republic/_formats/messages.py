@@ -1,0 +1,267 @@
+"""The Anthropic Messages format."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterable, Mapping
+from typing import Any, ClassVar
+
+from republic._content import Image, Message, ProviderData, Text, Tool, Video
+from republic._errors import APIResponseError
+from republic._options import ReasoningEffort, ToolChoice
+from republic._response import FinishReason
+from republic.events import ReasoningDelta, RefusalDelta, TextDelta
+
+from .base import (
+    ChatApiFormat,
+    ChatRequest,
+    Delta,
+    HttpRequest,
+    ResponseInfo,
+    StreamParser,
+    ToolCallFragment,
+    UsageReport,
+    merge_same_role,
+    provider_payloads,
+    unsupported_media,
+)
+
+DEFAULT_MAX_TOKENS = 16000
+"""``max_tokens`` is required by the Messages API; this leaves room for long answers."""
+
+_ROUND_TRIP_BLOCKS = frozenset({"thinking", "redacted_thinking"})
+_STOP_REASONS: dict[str, FinishReason] = {
+    "end_turn": "stop",
+    "stop_sequence": "stop",
+    "max_tokens": "length",
+    "model_context_window_exceeded": "length",
+    "tool_use": "tool_calls",
+    "refusal": "refusal",
+}
+
+
+class MessagesFormat(ChatApiFormat):
+    name = "messages"
+    headers: ClassVar[Mapping[str, str]] = {"anthropic-version": "2023-06-01"}
+
+    def chat_request(self, request: ChatRequest, *, stream: bool) -> HttpRequest:
+        request.reject(self.name, "seed", "presence_penalty", "frequency_penalty")
+        options = request.options
+        body: dict[str, Any] = {
+            "model": request.model,
+            "max_tokens": options.get("max_tokens", DEFAULT_MAX_TOKENS),
+            "messages": merge_same_role(
+                [self._entry(message) for message in request.messages if message.role != "system"],
+                content_key="content",
+            ),
+        }
+        if system := "\n\n".join(message.text for message in request.messages if message.role == "system"):
+            body["system"] = system
+        if request.tools:
+            body["tools"] = [_tool(tool) for tool in request.tools]
+        if tool_choice := _tool_choice(options.get("tool_choice"), options.get("parallel_tool_calls")):
+            body["tool_choice"] = tool_choice
+        output_config: dict[str, Any] = {}
+        if request.output_schema is not None:
+            output_config["format"] = {"type": "json_schema", "schema": _closed_objects(request.output_schema.schema)}
+        effort = options.get("reasoning_effort")
+        if effort not in (None, "none"):
+            output_config["effort"] = effort
+        if output_config:
+            body["output_config"] = output_config
+        if thinking := _thinking(effort, include_reasoning=options.get("include_reasoning", False)):
+            body["thinking"] = thinking
+        body.update(request.renamed({"temperature": "temperature", "top_p": "top_p", "top_k": "top_k"}))
+        if (stop := options.get("stop")) is not None:
+            body["stop_sequences"] = list(stop)
+        if stream:
+            body["stream"] = True
+        return HttpRequest("/messages", request.body(body))
+
+    def parse_chat(self, data: Mapping[str, Any]) -> Iterable[Delta]:
+        for block in data["content"]:
+            match block["type"]:
+                case "text":
+                    yield TextDelta(block["text"])
+                case "tool_use":
+                    yield ToolCallFragment(
+                        block["id"],
+                        id=block["id"],
+                        name=block["name"],
+                        arguments=json.dumps(block["input"]),
+                        done=True,
+                    )
+                case block_type if block_type in _ROUND_TRIP_BLOCKS:
+                    if thinking := block.get("thinking"):
+                        yield ReasoningDelta(thinking)
+                    yield ProviderData(self.name, block)
+        yield from _stop_deltas(data)
+        yield ResponseInfo(id=data.get("id"), model=data.get("model"))
+        yield _usage(data["usage"])
+
+    def stream_parser(self) -> StreamParser:
+        return _MessagesStreamParser()
+
+    def _entry(self, message: Message) -> dict[str, Any]:
+        if message.role == "tool":
+            return {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": result.call.id,
+                        "content": result.output,
+                        "is_error": result.is_error,
+                    }
+                    for result in message.tool_results
+                ],
+            }
+        if message.role == "user":
+            return {"role": "user", "content": [_user_block(part) for part in message.parts]}
+        content: list[Mapping[str, Any]] = provider_payloads(message, self.name)
+        if message.text:
+            content.append({"type": "text", "text": message.text})
+        content.extend(
+            {"type": "tool_use", "id": call.id, "name": call.name, "input": call.args} for call in message.tool_calls
+        )
+        return {"role": "assistant", "content": content}
+
+
+class _MessagesStreamParser(StreamParser):
+    def __init__(self) -> None:
+        self._blocks: dict[int, dict[str, Any]] = {}
+        self._tool_indexes: set[int] = set()
+
+    def feed(self, event: str, data: str) -> Iterable[Delta]:
+        payload = json.loads(data)
+        match payload["type"]:
+            case "message_start":
+                message = payload["message"]
+                yield ResponseInfo(id=message.get("id"), model=message.get("model"))
+                yield _usage(message["usage"])
+            case "content_block_start":
+                yield from self._start(payload["index"], payload["content_block"])
+            case "content_block_delta":
+                yield from self._delta(payload["index"], payload["delta"])
+            case "content_block_stop":
+                index = payload["index"]
+                if block := self._blocks.pop(index, None):
+                    yield ProviderData(MessagesFormat.name, block)
+                if index in self._tool_indexes:
+                    yield ToolCallFragment(index, done=True)
+            case "message_delta":
+                yield from _stop_deltas(payload["delta"])
+                yield _usage(payload["usage"])
+            case "error":
+                raise APIResponseError(json.dumps(payload["error"]))
+
+    def _start(self, index: int, block: Mapping[str, Any]) -> Iterable[Delta]:
+        match block["type"]:
+            case "text" if block["text"]:
+                yield TextDelta(block["text"])
+            case "tool_use":
+                self._tool_indexes.add(index)
+                yield ToolCallFragment(index, id=block["id"], name=block["name"])
+            case block_type if block_type in _ROUND_TRIP_BLOCKS:
+                self._blocks[index] = dict(block)
+
+    def _delta(self, index: int, delta: Mapping[str, Any]) -> Iterable[Delta]:
+        match delta["type"]:
+            case "text_delta":
+                yield TextDelta(delta["text"])
+            case "input_json_delta":
+                yield ToolCallFragment(index, arguments=delta["partial_json"])
+            case "thinking_delta":
+                block = self._blocks[index]
+                block["thinking"] = block.get("thinking", "") + delta["thinking"]
+                yield ReasoningDelta(delta["thinking"])
+            case "signature_delta":
+                self._blocks[index]["signature"] = delta["signature"]
+
+
+def _tool(tool: Tool) -> dict[str, Any]:
+    definition = {"name": tool.name, "description": tool.description, "input_schema": tool.parameters}
+    if tool.strict:
+        definition["strict"] = True
+    return definition
+
+
+def _thinking(effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any] | None:
+    """Thinking must be enabled explicitly on some models; ``display`` makes it readable."""
+    if effort == "none":
+        return {"type": "disabled"}
+    if effort is None and not include_reasoning:
+        return None
+    thinking: dict[str, Any] = {"type": "adaptive"}
+    if include_reasoning:
+        thinking["display"] = "summarized"
+    return thinking
+
+
+def _stop_deltas(message: Mapping[str, Any]) -> Iterable[Delta]:
+    stop_reason = message.get("stop_reason")
+    if stop_reason is None:
+        return
+    if stop_reason == "refusal" and (explanation := (message.get("stop_details") or {}).get("explanation")):
+        yield RefusalDelta(explanation)
+    yield ResponseInfo(finish_reason=_STOP_REASONS.get(stop_reason, "other"))
+
+
+def _tool_choice(tool_choice: ToolChoice | None, parallel_tool_calls: bool | None) -> dict[str, Any] | None:
+    match tool_choice:
+        case None if parallel_tool_calls is None:
+            return None
+        case None | "auto":
+            choice: dict[str, Any] = {"type": "auto"}
+        case "none":
+            return {"type": "none"}
+        case "required":
+            choice = {"type": "any"}
+        case Tool(name=name):
+            choice = {"type": "tool", "name": name}
+    if parallel_tool_calls is not None:
+        choice["disable_parallel_tool_use"] = not parallel_tool_calls
+    return choice
+
+
+def _user_block(part: object) -> dict[str, Any]:
+    match part:
+        case Text(text=text):
+            return {"type": "text", "text": text}
+        case Image(url=str() as url):
+            return {"type": "image", "source": {"type": "url", "url": url}}
+        case Image():
+            return {
+                "type": "image",
+                "source": {"type": "base64", "media_type": part.media_type, "data": part.base64_data},
+            }
+        case Video():
+            raise unsupported_media(MessagesFormat.name, "video")
+    raise TypeError(f"Unexpected user content: {part!r}")
+
+
+def _usage(usage: Mapping[str, Any]) -> UsageReport:
+    cached_tokens = usage.get("cache_read_input_tokens")
+    cache_write_tokens = usage.get("cache_creation_input_tokens")
+    input_tokens = usage.get("input_tokens")
+    if input_tokens is not None:
+        # Anthropic reports cache reads and writes apart from the uncached input.
+        input_tokens += (cached_tokens or 0) + (cache_write_tokens or 0)
+    return UsageReport(
+        input_tokens=input_tokens,
+        output_tokens=usage.get("output_tokens"),
+        cached_tokens=cached_tokens,
+        cache_write_tokens=cache_write_tokens,
+    )
+
+
+def _closed_objects(schema: Any) -> Any:
+    """Structured outputs require ``additionalProperties: false`` on every object schema."""
+    if isinstance(schema, Mapping):
+        closed = {key: _closed_objects(value) for key, value in schema.items()}
+        if closed.get("type") == "object":
+            closed.setdefault("additionalProperties", False)
+        return closed
+    if isinstance(schema, list):
+        return [_closed_objects(item) for item in schema]
+    return schema

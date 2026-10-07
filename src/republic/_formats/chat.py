@@ -1,0 +1,207 @@
+"""The OpenAI Chat Completions format, widely adopted by compatible gateways."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterable, Mapping
+from typing import Any
+
+from republic._content import Image, Message, Text, Tool, Video, media_from_data_url
+from republic._errors import APIResponseError
+from republic._response import FinishReason
+from republic.events import ImageReady, ReasoningDelta, RefusalDelta, TextDelta
+
+from .base import (
+    ChatApiFormat,
+    ChatRequest,
+    Delta,
+    HttpRequest,
+    ResponseInfo,
+    StreamParser,
+    ToolCallFragment,
+    UsageReport,
+)
+
+_FINISH_REASONS: dict[str, FinishReason] = {
+    "stop": "stop",
+    "length": "length",
+    "tool_calls": "tool_calls",
+    "function_call": "tool_calls",
+    "content_filter": "content_filter",
+}
+
+
+class ChatFormat(ChatApiFormat):
+    name = "chat"
+
+    def chat_request(self, request: ChatRequest, *, stream: bool) -> HttpRequest:
+        body: dict[str, Any] = {
+            "model": request.model,
+            "messages": [entry for message in request.messages for entry in _message_entries(message)],
+        }
+        if request.tools:
+            body["tools"] = [_tool(tool) for tool in request.tools]
+        if (tool_choice := request.options.get("tool_choice")) is not None:
+            body["tool_choice"] = (
+                {"type": "function", "function": {"name": tool_choice.name}}
+                if isinstance(tool_choice, Tool)
+                else tool_choice
+            )
+        if request.output_schema is not None:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": request.output_schema.name, "schema": request.output_schema.schema},
+            }
+        body.update(
+            request.renamed({
+                "max_tokens": "max_completion_tokens",
+                "temperature": "temperature",
+                "top_p": "top_p",
+                # Not part of the OpenAI API, but accepted by most compatible servers.
+                "top_k": "top_k",
+                "presence_penalty": "presence_penalty",
+                "frequency_penalty": "frequency_penalty",
+                "seed": "seed",
+                "reasoning_effort": "reasoning_effort",
+                "parallel_tool_calls": "parallel_tool_calls",
+            })
+        )
+        if (stop := request.options.get("stop")) is not None:
+            body["stop"] = list(stop)
+        if stream:
+            body["stream"] = True
+            body["stream_options"] = {"include_usage": True}
+        return HttpRequest("/chat/completions", request.body(body))
+
+    def parse_chat(self, data: Mapping[str, Any]) -> Iterable[Delta]:
+        _raise_for_error(data)
+        choice = data["choices"][0]
+        message = choice["message"]
+        if reasoning := _reasoning(message):
+            yield ReasoningDelta(reasoning)
+        if content := message.get("content"):
+            yield TextDelta(content)
+        if refusal := message.get("refusal"):
+            yield RefusalDelta(refusal)
+        yield from _image_deltas(message)
+        for call in message.get("tool_calls") or ():
+            function = call["function"]
+            yield ToolCallFragment(
+                call["id"], id=call["id"], name=function["name"], arguments=function["arguments"], done=True
+            )
+        yield _info(data, choice)
+        if usage := data.get("usage"):
+            yield _usage(usage)
+
+    def stream_parser(self) -> StreamParser:
+        return _ChatStreamParser()
+
+
+class _ChatStreamParser(StreamParser):
+    def feed(self, event: str, data: str) -> Iterable[Delta]:
+        if data == "[DONE]":
+            return
+        chunk = json.loads(data)
+        _raise_for_error(chunk)
+        for choice in chunk.get("choices") or ():
+            delta = choice.get("delta") or {}
+            if reasoning := _reasoning(delta):
+                yield ReasoningDelta(reasoning)
+            if content := delta.get("content"):
+                yield TextDelta(content)
+            if refusal := delta.get("refusal"):
+                yield RefusalDelta(refusal)
+            yield from _image_deltas(delta)
+            for call in delta.get("tool_calls") or ():
+                function = call.get("function") or {}
+                # Calls complete only when the response ends; the builder releases them then.
+                yield ToolCallFragment(
+                    call.get("index", 0),
+                    id=call.get("id"),
+                    name=function.get("name"),
+                    arguments=function.get("arguments") or "",
+                )
+            yield _info(chunk, choice)
+        if usage := chunk.get("usage"):
+            yield _usage(usage)
+
+
+def _message_entries(message: Message) -> list[dict[str, Any]]:
+    match message.role:
+        case "system":
+            return [{"role": "system", "content": message.text}]
+        case "user":
+            return [{"role": "user", "content": _user_content(message)}]
+        case "assistant":
+            entry: dict[str, Any] = {"role": "assistant", "content": message.text or None}
+            if message.tool_calls:
+                entry["tool_calls"] = [
+                    {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": call.arguments}}
+                    for call in message.tool_calls
+                ]
+            return [entry]
+        case "tool":
+            return [
+                {"role": "tool", "tool_call_id": result.call.id, "content": result.output}
+                for result in message.tool_results
+            ]
+
+
+def _user_content(message: Message) -> str | list[dict[str, Any]]:
+    if all(isinstance(part, Text) for part in message.parts):
+        return message.text
+    content: list[dict[str, Any]] = []
+    for part in message.parts:
+        match part:
+            case Text(text=text):
+                content.append({"type": "text", "text": text})
+            case Image():
+                content.append({"type": "image_url", "image_url": {"url": part.data_url}})
+            case Video():
+                content.append({"type": "video_url", "video_url": {"url": part.data_url}})
+    return content
+
+
+def _tool(tool: Tool) -> dict[str, Any]:
+    function = {"name": tool.name, "description": tool.description, "parameters": tool.parameters}
+    if tool.strict:
+        function["strict"] = True
+    return {"type": "function", "function": function}
+
+
+def _info(data: Mapping[str, Any], choice: Mapping[str, Any]) -> ResponseInfo:
+    finish_reason = choice.get("finish_reason")
+    return ResponseInfo(
+        id=data.get("id"),
+        model=data.get("model"),
+        finish_reason=None if finish_reason is None else _FINISH_REASONS.get(finish_reason, "other"),
+    )
+
+
+def _reasoning(message: Mapping[str, Any]) -> str | None:
+    """Reasoning text as exposed by compatible servers (vLLM, DeepSeek) and gateways (OpenRouter)."""
+    return message.get("reasoning_content") or message.get("reasoning")
+
+
+def _image_deltas(message: Mapping[str, Any]) -> Iterable[Delta]:
+    """Images returned by gateways such as OpenRouter."""
+    for item in message.get("images") or ():
+        url = item["image_url"]["url"]
+        image = media_from_data_url(Image, url) if url.startswith("data:") else Image("image/png", url=url)
+        yield ImageReady(image)
+
+
+def _usage(usage: Mapping[str, Any]) -> UsageReport:
+    input_details = usage.get("prompt_tokens_details") or {}
+    output_details = usage.get("completion_tokens_details") or {}
+    return UsageReport(
+        input_tokens=usage.get("prompt_tokens"),
+        output_tokens=usage.get("completion_tokens"),
+        reasoning_tokens=output_details.get("reasoning_tokens"),
+        cached_tokens=input_details.get("cached_tokens"),
+    )
+
+
+def _raise_for_error(data: Mapping[str, Any]) -> None:
+    if error := data.get("error"):
+        raise APIResponseError(json.dumps(error))

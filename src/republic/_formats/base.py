@@ -1,0 +1,311 @@
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import Hashable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Any, ClassVar
+
+from republic._content import Image, Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
+from republic._errors import UnsupportedFeatureError
+from republic._options import ChatOptions
+from republic._response import EmbeddingResponse, FinishReason, Response, TokenUsage
+from republic.decisions import DecisionResponse, JSONValue, Question
+from republic.events import (
+    Event,
+    ImageReady,
+    ReasoningDelta,
+    RefusalDelta,
+    TextDelta,
+    ToolCallDelta,
+    ToolCallReady,
+    UsageDelta,
+)
+
+
+@dataclass(frozen=True)
+class OutputSchema:
+    name: str
+    schema: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class ChatRequest:
+    model: str
+    messages: Sequence[Message]
+    """Normalized messages; see :func:`normalize`."""
+    options: ChatOptions
+    output_schema: OutputSchema | None = None
+
+    @property
+    def tools(self) -> Sequence[Tool]:
+        return self.options.get("tools", ())
+
+    def reject(self, api_format: str, *unsupported: str) -> None:
+        """Raise if any option this API format cannot express was set."""
+        if rejected := [name for name in unsupported if name in self.options]:
+            raise UnsupportedFeatureError(f"The {api_format!r} API format does not support {', '.join(rejected)}")
+
+    def renamed(self, wire_names: Mapping[str, str]) -> dict[str, Any]:
+        """Options that map one-to-one onto wire fields, keyed by their wire names."""
+        return {wire_names[name]: value for name, value in self.options.items() if name in wire_names}
+
+    def body(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Merge ``extra_body`` over the body built by the API format."""
+        return {**body, **self.options.get("extra_body", {})}
+
+
+@dataclass(frozen=True)
+class HttpRequest:
+    path: str
+    body: Mapping[str, Any]
+    params: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ToolCallFragment:
+    """Part of a tool call. Fragments sharing a key are concatenated.
+
+    ``done`` marks the call complete; calls never marked complete are
+    released when the response ends.
+    """
+
+    key: Hashable
+    id: str | None = None
+    name: str | None = None
+    arguments: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    done: bool = False
+
+
+@dataclass(frozen=True)
+class UsageReport:
+    """Cumulative usage reported so far. ``None`` keeps the previously reported value."""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cached_tokens: int | None = None
+    cache_write_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class ResponseInfo:
+    """Response metadata. ``None`` keeps the previously reported value."""
+
+    id: str | None = None
+    model: str | None = None
+    finish_reason: FinishReason | None = None
+
+
+Delta = (
+    TextDelta
+    | ReasoningDelta
+    | RefusalDelta
+    | ImageReady
+    | ToolCallFragment
+    | UsageReport
+    | ResponseInfo
+    | ProviderData
+)
+
+
+class StreamParser(ABC):
+    """Turns server-sent events of one response into deltas."""
+
+    @abstractmethod
+    def feed(self, event: str, data: str) -> Iterable[Delta]: ...
+
+
+class ApiFormat(ABC):
+    """One wire protocol. Each kind of model picks among the formats of its own kind."""
+
+    name: ClassVar[str]
+    kind: ClassVar[str]
+    headers: ClassVar[Mapping[str, str]] = {}
+
+
+class ChatApiFormat(ApiFormat):
+    kind = "chat"
+
+    @abstractmethod
+    def chat_request(self, request: ChatRequest, *, stream: bool) -> HttpRequest: ...
+
+    @abstractmethod
+    def parse_chat(self, data: Mapping[str, Any]) -> Iterable[Delta]: ...
+
+    @abstractmethod
+    def stream_parser(self) -> StreamParser: ...
+
+
+class EmbeddingApiFormat(ApiFormat):
+    kind = "embedding"
+
+    @abstractmethod
+    def embedding_request(self, model: str, texts: Sequence[str], *, dimensions: int | None) -> HttpRequest: ...
+
+    @abstractmethod
+    def parse_embedding(self, data: Mapping[str, Any]) -> EmbeddingResponse: ...
+
+
+class DecisionApiFormat(ApiFormat):
+    kind = "decision"
+
+    @abstractmethod
+    def decision_request(self, model: str, state: JSONValue, questions: Mapping[str, Question]) -> HttpRequest: ...
+
+    @abstractmethod
+    def parse_decision(self, data: Mapping[str, Any]) -> DecisionResponse: ...
+
+
+@dataclass
+class _PartialCall:
+    id: str = ""
+    name: str = ""
+    arguments: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    released: bool = False
+
+    def build(self) -> ToolCall:
+        return ToolCall(self.id, self.name, "".join(self.arguments) or "{}", metadata=self.metadata)
+
+
+class ResponseBuilder:
+    """Accumulates deltas into the final response and yields the public events they produce."""
+
+    def __init__(self) -> None:
+        self._text: list[str] = []
+        self._reasoning: list[str] = []
+        self._refusal: list[str] = []
+        self._images: list[Image] = []
+        self._provider_data: list[ProviderData] = []
+        self._calls: dict[Hashable, _PartialCall] = {}
+        self._usage = TokenUsage()
+        self._info = ResponseInfo()
+
+    def add(self, delta: Delta) -> list[Event]:
+        """Record a delta and return the public events it produces."""
+        match delta:
+            case TextDelta(chunk=chunk):
+                self._text.append(chunk)
+                return [delta]
+            case ReasoningDelta(chunk=chunk):
+                self._reasoning.append(chunk)
+                return [delta]
+            case RefusalDelta(chunk=chunk):
+                self._refusal.append(chunk)
+                return [delta]
+            case ImageReady(image=image):
+                self._images.append(image)
+                return [delta]
+            case ProviderData():
+                self._provider_data.append(delta)
+                return []
+            case ToolCallFragment():
+                return self._add_fragment(delta)
+            case UsageReport():
+                previous, self._usage = self._usage, replace(self._usage, **_reported(delta))
+                return [UsageDelta(_subtract(self._usage, previous))] if self._usage != previous else []
+            case ResponseInfo():
+                self._info = replace(self._info, **_reported(delta))
+                return []
+
+    def release_tool_calls(self) -> list[Event]:
+        """Release calls whose completion the API format does not signal."""
+        return [event for key in self._calls for event in self._add_fragment(ToolCallFragment(key, done=True))]
+
+    def response(self, output: Any = None) -> Response[Any]:
+        return Response(
+            self.message,
+            self._usage,
+            output,
+            finish_reason=self.finish_reason,
+            refusal="".join(self._refusal) or None,
+            id=self._info.id,
+            model=self._info.model,
+        )
+
+    @property
+    def message(self) -> Message:
+        parts: list[Part] = [*self._provider_data]
+        if reasoning := "".join(self._reasoning):
+            parts.append(Reasoning(reasoning))
+        if text := "".join(self._text):
+            parts.append(Text(text))
+        parts.extend(self._images)
+        calls = tuple(call.build() for call in self._calls.values())
+        return Message("assistant", tuple(parts), tool_calls=calls)
+
+    @property
+    def finish_reason(self) -> FinishReason | None:
+        reason = self._info.finish_reason
+        if reason not in (None, "stop"):
+            return reason
+        if self._refusal:
+            return "refusal"
+        if self._calls:
+            return "tool_calls"
+        return reason
+
+    def _add_fragment(self, fragment: ToolCallFragment) -> list[Event]:
+        call = self._calls.setdefault(fragment.key, _PartialCall())
+        call.id = fragment.id or call.id
+        call.name = fragment.name or call.name
+        call.arguments.append(fragment.arguments)
+        call.metadata.update(fragment.metadata)
+        events: list[Event] = []
+        if fragment.arguments:
+            events.append(ToolCallDelta(call.id, call.name, fragment.arguments))
+        if fragment.done and not call.released:
+            call.released = True
+            events.append(ToolCallReady(call.build()))
+        return events
+
+
+def _reported(report: UsageReport | ResponseInfo) -> dict[str, Any]:
+    return {name: value for name, value in vars(report).items() if value is not None}
+
+
+def _subtract(current: TokenUsage, previous: TokenUsage) -> TokenUsage:
+    return TokenUsage(**{name: value - getattr(previous, name) for name, value in vars(current).items()})
+
+
+def normalize(messages: Iterable[Message]) -> list[Message]:
+    """Split tool results into ``tool`` messages that follow their calls.
+
+    An assistant message carrying tool results also announces their calls,
+    unless an earlier assistant message already did.
+    """
+    normalized: list[Message] = []
+    announced: set[str] = set()
+    for message in messages:
+        if message.role != "assistant":
+            normalized.append(message)
+            continue
+        result_calls = [result.call for result in message.tool_results]
+        calls = [call for call in (*message.tool_calls, *result_calls) if call.id not in announced]
+        announced.update(call.id for call in calls)
+        if message.parts or calls:
+            normalized.append(Message("assistant", message.parts, tool_calls=tuple(dict.fromkeys(calls))))
+        if message.tool_results:
+            normalized.append(Message("tool", tool_results=message.tool_results))
+    return normalized
+
+
+def merge_same_role(entries: list[dict[str, Any]], *, content_key: str) -> list[dict[str, Any]]:
+    """Merge consecutive entries of the same role by concatenating their content lists."""
+    merged: list[dict[str, Any]] = []
+    for entry in entries:
+        if merged and merged[-1]["role"] == entry["role"]:
+            merged[-1] = {**merged[-1], content_key: [*merged[-1][content_key], *entry[content_key]]}
+        else:
+            merged.append(entry)
+    return merged
+
+
+def provider_payloads(message: Message, api_format: str) -> list[Mapping[str, Any]]:
+    """Opaque items this API format produced earlier in the conversation."""
+    return [part.payload for part in message.parts if isinstance(part, ProviderData) and part.api_format == api_format]
+
+
+def unsupported_media(api_format: str, kind: str) -> UnsupportedFeatureError:
+    return UnsupportedFeatureError(f"The {api_format!r} API format does not accept {kind} input")
