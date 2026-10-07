@@ -6,14 +6,15 @@ import base64
 import itertools
 import json
 import uuid
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
-from republic._content import Image, Message, Text, Tool, ToolResult, Video, _Media
+from republic._content import Image, Message, ProviderData, Text, Tool, ToolResult, Video, _Media
 from republic._errors import APIResponseError, UnsupportedFeatureError
 from republic._options import ToolChoice
-from republic._response import FinishReason
-from republic.events import ImageReady, ReasoningDelta, TextDelta
+from republic._response import BuiltinToolCall, Citation, FinishReason
+from republic.events import BuiltinToolCallReady, CitationAdded, ImageReady, ReasoningDelta, TextDelta
+from republic.tools import BuiltinTool, CodeExecution, NativeTool, WebFetch, WebSearch
 
 from .base import (
     ChatApiFormat,
@@ -25,6 +26,8 @@ from .base import (
     ToolCallFragment,
     UsageReport,
     merge_same_role,
+    provider_payloads,
+    unsupported_tool,
 )
 
 # Gemini only sends call ids for some models. Keep the original so a generated
@@ -58,15 +61,8 @@ class GeminiFormat(ChatApiFormat):
         }
         if system := "\n\n".join(message.text for message in request.messages if message.role == "system"):
             body["systemInstruction"] = {"parts": [{"text": system}]}
-        if request.tools:
-            body["tools"] = [
-                {
-                    "functionDeclarations": [
-                        {"name": tool.name, "description": tool.description, "parametersJsonSchema": tool.parameters}
-                        for tool in request.tools
-                    ]
-                }
-            ]
+        if tools := _tools(request, self.name):
+            body["tools"] = tools
         if (tool_choice := options.get("tool_choice")) is not None:
             body["toolConfig"] = {"functionCallingConfig": _function_calling_config(tool_choice)}
         if config := _generation_config(request):
@@ -78,41 +74,126 @@ class GeminiFormat(ChatApiFormat):
         return HttpRequest(f"/models/{request.model}:generateContent", request.body(body))
 
     def parse_chat(self, data: Mapping[str, Any]) -> Iterable[Delta]:
-        return _chunk_deltas(data, itertools.count())
+        return _GeminiStreamParser().chunk_deltas(data)
 
     def stream_parser(self) -> StreamParser:
         return _GeminiStreamParser()
 
 
 class _GeminiStreamParser(StreamParser):
+    """Parses response chunks; a full response is a single chunk."""
+
     def __init__(self) -> None:
         self._call_keys = itertools.count()
+        self._pending_code: Mapping[str, Any] | None = None
 
     def feed(self, event: str, data: str) -> Iterable[Delta]:
-        return _chunk_deltas(json.loads(data), self._call_keys)
+        return self.chunk_deltas(json.loads(data))
+
+    def chunk_deltas(self, data: Mapping[str, Any]) -> Iterable[Delta]:
+        if error := data.get("error"):
+            raise APIResponseError(json.dumps(error))
+        candidates = data.get("candidates") or ()
+        if not candidates and (feedback := data.get("promptFeedback", {}).get("blockReason")):
+            raise APIResponseError(f"Prompt blocked: {feedback}")
+        finish_reason: FinishReason | None = None
+        for candidate in candidates[:1]:
+            for part in candidate.get("content", {}).get("parts") or ():
+                yield from self._part_deltas(part)
+            yield from _grounding_deltas(candidate)
+            if reason := candidate.get("finishReason"):
+                finish_reason = _finish_reason(reason)
+        yield ResponseInfo(id=data.get("responseId"), model=data.get("modelVersion"), finish_reason=finish_reason)
+        if usage := data.get("usageMetadata"):
+            yield _usage(usage)
+
+    def _part_deltas(self, part: Mapping[str, Any]) -> Iterable[Delta]:
+        if part.get("thought"):
+            # Thought summaries, returned when thinkingConfig.includeThoughts is set.
+            if text := part.get("text"):
+                yield ReasoningDelta(text)
+        elif "text" in part:
+            yield TextDelta(part["text"])
+        elif call := part.get("functionCall"):
+            yield _function_call_fragment(part, call, next(self._call_keys))
+        elif (inline := part.get("inlineData")) and inline["mimeType"].startswith("image/"):
+            yield ImageReady(Image(inline["mimeType"], data=base64.b64decode(inline["data"])))
+        elif "executableCode" in part:
+            self._pending_code = part["executableCode"]
+            yield ProviderData(GeminiFormat.name, part)
+        elif "codeExecutionResult" in part:
+            code, self._pending_code = self._pending_code or {}, None
+            yield BuiltinToolCallReady(
+                BuiltinToolCall("code_execution", input=code, output=part["codeExecutionResult"])
+            )
+            yield ProviderData(GeminiFormat.name, part)
 
 
-def _chunk_deltas(data: Mapping[str, Any], call_keys: Iterator[int]) -> Iterable[Delta]:
-    if error := data.get("error"):
-        raise APIResponseError(json.dumps(error))
-    candidates = data.get("candidates") or ()
-    if not candidates and (feedback := data.get("promptFeedback", {}).get("blockReason")):
-        raise APIResponseError(f"Prompt blocked: {feedback}")
-    finish_reason: FinishReason | None = None
-    for candidate in candidates[:1]:
-        for part in candidate.get("content", {}).get("parts") or ():
-            yield from _part_deltas(part, call_keys)
-        if reason := candidate.get("finishReason"):
-            finish_reason = _finish_reason(reason)
-    yield ResponseInfo(id=data.get("responseId"), model=data.get("modelVersion"), finish_reason=finish_reason)
-    if usage := data.get("usageMetadata"):
-        thoughts_tokens = usage.get("thoughtsTokenCount", 0)
-        yield UsageReport(
-            input_tokens=usage.get("promptTokenCount"),
-            output_tokens=usage.get("candidatesTokenCount", 0) + thoughts_tokens,
-            reasoning_tokens=thoughts_tokens,
-            cached_tokens=usage.get("cachedContentTokenCount"),
-        )
+def _function_call_fragment(part: Mapping[str, Any], call: Mapping[str, Any], key: int) -> ToolCallFragment:
+    metadata = {}
+    if call_id := call.get("id"):
+        metadata[_CALL_ID] = call_id
+    if signature := part.get("thoughtSignature"):
+        metadata[_THOUGHT_SIGNATURE] = signature
+    return ToolCallFragment(
+        key,
+        id=call_id or f"call_{uuid.uuid4().hex}",
+        name=call["name"],
+        arguments=json.dumps(call.get("args") or {}),
+        metadata=metadata,
+        done=True,
+    )
+
+
+def _grounding_deltas(candidate: Mapping[str, Any]) -> Iterable[Delta]:
+    """Search and URL context report what they did as metadata, not as parts."""
+    grounding = candidate.get("groundingMetadata") or {}
+    if queries := grounding.get("webSearchQueries"):
+        yield BuiltinToolCallReady(BuiltinToolCall("web_search", input={"queries": queries}))
+    for chunk in grounding.get("groundingChunks") or ():
+        if web := chunk.get("web"):
+            yield CitationAdded(Citation(web["uri"], title=web.get("title")))
+    if url_metadata := (candidate.get("urlContextMetadata") or {}).get("urlMetadata"):
+        urls = [entry.get("retrievedUrl") for entry in url_metadata]
+        yield BuiltinToolCallReady(BuiltinToolCall("web_fetch", input={"urls": urls}, output=url_metadata))
+
+
+def _usage(usage: Mapping[str, Any]) -> UsageReport:
+    thoughts_tokens = usage.get("thoughtsTokenCount", 0)
+    return UsageReport(
+        input_tokens=usage.get("promptTokenCount"),
+        output_tokens=usage.get("candidatesTokenCount", 0) + thoughts_tokens,
+        reasoning_tokens=thoughts_tokens,
+        cached_tokens=usage.get("cachedContentTokenCount"),
+    )
+
+
+def _tools(request: ChatRequest, api_format: str) -> list[Mapping[str, Any]]:
+    tools: list[Mapping[str, Any]] = []
+    if request.tools:
+        declarations = [
+            {"name": tool.name, "description": tool.description, "parametersJsonSchema": tool.parameters}
+            for tool in request.tools
+        ]
+        tools.append({"functionDeclarations": declarations})
+    tools.extend(_builtin_tool(tool, api_format) for tool in request.builtin_tools(api_format))
+    return tools
+
+
+def _builtin_tool(tool: BuiltinTool, api_format: str) -> Mapping[str, Any]:
+    match tool:
+        case NativeTool(definition=definition):
+            return definition
+        case WebSearch() | WebFetch() if any(vars(tool).values()):
+            # Gemini's search and URL context tools take no settings.
+            raise unsupported_tool(api_format, tool, "settings")
+        case WebSearch():
+            return {"googleSearch": {}}
+        case WebFetch():
+            return {"urlContext": {}}
+        case CodeExecution():
+            return {"codeExecution": {}}
+    raise unsupported_tool(api_format, tool)
 
 
 def _generation_config(request: ChatRequest) -> dict[str, Any]:
@@ -151,32 +232,6 @@ def _finish_reason(reason: str) -> FinishReason:
     return "other"
 
 
-def _part_deltas(part: Mapping[str, Any], call_keys: Iterator[int]) -> Iterable[Delta]:
-    if part.get("thought"):
-        # Thought summaries, returned when thinkingConfig.includeThoughts is set.
-        if text := part.get("text"):
-            yield ReasoningDelta(text)
-        return
-    if "text" in part:
-        yield TextDelta(part["text"])
-    elif call := part.get("functionCall"):
-        metadata = {}
-        if call_id := call.get("id"):
-            metadata[_CALL_ID] = call_id
-        if signature := part.get("thoughtSignature"):
-            metadata[_THOUGHT_SIGNATURE] = signature
-        yield ToolCallFragment(
-            next(call_keys),
-            id=call_id or f"call_{uuid.uuid4().hex}",
-            name=call["name"],
-            arguments=json.dumps(call.get("args") or {}),
-            metadata=metadata,
-            done=True,
-        )
-    elif (inline := part.get("inlineData")) and inline["mimeType"].startswith("image/"):
-        yield ImageReady(Image(inline["mimeType"], data=base64.b64decode(inline["data"])))
-
-
 def _function_calling_config(tool_choice: ToolChoice) -> dict[str, Any]:
     match tool_choice:
         case Tool(name=name):
@@ -190,7 +245,8 @@ def _function_calling_config(tool_choice: ToolChoice) -> dict[str, Any]:
 def _content(message: Message) -> dict[str, Any]:
     if message.role == "tool":
         return {"role": "user", "parts": [_function_response(result) for result in message.tool_results]}
-    parts: list[dict[str, Any]] = [_part(part) for part in message.parts if isinstance(part, Text | Image | Video)]
+    parts: list[Mapping[str, Any]] = provider_payloads(message, GeminiFormat.name)
+    parts.extend(_part(part) for part in message.parts if isinstance(part, Text | Image | Video))
     for call in message.tool_calls:
         function_call: dict[str, Any] = {"name": call.name, "args": call.args}
         if call_id := call.metadata.get(_CALL_ID):

@@ -9,8 +9,9 @@ from typing import Any
 
 from republic._content import Image, Message, ProviderData, Text, Tool, Video
 from republic._errors import APIResponseError
-from republic._response import FinishReason
-from republic.events import ImageReady, ReasoningDelta, RefusalDelta, TextDelta
+from republic._response import BuiltinToolCall, Citation, FinishReason
+from republic.events import BuiltinToolCallReady, CitationAdded, ImageReady, ReasoningDelta, RefusalDelta, TextDelta
+from republic.tools import BuiltinTool, CodeExecution, ImageGeneration, NativeTool, WebSearch
 
 from .base import (
     ChatApiFormat,
@@ -21,11 +22,20 @@ from .base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    approximate_location,
     provider_payloads,
     unsupported_media,
+    unsupported_tool,
 )
 
 _REASONING_TEXT_TYPES = frozenset({"summary_text", "reasoning_text"})
+_BUILTIN_NAMES = {
+    "web_search_call": "web_search",
+    "code_interpreter_call": "code_execution",
+    "image_generation_call": "image_generation",
+}
+_BUILTIN_OUTPUT_KEYS = ("output", "outputs", "results", "result")
+_BUILTIN_RESERVED_KEYS = frozenset({"id", "type", "status", *_BUILTIN_OUTPUT_KEYS})
 _INCOMPLETE_REASONS: dict[str | None, FinishReason] = {
     "max_output_tokens": "length",
     "content_filter": "content_filter",
@@ -41,18 +51,11 @@ class ResponsesFormat(ChatApiFormat):
             "model": request.model,
             "input": [item for message in request.messages for item in self._input_items(message)],
         }
-        if request.tools:
-            body["tools"] = [
-                {
-                    "type": "function",
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters,
-                    # The Responses API defaults to strict, which rejects most ordinary schemas.
-                    "strict": tool.strict,
-                }
-                for tool in request.tools
-            ]
+        builtin_tools = request.builtin_tools(self.name)
+        if tools := [_function_tool(tool) for tool in request.tools] + [_builtin_tool(t) for t in builtin_tools]:
+            body["tools"] = tools
+        if any(isinstance(tool, WebSearch) for tool in builtin_tools):
+            body["include"] = ["web_search_call.action.sources"]
         if (tool_choice := request.options.get("tool_choice")) is not None:
             body["tool_choice"] = (
                 {"type": "function", "name": tool_choice.name} if isinstance(tool_choice, Tool) else tool_choice
@@ -124,6 +127,8 @@ class _ResponsesStreamParser(StreamParser):
         match payload.get("type"):
             case "response.output_text.delta":
                 yield TextDelta(payload["delta"])
+            case "response.output_text.annotation.added":
+                yield from _citation_deltas([payload["annotation"]])
             case "response.refusal.delta":
                 yield RefusalDelta(payload["delta"])
             case "response.reasoning_summary_text.delta" | "response.reasoning_text.delta":
@@ -167,26 +172,85 @@ def _user_part(part: object) -> dict[str, Any]:
     raise TypeError(f"Unexpected user content: {part!r}")
 
 
+def _function_tool(tool: Tool) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": tool.parameters,
+        # The Responses API defaults to strict, which rejects most ordinary schemas.
+        "strict": tool.strict,
+    }
+
+
+def _builtin_tool(tool: BuiltinTool) -> Mapping[str, Any]:
+    match tool:
+        case NativeTool(definition=definition):
+            return definition
+        case WebSearch(max_uses=int()):
+            raise unsupported_tool(ResponsesFormat.name, tool, "max_uses")
+        case WebSearch(blocked_domains=[_, *_]):
+            raise unsupported_tool(ResponsesFormat.name, tool, "blocked_domains")
+        case WebSearch():
+            definition: dict[str, Any] = {"type": "web_search"}
+            if tool.allowed_domains:
+                definition["filters"] = {"allowed_domains": list(tool.allowed_domains)}
+            if tool.user_location is not None:
+                definition["user_location"] = approximate_location(tool.user_location)
+            return definition
+        case CodeExecution():
+            return {"type": "code_interpreter", "container": {"type": "auto"}}
+        case ImageGeneration():
+            return {"type": "image_generation"}
+    raise unsupported_tool(ResponsesFormat.name, tool)
+
+
 def _item_deltas(item: Mapping[str, Any], *, streamed: bool) -> Iterable[Delta]:
     """Deltas for a complete output item; ``streamed`` skips what earlier stream events delivered."""
     match item.get("type"):
-        case "message" if not streamed:
+        case "message" if streamed:
+            pass
+        case "message":
             for content in item.get("content") or ():
                 if content.get("type") == "output_text":
                     yield TextDelta(content["text"])
+                    yield from _citation_deltas(content.get("annotations") or ())
                 elif content.get("type") == "refusal":
                     yield RefusalDelta(content["refusal"])
         case "function_call":
             yield ToolCallFragment(
                 _call_key(item), id=item["call_id"], name=item["name"], arguments=item["arguments"], done=True
             )
-        case "image_generation_call" if item.get("result"):
-            media_type = f"image/{item.get('output_format', 'png')}"
-            yield ImageReady(Image(media_type, data=base64.b64decode(item["result"])))
         case "reasoning":
             if not streamed and (reasoning := _reasoning_text(item)):
                 yield ReasoningDelta(reasoning)
             yield ProviderData(ResponsesFormat.name, item)
+        case str(item_type):
+            yield from _builtin_item_deltas(item_type, item)
+
+
+def _builtin_item_deltas(item_type: str, item: Mapping[str, Any]) -> Iterable[Delta]:
+    """Server-side tool items. All are sent back, since reasoning items require what followed them."""
+    if item_type == "image_generation_call" and item.get("result"):
+        media_type = f"image/{item.get('output_format', 'png')}"
+        yield ImageReady(Image(media_type, data=base64.b64decode(item["result"])))
+    if item_type.endswith("_call"):
+        output = next((item[key] for key in _BUILTIN_OUTPUT_KEYS if key in item and key != "result"), None)
+        yield BuiltinToolCallReady(
+            BuiltinToolCall(
+                name=_BUILTIN_NAMES.get(item_type, item_type.removesuffix("_call")),
+                input={key: value for key, value in item.items() if key not in _BUILTIN_RESERVED_KEYS},
+                output=output,
+                id=item.get("id"),
+            )
+        )
+    yield ProviderData(ResponsesFormat.name, item)
+
+
+def _citation_deltas(annotations: Iterable[Mapping[str, Any]]) -> Iterable[Delta]:
+    for annotation in annotations:
+        if annotation.get("type") == "url_citation":
+            yield CitationAdded(Citation(annotation["url"], title=annotation.get("title")))
 
 
 def _call_key(item: Mapping[str, Any]) -> str:

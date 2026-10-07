@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from republic._content import Image, ToolCall
-from republic._response import Response, TokenUsage
+from republic._response import BuiltinToolCall, Citation, Response, TokenUsage
 
 __all__ = [
+    "BuiltinToolCallReady",
+    "CitationAdded",
     "Completed",
     "Event",
     "ImageReady",
@@ -69,10 +71,33 @@ class ToolCallReady:
 
 
 @dataclass(frozen=True)
+class BuiltinToolCallReady:
+    """A built-in tool finished running on the provider's side."""
+
+    call: BuiltinToolCall
+
+
+@dataclass(frozen=True)
+class CitationAdded:
+    citation: Citation
+
+
+@dataclass(frozen=True)
 class Completed:
     """The last event of a stream, carrying the full response."""
 
     response: Response[Any]
 
 
-Event = TextDelta | ReasoningDelta | RefusalDelta | UsageDelta | ImageReady | ToolCallDelta | ToolCallReady | Completed
+Event = (
+    TextDelta
+    | ReasoningDelta
+    | RefusalDelta
+    | UsageDelta
+    | ImageReady
+    | CitationAdded
+    | ToolCallDelta
+    | ToolCallReady
+    | BuiltinToolCallReady
+    | Completed
+)

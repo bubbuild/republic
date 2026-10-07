@@ -6,6 +6,7 @@ import pytest
 
 import republic
 from republic.events import (
+    BuiltinToolCallReady,
     Completed,
     ImageReady,
     ReasoningDelta,
@@ -134,6 +135,7 @@ async def test_stream_events(service: FakeService) -> None:
         ToolCallDelta("call_1", "get_weather", '"Paris"}'),
         ToolCallReady(republic.ToolCall("call_1", "get_weather", '{"city":"Paris"}')),
         ImageReady(republic.Image("image/png", data=b"png")),
+        BuiltinToolCallReady(republic.BuiltinToolCall("image_generation")),
         UsageDelta(republic.TokenUsage(input_tokens=4, output_tokens=6, reasoning_tokens=2)),
     ]
     assert isinstance(events[-1], Completed)

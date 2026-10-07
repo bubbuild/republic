@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from republic._content import Image, Message, ToolCall
 
@@ -10,8 +11,36 @@ if TYPE_CHECKING:
 
 OutputT = TypeVar("OutputT")
 
-FinishReason = Literal["stop", "length", "tool_calls", "content_filter", "refusal", "other"]
-"""Why generation ended, normalized across API formats."""
+FinishReason = Literal["stop", "length", "tool_calls", "content_filter", "refusal", "pause", "other"]
+"""Why generation ended, normalized across API formats.
+
+``"pause"`` means a long built-in tool turn was paused; send ``response.message``
+back to let the model continue.
+"""
+
+
+@dataclass(frozen=True)
+class Citation:
+    """A source the model used, usually found by a built-in search or fetch tool."""
+
+    url: str
+    title: str | None = None
+    cited_text: str | None = None
+
+
+@dataclass(frozen=True)
+class BuiltinToolCall:
+    """A built-in tool the provider ran while generating the response.
+
+    ``name`` is ``"web_search"``, ``"web_fetch"``, ``"code_execution"``, or
+    ``"image_generation"`` for the portable tools, otherwise the provider's own
+    name. ``input`` and ``output`` keep the provider's shapes.
+    """
+
+    name: str
+    input: Mapping[str, Any] = field(default_factory=dict)
+    output: Any = None
+    id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +73,8 @@ class Response(Generic[OutputT]):
     finish_reason: FinishReason | None = None
     refusal: str | None = None
     """Why the model declined to answer, when it refused."""
+    citations: tuple[Citation, ...] = ()
+    builtin_tool_calls: tuple[BuiltinToolCall, ...] = ()
     id: str | None = None
     model: str | None = None
     """The model version that served the request, as reported by the provider."""

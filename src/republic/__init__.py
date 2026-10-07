@@ -3,7 +3,7 @@
 Gateways, agent loops, and tool execution stay outside the package.
 """
 
-from republic import decisions, events, history, providers
+from republic import decisions, events, history, providers, tools
 from republic._content import (
     Image,
     Message,
@@ -33,16 +33,19 @@ from republic._errors import (
 from republic._models import ChatModel, DecisionModel, EmbeddingModel, Stream
 from republic._options import ChatOptions, ReasoningEffort, ToolChoice
 from republic._registry import get_decision_model, get_embedding_model, get_model, get_provider, register_provider
-from republic._response import EmbeddingResponse, Response, TokenUsage
+from republic._response import BuiltinToolCall, Citation, EmbeddingResponse, FinishReason, Response, TokenUsage
 
 __all__ = [
     "APIResponseError",
     "APIStatusError",
+    "BuiltinToolCall",
     "ChatModel",
     "ChatOptions",
+    "Citation",
     "DecisionModel",
     "EmbeddingModel",
     "EmbeddingResponse",
+    "FinishReason",
     "Image",
     "Message",
     "ProviderData",
@@ -75,6 +78,7 @@ __all__ = [
     "register_provider",
     "system",
     "tool_result",
+    "tools",
     "user",
     "video",
 ]

@@ -8,8 +8,9 @@ from typing import Any
 
 from republic._content import Image, Message, Text, Tool, Video, media_from_data_url
 from republic._errors import APIResponseError
-from republic._response import FinishReason
-from republic.events import ImageReady, ReasoningDelta, RefusalDelta, TextDelta
+from republic._response import Citation, FinishReason
+from republic.events import CitationAdded, ImageReady, ReasoningDelta, RefusalDelta, TextDelta
+from republic.tools import NativeTool, WebSearch
 
 from .base import (
     ChatApiFormat,
@@ -20,6 +21,8 @@ from .base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    approximate_location,
+    unsupported_tool,
 )
 
 _FINISH_REASONS: dict[str, FinishReason] = {
@@ -39,8 +42,17 @@ class ChatFormat(ChatApiFormat):
             "model": request.model,
             "messages": [entry for message in request.messages for entry in _message_entries(message)],
         }
-        if request.tools:
-            body["tools"] = [_tool(tool) for tool in request.tools]
+        tools: list[Mapping[str, Any]] = [_tool(tool) for tool in request.tools]
+        for builtin_tool in request.builtin_tools(self.name):
+            match builtin_tool:
+                case NativeTool(definition=definition):
+                    tools.append(definition)
+                case WebSearch():
+                    body["web_search_options"] = _web_search_options(builtin_tool)
+                case _:
+                    raise unsupported_tool(self.name, builtin_tool)
+        if tools:
+            body["tools"] = tools
         if (tool_choice := request.options.get("tool_choice")) is not None:
             body["tool_choice"] = (
                 {"type": "function", "function": {"name": tool_choice.name}}
@@ -81,6 +93,7 @@ class ChatFormat(ChatApiFormat):
             yield ReasoningDelta(reasoning)
         if content := message.get("content"):
             yield TextDelta(content)
+        yield from _citation_deltas(message)
         if refusal := message.get("refusal"):
             yield RefusalDelta(refusal)
         yield from _image_deltas(message)
@@ -109,6 +122,7 @@ class _ChatStreamParser(StreamParser):
                 yield ReasoningDelta(reasoning)
             if content := delta.get("content"):
                 yield TextDelta(content)
+            yield from _citation_deltas(delta)
             if refusal := delta.get("refusal"):
                 yield RefusalDelta(refusal)
             yield from _image_deltas(delta)
@@ -167,6 +181,25 @@ def _tool(tool: Tool) -> dict[str, Any]:
     if tool.strict:
         function["strict"] = True
     return {"type": "function", "function": function}
+
+
+def _web_search_options(tool: WebSearch) -> dict[str, Any]:
+    """Search options for search-enabled chat models, as accepted by OpenAI and OpenRouter."""
+    for setting in ("max_uses", "allowed_domains", "blocked_domains"):
+        if getattr(tool, setting):
+            raise unsupported_tool(ChatFormat.name, tool, setting)
+    options: dict[str, Any] = {}
+    if tool.user_location is not None:
+        location = approximate_location(tool.user_location)
+        options["user_location"] = {"type": location.pop("type"), "approximate": location}
+    return options
+
+
+def _citation_deltas(message: Mapping[str, Any]) -> Iterable[Delta]:
+    for annotation in message.get("annotations") or ():
+        if annotation.get("type") == "url_citation":
+            citation = annotation["url_citation"]
+            yield CitationAdded(Citation(citation["url"], title=citation.get("title")))
 
 
 def _info(data: Mapping[str, Any], choice: Mapping[str, Any]) -> ResponseInfo:

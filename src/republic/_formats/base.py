@@ -5,12 +5,14 @@ from collections.abc import Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
 
-from republic._content import Image, Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
+from republic._content import Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
 from republic._errors import UnsupportedFeatureError
 from republic._options import ChatOptions
 from republic._response import EmbeddingResponse, FinishReason, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
 from republic.events import (
+    BuiltinToolCallReady,
+    CitationAdded,
     Event,
     ImageReady,
     ReasoningDelta,
@@ -20,6 +22,7 @@ from republic.events import (
     ToolCallReady,
     UsageDelta,
 )
+from republic.tools import BuiltinTool, NativeTool, UserLocation
 
 
 @dataclass(frozen=True)
@@ -37,8 +40,19 @@ class ChatRequest:
     output_schema: OutputSchema | None = None
 
     @property
-    def tools(self) -> Sequence[Tool]:
-        return self.options.get("tools", ())
+    def tools(self) -> list[Tool]:
+        """Function tools, executed by the caller."""
+        return [tool for tool in self.options.get("tools", ()) if isinstance(tool, Tool)]
+
+    def builtin_tools(self, api_format: str) -> list[BuiltinTool]:
+        """Built-in tools, run by the provider. Native tools must target ``api_format``."""
+        builtin = [tool for tool in self.options.get("tools", ()) if not isinstance(tool, Tool)]
+        for tool in builtin:
+            if isinstance(tool, NativeTool) and tool.api_format != api_format:
+                raise UnsupportedFeatureError(
+                    f"A native tool for {tool.api_format!r} cannot be sent through the {api_format!r} API format"
+                )
+        return builtin
 
     def reject(self, api_format: str, *unsupported: str) -> None:
         """Raise if any option this API format cannot express was set."""
@@ -102,6 +116,8 @@ Delta = (
     | ReasoningDelta
     | RefusalDelta
     | ImageReady
+    | CitationAdded
+    | BuiltinToolCallReady
     | ToolCallFragment
     | UsageReport
     | ResponseInfo
@@ -169,14 +185,14 @@ class _PartialCall:
         return ToolCall(self.id, self.name, "".join(self.arguments) or "{}", metadata=self.metadata)
 
 
+ContentEvent = TextDelta | ReasoningDelta | RefusalDelta | ImageReady | CitationAdded | BuiltinToolCallReady
+
+
 class ResponseBuilder:
     """Accumulates deltas into the final response and yields the public events they produce."""
 
     def __init__(self) -> None:
-        self._text: list[str] = []
-        self._reasoning: list[str] = []
-        self._refusal: list[str] = []
-        self._images: list[Image] = []
+        self._content: list[ContentEvent] = []
         self._provider_data: list[ProviderData] = []
         self._calls: dict[Hashable, _PartialCall] = {}
         self._usage = TokenUsage()
@@ -185,18 +201,6 @@ class ResponseBuilder:
     def add(self, delta: Delta) -> list[Event]:
         """Record a delta and return the public events it produces."""
         match delta:
-            case TextDelta(chunk=chunk):
-                self._text.append(chunk)
-                return [delta]
-            case ReasoningDelta(chunk=chunk):
-                self._reasoning.append(chunk)
-                return [delta]
-            case RefusalDelta(chunk=chunk):
-                self._refusal.append(chunk)
-                return [delta]
-            case ImageReady(image=image):
-                self._images.append(image)
-                return [delta]
             case ProviderData():
                 self._provider_data.append(delta)
                 return []
@@ -208,6 +212,9 @@ class ResponseBuilder:
             case ResponseInfo():
                 self._info = replace(self._info, **_reported(delta))
                 return []
+            case _:
+                self._content.append(delta)
+                return [delta]
 
     def release_tool_calls(self) -> list[Event]:
         """Release calls whose completion the API format does not signal."""
@@ -219,7 +226,9 @@ class ResponseBuilder:
             self._usage,
             output,
             finish_reason=self.finish_reason,
-            refusal="".join(self._refusal) or None,
+            refusal=self._joined(RefusalDelta) or None,
+            citations=tuple(dict.fromkeys(e.citation for e in self._content if isinstance(e, CitationAdded))),
+            builtin_tool_calls=tuple(e.call for e in self._content if isinstance(e, BuiltinToolCallReady)),
             id=self._info.id,
             model=self._info.model,
         )
@@ -227,11 +236,11 @@ class ResponseBuilder:
     @property
     def message(self) -> Message:
         parts: list[Part] = [*self._provider_data]
-        if reasoning := "".join(self._reasoning):
+        if reasoning := self._joined(ReasoningDelta):
             parts.append(Reasoning(reasoning))
-        if text := "".join(self._text):
+        if text := self._joined(TextDelta):
             parts.append(Text(text))
-        parts.extend(self._images)
+        parts.extend(event.image for event in self._content if isinstance(event, ImageReady))
         calls = tuple(call.build() for call in self._calls.values())
         return Message("assistant", tuple(parts), tool_calls=calls)
 
@@ -240,11 +249,14 @@ class ResponseBuilder:
         reason = self._info.finish_reason
         if reason not in (None, "stop"):
             return reason
-        if self._refusal:
+        if self._joined(RefusalDelta):
             return "refusal"
         if self._calls:
             return "tool_calls"
         return reason
+
+    def _joined(self, chunk_type: type[TextDelta | ReasoningDelta | RefusalDelta]) -> str:
+        return "".join(event.chunk for event in self._content if isinstance(event, chunk_type))
 
     def _add_fragment(self, fragment: ToolCallFragment) -> list[Event]:
         call = self._calls.setdefault(fragment.key, _PartialCall())
@@ -305,6 +317,16 @@ def merge_same_role(entries: list[dict[str, Any]], *, content_key: str) -> list[
 def provider_payloads(message: Message, api_format: str) -> list[Mapping[str, Any]]:
     """Opaque items this API format produced earlier in the conversation."""
     return [part.payload for part in message.parts if isinstance(part, ProviderData) and part.api_format == api_format]
+
+
+def approximate_location(location: UserLocation) -> dict[str, Any]:
+    """The ``approximate`` user location shape shared by OpenAI and Anthropic."""
+    return {"type": "approximate", **{key: value for key, value in vars(location).items() if value is not None}}
+
+
+def unsupported_tool(api_format: str, tool: object, setting: str | None = None) -> UnsupportedFeatureError:
+    subject = type(tool).__name__ if setting is None else f"{type(tool).__name__}.{setting}"
+    return UnsupportedFeatureError(f"The {api_format!r} API format does not support {subject}")
 
 
 def unsupported_media(api_format: str, kind: str) -> UnsupportedFeatureError:

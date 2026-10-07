@@ -29,6 +29,17 @@ results = [republic.tool_result(call, run_tool(call.name, call.args)) for call i
 response = await model.chat(["Weather in Paris?", response.message, republic.assistant(tool_results=results)])
 ```
 
+Built-in tools run on the provider's side and go in the same `tools=` list:
+
+```python
+from republic.tools import CodeExecution, WebSearch
+
+response = await model.chat("What changed in Python 3.14?", tools=[WebSearch(), CodeExecution()])
+print(response.text, response.citations, response.builtin_tool_calls)
+```
+
+`WebSearch`, `WebFetch`, `CodeExecution`, and `ImageGeneration` map to each API format's native tool; `NativeTool(api_format, definition)` passes any other provider tool through. Tool activity and results are kept in `response.message`, so sending it back continues the conversation, including after a `"pause"` finish.
+
 `chat()` and `stream()` accept `tools`, `tool_choice`, `parallel_tool_calls`, `max_tokens`, `temperature`, `top_p`, `top_k`, `presence_penalty`, `frequency_penalty`, `stop`, `seed`, `reasoning_effort`, and `include_reasoning` (ask for readable reasoning where providers hide it). Each API format maps them to its own fields; options it cannot express raise `UnsupportedFeatureError`, and `extra_body` passes anything provider-specific. Providers accept `headers=` for beta flags or gateway attribution.
 
 A response carries `text`, `reasoning`, `refusal`, `tool_calls`, `output` (with `output_schema=`), `images` (install `republic[image]`), `finish_reason`, `token_usage` (including reasoning and cached tokens), `id`, and `model`. Streams yield `TextDelta`, `ReasoningDelta`, `RefusalDelta`, `ToolCallDelta`, `ToolCallReady`, `ImageReady`, `UsageDelta`, and finally `Completed`.

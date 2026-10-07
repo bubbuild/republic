@@ -9,8 +9,9 @@ from typing import Any, ClassVar
 from republic._content import Image, Message, ProviderData, Text, Tool, Video
 from republic._errors import APIResponseError
 from republic._options import ReasoningEffort, ToolChoice
-from republic._response import FinishReason
-from republic.events import ReasoningDelta, RefusalDelta, TextDelta
+from republic._response import BuiltinToolCall, Citation, FinishReason
+from republic.events import BuiltinToolCallReady, CitationAdded, ReasoningDelta, RefusalDelta, TextDelta
+from republic.tools import BuiltinTool, CodeExecution, NativeTool, WebFetch, WebSearch
 
 from .base import (
     ChatApiFormat,
@@ -21,15 +22,17 @@ from .base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    approximate_location,
     merge_same_role,
     provider_payloads,
     unsupported_media,
+    unsupported_tool,
 )
 
 DEFAULT_MAX_TOKENS = 16000
 """``max_tokens`` is required by the Messages API; this leaves room for long answers."""
 
-_ROUND_TRIP_BLOCKS = frozenset({"thinking", "redacted_thinking"})
+_BUILTIN_USE_BLOCKS = frozenset({"server_tool_use", "mcp_tool_use"})
 _STOP_REASONS: dict[str, FinishReason] = {
     "end_turn": "stop",
     "stop_sequence": "stop",
@@ -37,6 +40,7 @@ _STOP_REASONS: dict[str, FinishReason] = {
     "model_context_window_exceeded": "length",
     "tool_use": "tool_calls",
     "refusal": "refusal",
+    "pause_turn": "pause",
 }
 
 
@@ -57,18 +61,14 @@ class MessagesFormat(ChatApiFormat):
         }
         if system := "\n\n".join(message.text for message in request.messages if message.role == "system"):
             body["system"] = system
-        if request.tools:
-            body["tools"] = [_tool(tool) for tool in request.tools]
+        builtin_tools = request.builtin_tools(self.name)
+        if tools := [_tool(tool) for tool in request.tools] + [_builtin_tool(tool) for tool in builtin_tools]:
+            body["tools"] = tools
         if tool_choice := _tool_choice(options.get("tool_choice"), options.get("parallel_tool_calls")):
             body["tool_choice"] = tool_choice
-        output_config: dict[str, Any] = {}
-        if request.output_schema is not None:
-            output_config["format"] = {"type": "json_schema", "schema": _closed_objects(request.output_schema.schema)}
-        effort = options.get("reasoning_effort")
-        if effort not in (None, "none"):
-            output_config["effort"] = effort
-        if output_config:
+        if output_config := _output_config(request):
             body["output_config"] = output_config
+        effort = options.get("reasoning_effort")
         if thinking := _thinking(effort, include_reasoning=options.get("include_reasoning", False)):
             body["thinking"] = thinking
         body.update(request.renamed({"temperature": "temperature", "top_p": "top_p", "top_k": "top_k"}))
@@ -79,10 +79,12 @@ class MessagesFormat(ChatApiFormat):
         return HttpRequest("/messages", request.body(body))
 
     def parse_chat(self, data: Mapping[str, Any]) -> Iterable[Delta]:
+        builtin_calls = _BuiltinCalls()
         for block in data["content"]:
             match block["type"]:
                 case "text":
                     yield TextDelta(block["text"])
+                    yield from _citation_deltas(block.get("citations") or ())
                 case "tool_use":
                     yield ToolCallFragment(
                         block["id"],
@@ -91,10 +93,8 @@ class MessagesFormat(ChatApiFormat):
                         arguments=json.dumps(block["input"]),
                         done=True,
                     )
-                case block_type if block_type in _ROUND_TRIP_BLOCKS:
-                    if thinking := block.get("thinking"):
-                        yield ReasoningDelta(thinking)
-                    yield ProviderData(self.name, block)
+                case _:
+                    yield from _round_trip_deltas(block, builtin_calls)
         yield from _stop_deltas(data)
         yield ResponseInfo(id=data.get("id"), model=data.get("model"))
         yield _usage(data["usage"])
@@ -130,7 +130,9 @@ class MessagesFormat(ChatApiFormat):
 class _MessagesStreamParser(StreamParser):
     def __init__(self) -> None:
         self._blocks: dict[int, dict[str, Any]] = {}
+        self._block_inputs: dict[int, list[str]] = {}
         self._tool_indexes: set[int] = set()
+        self._builtin_calls = _BuiltinCalls()
 
     def feed(self, event: str, data: str) -> Iterable[Delta]:
         payload = json.loads(data)
@@ -144,11 +146,7 @@ class _MessagesStreamParser(StreamParser):
             case "content_block_delta":
                 yield from self._delta(payload["index"], payload["delta"])
             case "content_block_stop":
-                index = payload["index"]
-                if block := self._blocks.pop(index, None):
-                    yield ProviderData(MessagesFormat.name, block)
-                if index in self._tool_indexes:
-                    yield ToolCallFragment(index, done=True)
+                yield from self._stop(payload["index"])
             case "message_delta":
                 yield from _stop_deltas(payload["delta"])
                 yield _usage(payload["usage"])
@@ -157,20 +155,26 @@ class _MessagesStreamParser(StreamParser):
 
     def _start(self, index: int, block: Mapping[str, Any]) -> Iterable[Delta]:
         match block["type"]:
-            case "text" if block["text"]:
-                yield TextDelta(block["text"])
+            case "text":
+                if block["text"]:
+                    yield TextDelta(block["text"])
             case "tool_use":
                 self._tool_indexes.add(index)
                 yield ToolCallFragment(index, id=block["id"], name=block["name"])
-            case block_type if block_type in _ROUND_TRIP_BLOCKS:
+            case _:
                 self._blocks[index] = dict(block)
 
     def _delta(self, index: int, delta: Mapping[str, Any]) -> Iterable[Delta]:
         match delta["type"]:
             case "text_delta":
                 yield TextDelta(delta["text"])
-            case "input_json_delta":
+            case "citations_delta":
+                yield from _citation_deltas([delta["citation"]])
+            case "input_json_delta" if index in self._tool_indexes:
                 yield ToolCallFragment(index, arguments=delta["partial_json"])
+            case "input_json_delta":
+                # Server tool input, such as a search query, arrives in fragments too.
+                self._block_inputs.setdefault(index, []).append(delta["partial_json"])
             case "thinking_delta":
                 block = self._blocks[index]
                 block["thinking"] = block.get("thinking", "") + delta["thinking"]
@@ -178,12 +182,95 @@ class _MessagesStreamParser(StreamParser):
             case "signature_delta":
                 self._blocks[index]["signature"] = delta["signature"]
 
+    def _stop(self, index: int) -> Iterable[Delta]:
+        if index in self._tool_indexes:
+            yield ToolCallFragment(index, done=True)
+        if (block := self._blocks.pop(index, None)) is None:
+            return
+        if (fragments := self._block_inputs.pop(index, None)) is not None:
+            block["input"] = json.loads("".join(fragments) or "{}")
+        # Streamed thinking was already yielded as reasoning deltas.
+        yield from _round_trip_deltas(block, self._builtin_calls, include_reasoning=False)
+
+
+class _BuiltinCalls:
+    """Pairs server tool uses with their results, which arrive as separate blocks."""
+
+    def __init__(self) -> None:
+        self._uses: dict[str, Mapping[str, Any]] = {}
+
+    def add(self, block: Mapping[str, Any]) -> Iterable[Delta]:
+        if block["type"] in _BUILTIN_USE_BLOCKS:
+            self._uses[block["id"]] = block
+        elif (use := self._uses.pop(block.get("tool_use_id", ""), None)) is not None:
+            name = use["name"]
+            yield BuiltinToolCallReady(
+                BuiltinToolCall(
+                    name="code_execution" if name.endswith("code_execution") else name,
+                    input=use.get("input") or {},
+                    output=block.get("content"),
+                    id=use["id"],
+                )
+            )
+
+
+def _round_trip_deltas(
+    block: Mapping[str, Any], builtin_calls: _BuiltinCalls, *, include_reasoning: bool = True
+) -> Iterable[Delta]:
+    """Blocks other than text and tool use go back verbatim; built-in tool results are also surfaced."""
+    if include_reasoning and (thinking := block.get("thinking")):
+        yield ReasoningDelta(thinking)
+    yield from builtin_calls.add(block)
+    yield ProviderData(MessagesFormat.name, block)
+
+
+def _citation_deltas(citations: Iterable[Mapping[str, Any]]) -> Iterable[Delta]:
+    for citation in citations:
+        if url := citation.get("url"):
+            yield CitationAdded(Citation(url, title=citation.get("title"), cited_text=citation.get("cited_text")))
+
 
 def _tool(tool: Tool) -> dict[str, Any]:
     definition = {"name": tool.name, "description": tool.description, "input_schema": tool.parameters}
     if tool.strict:
         definition["strict"] = True
     return definition
+
+
+def _builtin_tool(tool: BuiltinTool) -> Mapping[str, Any]:
+    match tool:
+        case NativeTool(definition=definition):
+            return definition
+        case WebSearch():
+            definition = {"type": "web_search_20260209", "name": "web_search", **_domain_settings(tool)}
+            if tool.user_location is not None:
+                definition["user_location"] = approximate_location(tool.user_location)
+            return definition
+        case WebFetch():
+            return {"type": "web_fetch_20260209", "name": "web_fetch", **_domain_settings(tool)}
+        case CodeExecution():
+            return {"type": "code_execution_20260521", "name": "code_execution"}
+    raise unsupported_tool(MessagesFormat.name, tool)
+
+
+def _domain_settings(tool: WebSearch | WebFetch) -> dict[str, Any]:
+    settings: dict[str, Any] = {}
+    if tool.max_uses is not None:
+        settings["max_uses"] = tool.max_uses
+    if tool.allowed_domains:
+        settings["allowed_domains"] = list(tool.allowed_domains)
+    if tool.blocked_domains:
+        settings["blocked_domains"] = list(tool.blocked_domains)
+    return settings
+
+
+def _output_config(request: ChatRequest) -> dict[str, Any]:
+    output_config: dict[str, Any] = {}
+    if request.output_schema is not None:
+        output_config["format"] = {"type": "json_schema", "schema": _closed_objects(request.output_schema.schema)}
+    if (effort := request.options.get("reasoning_effort")) not in (None, "none"):
+        output_config["effort"] = effort
+    return output_config
 
 
 def _thinking(effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any] | None:

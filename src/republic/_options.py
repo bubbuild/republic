@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal, TypedDict
 
 from republic._content import Tool
+from republic.tools import BuiltinTool
 
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 """How much the model reasons before answering. Providers accept different subsets."""
@@ -20,7 +21,8 @@ class ChatOptions(TypedDict, total=False):
     Use ``extra_body`` for anything provider-specific; it is merged last.
     """
 
-    tools: Sequence[Tool]
+    tools: Sequence[Tool | BuiltinTool]
+    """Function tool schemas and built-in tools from :mod:`republic.tools`."""
     tool_choice: ToolChoice
     parallel_tool_calls: bool
     max_tokens: int
