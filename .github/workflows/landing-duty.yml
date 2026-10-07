@@ -60,7 +60,7 @@ jobs:
           delivery-key: ${{ format('duty:{0}', github.event.comment.id || github.run_id) }}
           instruction: >-
             Triage only the triggering native failure. Read affected jobs through gh and reuse a matching issue; publish only useful new evidence, changed conditions or verified progress. Do not scan unrelated issues or resolved historical failures.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: landing-duty-${{ github.run_id }}-${{ github.run_attempt }}
