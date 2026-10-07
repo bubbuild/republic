@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TypedDict, Unpack
 
-import httpx
+import httpx2
 
 from republic._errors import ProviderNotFoundError
 from republic._formats import ApiFormatName
@@ -23,12 +23,12 @@ _PROVIDERS: dict[str, type[Provider]] = {
 class ProviderOptions(TypedDict, total=False):
     api_key: str
     api_base: str
-    auth: httpx.Auth
+    auth: httpx2.Auth
     api_format: ApiFormatName
     headers: Mapping[str, str]
     env_prefix: str
-    http_client: httpx.AsyncClient
-    timeout: httpx.Timeout | float
+    http_client: httpx2.AsyncClient
+    timeout: httpx2.Timeout | float
 
 
 def register_provider(provider_class: type[Provider], name: str) -> None:

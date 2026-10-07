@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Generator, Mapping, S
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
-import httpx
+import httpx2
 
 from republic._errors import APIStatusError, UnsupportedApiFormatError
 from republic._formats import API_FORMATS, ApiFormatName
@@ -18,19 +18,19 @@ if TYPE_CHECKING:
     from republic._models import ChatModel, DecisionModel, EmbeddingModel
     from republic.history import HistoryProtocol
 
-DEFAULT_TIMEOUT = httpx.Timeout(600, connect=10)
+DEFAULT_TIMEOUT = httpx2.Timeout(600, connect=10)
 
 _FormatT = TypeVar("_FormatT", bound=ApiFormat)
 
 
-class HeaderAuth(httpx.Auth):
+class HeaderAuth(httpx2.Auth):
     """Send a fixed header, such as an API key, with every request."""
 
     def __init__(self, name: str, value: str) -> None:
         self._name = name
         self._value = value
 
-    def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
+    def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
         request.headers[self._name] = self._value
         yield request
 
@@ -52,12 +52,12 @@ class Provider:
         *,
         api_key: str | None = None,
         api_base: str | None = None,
-        auth: httpx.Auth | None = None,
+        auth: httpx2.Auth | None = None,
         api_format: ApiFormatName | None = None,
         headers: Mapping[str, str] | None = None,
         env_prefix: str | None = None,
-        http_client: httpx.AsyncClient | None = None,
-        timeout: httpx.Timeout | float = DEFAULT_TIMEOUT,
+        http_client: httpx2.AsyncClient | None = None,
+        timeout: httpx2.Timeout | float = DEFAULT_TIMEOUT,
     ) -> None:
         env_prefix = env_prefix or f"REPUBLIC_{self.name.upper()}"
         api_key = api_key or os.getenv(f"{env_prefix}_API_KEY")
@@ -89,7 +89,7 @@ class Provider:
 
         return DecisionModel(self, name, self._select_api_format(DecisionApiFormat))
 
-    def _api_key_auth(self, api_key: str) -> httpx.Auth:
+    def _api_key_auth(self, api_key: str) -> httpx2.Auth:
         """Authenticate requests with the API key. Override for other header schemes."""
         return HeaderAuth("Authorization", f"Bearer {api_key}")
 
@@ -123,17 +123,17 @@ class Provider:
                 await response.aclose()
 
     @asynccontextmanager
-    async def _client(self) -> AsyncGenerator[httpx.AsyncClient]:
+    async def _client(self) -> AsyncGenerator[httpx2.AsyncClient]:
         if self._http_client is not None:
             yield self._http_client
             return
         # A client per call keeps providers usable across event loops.
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx2.AsyncClient(timeout=self.timeout) as client:
             yield client
 
     async def _send(
-        self, client: httpx.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool
-    ) -> httpx.Response:
+        self, client: httpx2.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool
+    ) -> httpx2.Response:
         built = client.build_request(
             "POST",
             f"{self.api_base}{request.path}",
@@ -141,5 +141,5 @@ class Provider:
             params=request.params,
             headers={**api_format.headers, **self.headers},
         )
-        auth = httpx.USE_CLIENT_DEFAULT if self.auth is None else self.auth
+        auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
         return await client.send(built, auth=auth, stream=stream)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-import httpx
+import httpx2
 import pytest
 
 import republic
@@ -62,8 +62,8 @@ class TestCredentials:
         assert service.requests[0].headers["anthropic-version"] == "2023-06-01"
 
     async def test_custom_auth_is_used_as_is(self, service: FakeService) -> None:
-        class TokenAuth(httpx.Auth):
-            def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
+        class TokenAuth(httpx2.Auth):
+            def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
                 request.headers["x-token"] = "secret"
                 yield request
 

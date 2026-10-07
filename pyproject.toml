@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["ai", "ai-provider", "python"]
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "httpx>=0.28.1",
+    "httpx2>=2.13",
     "pydantic>=2.13.5",
 ]
 classifiers = [
