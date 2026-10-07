@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import republic
+from republic._formats import ApiFormatName
 from republic.events import BuiltinToolCallReady, CitationAdded
 from republic.tools import BuiltinTool, CodeExecution, ImageGeneration, NativeTool, UserLocation, WebFetch, WebSearch
 from tests.conftest import FakeService
@@ -11,8 +12,8 @@ PARIS = UserLocation(city="Paris", country="FR")
 LOOKUP = republic.Tool("lookup")
 
 
-def make_model(service: FakeService, spec: str) -> republic.ChatModel:
-    return republic.get_model(spec, api_key="key", http_client=service.client())
+def make_model(service: FakeService, spec: str, api_format: ApiFormatName | None = None) -> republic.ChatModel:
+    return republic.get_model(spec, api_key="key", api_format=api_format, http_client=service.client())
 
 
 class TestResponses:
@@ -276,7 +277,7 @@ class TestChat:
             ]
         })
 
-        response = await make_model(service, "openrouter:vendor/model").chat(
+        response = await make_model(service, "openrouter:vendor/model", "chat").chat(
             "Hi", tools=[WebSearch(user_location=UserLocation(country="FR"))]
         )
 
@@ -288,4 +289,4 @@ class TestChat:
 
     async def test_code_execution_is_rejected(self, service: FakeService) -> None:
         with pytest.raises(republic.UnsupportedFeatureError, match="CodeExecution"):
-            await make_model(service, "openrouter:vendor/model").chat("Hi", tools=[CodeExecution()])
+            await make_model(service, "openrouter:vendor/model", "chat").chat("Hi", tools=[CodeExecution()])

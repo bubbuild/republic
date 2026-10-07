@@ -137,3 +137,33 @@ async def test_http_errors_carry_status_and_body(service: FakeService) -> None:
 
     assert exc_info.value.status_code == 401
     assert "bad key" in exc_info.value.body
+
+
+class TestOpenRouter:
+    def test_uses_the_preferred_format_of_each_kind(self) -> None:
+        provider = republic.get_provider("openrouter")
+
+        assert provider.get_model("anthropic/claude-opus-5-5").api_format.name == "responses"
+        assert provider.get_embedding_model("openai/text-embedding-4").api_format.name == "embeddings"
+        assert provider.get_decision_model("typesafe/jev-latest").api_format.name == "system_one"
+
+    async def test_serves_the_messages_format(self, service: FakeService) -> None:
+        service.reply_json({"content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 1}})
+        model = republic.get_model(
+            "openrouter:anthropic/claude-opus-5-5", api_key="key", api_format="messages", http_client=service.client()
+        )
+
+        response = await model.chat("Hi")
+
+        assert service.requests[0].url == "https://openrouter.ai/api/v1/messages"
+        assert service.requests[0].headers["authorization"] == "Bearer key"
+        assert response.text == "ok"
+
+    async def test_serves_system_one_decisions(self, service: FakeService) -> None:
+        service.reply_json({"answers": {"spam": {"type": "noul", "noul": 0.02}}})
+        model = republic.get_decision_model("openrouter:typesafe/jev-latest", http_client=service.client())
+
+        response = await model.decide("Hello", questions={"spam": republic.decisions.Noul("Is it spam?")})
+
+        assert service.requests[0].url == "https://openrouter.ai/api/v1/systemone"
+        assert response.spam == republic.decisions.NoulAnswer(0.02)

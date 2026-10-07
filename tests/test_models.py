@@ -18,7 +18,10 @@ class TestHistory:
         service.reply_json(chat_reply("I'm fine."))
         service.reply_json(chat_reply("Great."))
         model = republic.get_model(
-            "openrouter:vendor/model", history=InMemoryHistory(max_entries=10), http_client=service.client()
+            "openrouter:vendor/model",
+            api_format="chat",
+            history=InMemoryHistory(max_entries=10),
+            http_client=service.client(),
         )
 
         await model.chat("Hello, how are you?")

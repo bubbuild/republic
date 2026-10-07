@@ -32,7 +32,7 @@ class Forecast(pydantic.BaseModel):
 
 
 def make_model(service: FakeService) -> republic.ChatModel:
-    return republic.get_model("openrouter:vendor/model", api_key="key", http_client=service.client())
+    return republic.get_model("openrouter:vendor/model", api_key="key", api_format="chat", http_client=service.client())
 
 
 async def test_chat_sends_messages_and_reads_text_and_usage(service: FakeService) -> None:
@@ -310,7 +310,10 @@ async def test_strict_tools_and_sampling_options(service: FakeService) -> None:
 async def test_provider_headers_are_sent(service: FakeService) -> None:
     service.reply_json({"choices": [{"message": {"content": "ok"}}]})
     model = republic.get_model(
-        "openrouter:vendor/model", headers={"HTTP-Referer": "https://example.com"}, http_client=service.client()
+        "openrouter:vendor/model",
+        api_format="chat",
+        headers={"HTTP-Referer": "https://example.com"},
+        http_client=service.client(),
     )
 
     await model.chat("Hi")
