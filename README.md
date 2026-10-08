@@ -90,46 +90,20 @@ Republic stops at providers. Gateways, agent loops, and tool execution stay out.
 
 ## Authentication
 
-`auth=` accepts a standard `httpx2.Auth` object and takes precedence over `api_key=` and API key environment variables. `republic.auth` exports that same `Auth` base, the fixed-header `HeaderAuth`, and Authlib's `OAuth2Auth`. Service-specific auth classes live in their provider modules and are exported from `republic.providers`.
+`auth=` accepts a standard `httpx2.Auth` object and overrides API-key authentication. `republic.auth` exports `Auth`, `HeaderAuth`, and Authlib's `OAuth2Auth`.
 
 ```python
 from republic.providers import CodexAuth, GitHubCLIAuth
 
-# Reuse a ChatGPT login from codex login ($CODEX_HOME/auth.json).
 codex = republic.get_model("codex:gpt-6-luna", auth=CodexAuth.from_file())
-response = await codex.chat("Hello")
-
-# Reuse the active gh auth login. A Copilot subscription and model access are required.
 copilot = republic.get_model(
-    "github-copilot:gpt-6-luna",
-    api_format="responses",
-    auth=GitHubCLIAuth(),
+    "github-copilot:gpt-6-luna", api_format="responses", auth=GitHubCLIAuth()
 )
-response = await copilot.chat("Hello")
 ```
 
-Applications that already hold Codex credentials can pass them directly. The auth object sets both the bearer token and the ChatGPT account header:
+`CodexAuth.from_file(path)` reads and refreshes Codex's file login, defaulting to `$CODEX_HOME/auth.json` (`~/.codex/auth.json` when unset). Configure `cli_auth_credentials_store = "file"` before `codex login`. For existing tokens, use `CodexAuth(token, account_id=...)` and persist the refreshed `auth.token` yourself. Copilot can use an existing token with `OAuth2Auth(token)`.
 
-```python
-auth = CodexAuth(token, account_id=account_id)
-model = republic.get_model("codex:gpt-6-luna", auth=auth)
-response = await model.chat("Hello")
-# auth.token contains the current OAuth token, including any refreshed credentials.
-```
-
-`token` is a standard OAuth token mapping with `access_token` and, when available, `refresh_token` and `expires_at`. Fresh token responses may use `expires_in`. The auth object copies the mapping, refreshes expiring tokens through Authlib, and exposes the current token as `auth.token`. It does not read or write credential files in this mode; the application owns persistence, including rotated refresh tokens. An expired token without a refresh token raises `AuthenticationError`.
-
-`CodexAuth.from_file(auth_file=...)` reads Codex's **file** credential store (configure `cli_auth_credentials_store = "file"` before `codex login`). The file is read when the auth object is constructed and before each request. It refreshes expiring tokens through Authlib and atomically updates that same file with private permissions, preserving other fields. Reuse one auth instance for concurrent requests. Keyring and ephemeral Codex credentials are not read. Unknown expiry is not guessed, and authentication failures do not switch to another credential source. Login and consent remain in the existing CLI.
-
-`Codex` supports only Responses. Its endpoint requires `stream=true` and `store=false`; `chat()` collects the ordinary Republic stream, retaining tool calls, opaque reasoning, history and structured output. It defaults `instructions` to `"You are Codex."` (override with `extra_body`) and requests encrypted reasoning for later turns. `max_tokens` raises `UnsupportedFeatureError` because this endpoint does not accept it. These request rules live in the provider, not in auth or the shared Responses format.
-
-`GitHubCLIAuth(executable="gh", hostname="github.com")` asks the selected GitHub CLI for its current token on each request. It does not copy credentials or add a fallback chain. `GitHubCopilot` sends that token directly to Copilot; `chat`, `responses`, and `messages` use `/chat/completions`, `/responses`, and `/v1/messages`. Availability depends on the model and account; select `api_format` explicitly for models requiring Responses or Messages. This is the Copilot service, not the [retired GitHub Models API](https://github.blog/changelog/2026-07-30-github-models-is-now-retired/).
-
-For an existing Copilot access token, pass `auth=OAuth2Auth(token)` using `OAuth2Auth` from `republic.auth`.
-
-Both auth classes work with synchronous and asynchronous HTTPX clients. Plain `OAuth2Auth(token)` signs requests; the application remains responsible for refreshing that token. During requests, Codex refresh and CLI/file I/O run off the asyncio event loop.
-
-Grok's [documented API authentication](https://docs.x.ai/overview) uses an API key. No Grok OAuth integration is included without a documented OAuth contract; its API key works with `OpenAICompatible` and the appropriate API base.
+Codex supports Responses and rejects `max_tokens`. Copilot supports Chat, Responses, and Messages; select a format available to your model and account.
 
 ## Development
 

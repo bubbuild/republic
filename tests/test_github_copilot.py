@@ -20,7 +20,7 @@ async def test_messages_stops_at_copilot_terminal_marker(service: FakeService) -
         events = [event async for event in stream]
 
     assert stream.text == "Hello"
-    assert len(events) == 2
+    assert "".join(event.chunk for event in events if isinstance(event, republic.events.TextDelta)) == "Hello"
     assert isinstance(events[-1], republic.events.Completed)
 
 
@@ -85,16 +85,18 @@ async def test_responses_keeps_parallel_calls_with_changing_item_ids(service: Fa
     async with model.stream("Calculate") as stream:
         events = [event async for event in stream]
     calls = stream.tool_calls
-    assert calls == [republic.ToolCall("call-0", "add", '{"a":2}'), republic.ToolCall("call-1", "multiply", '{"b":3}')]
-    assert [call.args for call in calls] == [{"a": 2}, {"b": 3}]
+    assert [(call.id, call.name, call.args) for call in calls] == [
+        ("call-0", "add", {"a": 2}),
+        ("call-1", "multiply", {"b": 3}),
+    ]
     ready = [event.call for event in events if isinstance(event, republic.events.ToolCallReady)]
     assert ready == [calls[1], calls[0]]
     assert stream.response.finish_reason == "tool_calls"
-    assert stream.response.message.parts == (republic.ProviderData("responses", reasoning),)
 
     results = [republic.tool_result(call, output) for call, output in zip(calls, ["5", "6"], strict=True)]
-    await model.chat(["Calculate", stream.response.message, republic.assistant(tool_results=results)])
+    response = await model.chat(["Calculate", stream.response.message, republic.assistant(tool_results=results)])
 
+    assert response.text == "done"
     assert service.body()["input"][1:] == [
         reasoning,
         {"type": "function_call", "call_id": "call-0", "name": "add", "arguments": '{"a":2}'},

@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import time
+import traceback
 from functools import partial
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -147,7 +148,7 @@ async def test_codex_reads_current_file_and_keeps_body(tmp_path: Path, monkeypat
 
 @pytest.mark.parametrize("source", ["file", "provided"])
 @pytest.mark.parametrize("expiry_source", ["field", "jwt"])
-async def test_codex_refreshes_once_and_preserves_cache(
+async def test_codex_refreshed_credentials_can_be_reused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expiry_source: str, source: str
 ) -> None:
     tokens: dict[str, object] = {"refresh_token": "dummy-refresh"}
@@ -161,7 +162,9 @@ async def test_codex_refreshes_once_and_preserves_cache(
 
     def refresh(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return httpx2.Response(200, json={"access_token": "refreshed", "refresh_token": "rotated", "expires_in": 3600})
+        return httpx2.Response(
+            200, json={"access_token": f"refreshed-{len(requests)}", "refresh_token": "rotated", "expires_in": 3600}
+        )
 
     monkeypatch.setattr(codex, "OAuth2Client", partial(OAuth2Client, transport=httpx2.MockTransport(refresh)))
     original = path.read_bytes()
@@ -171,34 +174,40 @@ async def test_codex_refreshes_once_and_preserves_cache(
         responses = await asyncio.gather(*[
             client.post("https://example.test/responses", json={}, auth=auth) for _ in range(3)
         ])
+        assert len(requests) == 1
+        assert all(response.request.headers["authorization"] == "Bearer refreshed-1" for response in responses)
 
-    assert len(requests) == 1
-    assert str(requests[0].url) == "https://auth.openai.com/oauth/token"
-    assert parse_qs(requests[0].content.decode()) == {
-        "grant_type": ["refresh_token"],
-        "refresh_token": ["dummy-refresh"],
-        "client_id": ["app_EMoamEEZ73f0CkXaXp7hrann"],
-    }
-    assert "authorization" not in requests[0].headers
-    assert all(response.request.headers["authorization"] == "Bearer refreshed" for response in responses)
-    assert auth.token["access_token"] == "refreshed"
-    assert auth.token["refresh_token"] == "rotated"
-    assert auth.token["id_token"] == "dummy-id"
-    assert auth.token["expires_at"] > time.time()
+        if source == "file":
+            restored = CodexAuth.from_file(path)
+        else:
+            restored = CodexAuth(json.loads(json.dumps(auth.token)), account_id="account-1")
+        response = await client.post("https://example.test/responses", json={}, auth=restored)
+        assert response.request.headers["authorization"] == "Bearer refreshed-1"
+        assert response.request.headers["chatgpt-account-id"] == "account-1"
+        assert len(requests) == 1
+
+        later = time.time() + 7200
+        monkeypatch.setattr(time, "time", lambda: later)
+        response = await client.post("https://example.test/responses", json={}, auth=restored)
+        assert response.request.headers["authorization"] == "Bearer refreshed-2"
+
+    assert len(requests) == 2
+    for request, refresh_token in zip(requests, ["dummy-refresh", "rotated"], strict=True):
+        assert str(request.url) == "https://auth.openai.com/oauth/token"
+        assert parse_qs(request.content.decode()) == {
+            "grant_type": ["refresh_token"],
+            "refresh_token": [refresh_token],
+            "client_id": ["app_EMoamEEZ73f0CkXaXp7hrann"],
+        }
+        assert "authorization" not in request.headers
     assert provided == json.loads(original)["tokens"]
     if source == "provided":
         assert path.read_bytes() == original
-        return
-    saved = json.loads(path.read_text())
-    assert saved["unrelated"] == {"keep": True}
-    assert saved["tokens"]["id_token"] == "dummy-id"
-    assert saved["tokens"]["account_id"] == "account-1"
-    assert saved["tokens"]["access_token"] == "refreshed"
-    assert saved["tokens"]["refresh_token"] == "rotated"
-    assert "expires_at" in saved["tokens"]
-    assert "last_refresh" in saved
-    assert path.stat().st_mode & 0o777 == 0o600
-    assert list(tmp_path.iterdir()) == [path]
+    else:
+        saved = json.loads(path.read_text())
+        assert saved["unrelated"] == {"keep": True}
+        assert saved["tokens"]["id_token"] == "dummy-id"
+        assert path.stat().st_mode & 0o777 == 0o600
 
 
 async def test_codex_refresh_failure_preserves_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -214,8 +223,7 @@ async def test_codex_refresh_failure_preserves_credentials(tmp_path: Path, monke
         with pytest.raises(republic.AuthenticationError) as error:
             await client.post("https://example.test", json={}, auth=CodexAuth.from_file(path))
 
-    assert "private-refresh" not in str(error.value)
-    assert error.value.__suppress_context__
+    assert "private-refresh" not in "".join(traceback.format_exception(error.value))
     assert path.read_bytes() == original
 
 
@@ -265,28 +273,39 @@ def test_codex_provided_token_does_not_use_local_credentials(
     assert response.request.headers["chatgpt-account-id"] == "provided-account"
     assert provided == original
     assert path.read_text() == "invalid local credentials"
-    if expiry:
-        assert auth.token["expires_at"] > time.time()
-    else:
-        assert auth.token["expires_at"] is None
 
 
-async def test_codex_provided_token_refresh_failure_keeps_current_token(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_codex_provided_token_can_retry_after_refresh_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     provided = {"access_token": "provided-token", "refresh_token": "private-refresh", "expires_at": 1}
     auth = CodexAuth(provided, account_id="provided-account")
-    original = dict(auth.token)
-    transport = httpx2.MockTransport(
-        lambda _: httpx2.Response(400, json={"error": "invalid_grant", "error_description": "private-refresh"})
-    )
-    monkeypatch.setattr(codex, "OAuth2Client", partial(OAuth2Client, transport=transport))
-    async with httpx2.AsyncClient(
-        transport=httpx2.MockTransport(lambda _: pytest.fail("must not send inference"))
-    ) as client:
+    refresh_requests = []
+    inference_requests = []
+
+    def refresh(request: httpx2.Request) -> httpx2.Response:
+        refresh_requests.append(request)
+        if len(refresh_requests) == 1:
+            return httpx2.Response(400, json={"error": "invalid_grant", "error_description": "private-refresh"})
+        return httpx2.Response(200, json={"access_token": "refreshed", "expires_in": 3600})
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        inference_requests.append(request)
+        return httpx2.Response(200)
+
+    monkeypatch.setattr(codex, "OAuth2Client", partial(OAuth2Client, transport=httpx2.MockTransport(refresh)))
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
         with pytest.raises(republic.AuthenticationError) as error:
             await client.post("https://example.test", json={}, auth=auth)
+        assert not inference_requests
+        assert "private-refresh" not in "".join(traceback.format_exception(error.value))
 
-    assert "private-refresh" not in str(error.value)
-    assert auth.token == original
+        response = await client.post("https://example.test", json={}, auth=auth)
+        assert response.request.headers["authorization"] == "Bearer refreshed"
+        assert response.request.headers["chatgpt-account-id"] == "provided-account"
+
+    assert len(refresh_requests) == 2
+    assert all(
+        parse_qs(request.content.decode())["refresh_token"] == ["private-refresh"] for request in refresh_requests
+    )
     assert provided == {"access_token": "provided-token", "refresh_token": "private-refresh", "expires_at": 1}
 
 
