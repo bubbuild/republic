@@ -126,6 +126,7 @@ class CodexAuth(Auth):
                     raise AuthenticationError("Codex refresh returned no access token")
                 if "id_token" in token:
                     client.token.setdefault("id_token", token["id_token"])
+                client.token["expires_at"] = _expires_at(client.token)
                 return client.token
         except (OAuthError, httpx2.HTTPError, ValueError):
             raise AuthenticationError("Cannot refresh the Codex token") from None
