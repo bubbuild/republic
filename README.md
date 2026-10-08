@@ -97,9 +97,11 @@ codex = republic.get_model("codex:gpt-6-luna")
 copilot = republic.get_model("github-copilot:gpt-6-luna", api_format="responses")
 ```
 
-Codex defaults to its file login (`$CODEX_HOME/auth.json` or `~/.codex/auth.json`); configure `cli_auth_credentials_store = "file"` before `codex login`. Copilot defaults to the current `gh auth login`, exchanges it for a short-lived Copilot token that is renewed before it expires, and sends requests to the API origin that exchange names. Explicit credentials take precedence.
+Codex defaults to its file login (`$CODEX_HOME/auth.json` or `~/.codex/auth.json`); configure `cli_auth_credentials_store = "file"` before `codex login`. Copilot defaults to `GitHubCLIAuth()`, which reads the current `gh auth login` for each request and sends it directly to the API. Explicit credentials take precedence.
 
-For custom Codex credentials, pass `auth=CodexAuth.from_file(path)` or `auth=CodexAuth(token, account_id=...)` from `republic.providers`; persist `auth.token` yourself when supplying tokens. Copilot accepts an existing Copilot inference token through `OAuth2Auth(token)`, or the CLI login through `GitHubCLIAuth()`; an ordinary GitHub login is only exchanged as the CLI credential. Copilot also sends the client-identity headers its inference API expects, which `headers=` overrides.
+For custom Codex credentials, pass `auth=CodexAuth.from_file(path)` or `auth=CodexAuth(token, account_id=...)` from `republic.providers`; persist `auth.token` yourself when supplying tokens.
+
+For the Copilot Plugin flow, obtain its GitHub credential through OAuth, then pass `auth=CopilotAuth(github_token)` from `republic.providers`. The caller owns that credential's authorization, storage and renewal. Reuse the auth object to exchange, cache and renew Copilot inference tokens before the server's deadline. Requests follow `endpoints.api`; `headers=` overrides Plugin headers. GitHub CLI credentials use the direct path above. Already-exchanged inference tokens can use `OAuth2Auth(token)` with their API origin and integration headers supplied explicitly.
 
 Codex supports Responses and rejects `max_tokens`. Copilot supports Chat, Responses, and Messages; select a format available to your model and account.
 

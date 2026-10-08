@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import subprocess
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Generator, Mapping
@@ -12,9 +13,10 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any, ClassVar, Unpack
 
 import httpx2
+from authlib.oauth2.rfc6749 import OAuth2Token
 
 from republic._errors import AuthenticationError
-from republic.auth import Auth
+from republic.auth import Auth, OAuth2Auth
 from republic.formats import ApiFormat, HttpRequest
 from republic.formats._sse import ServerSentEvent
 
@@ -26,17 +28,13 @@ if TYPE_CHECKING:
 _EXCHANGE_URL = "https://api.github.com/copilot_internal/v2/token"
 _COPILOT_API_BASE = "https://api.githubcopilot.com"
 _EXCHANGE_TIMEOUT = httpx2.Timeout(30)
-_REFRESH_MARGIN = 60
 
 
 class GitHubCLIAuth(Auth):
-    """Exchange the active GitHub CLI login for Copilot inference tokens.
+    """Send the active GitHub CLI login directly to Copilot's API.
 
-    ``gh auth token`` yields a GitHub login, which Copilot's inference API does
-    not accept. The login is exchanged for a short-lived Copilot token that is
-    renewed before it expires, and requests follow the API origin the exchange
-    names. Access still depends on the account's Copilot subscription and
-    policies.
+    Reads ``gh auth token`` for each request without copying its credential
+    store. Access depends on the account's Copilot subscription and policies.
     """
 
     requires_request_body = True
@@ -44,54 +42,18 @@ class GitHubCLIAuth(Auth):
     def __init__(self, *, hostname: str = "github.com", executable: str = "gh") -> None:
         self.hostname = hostname
         self.executable = executable
-        self._token: str | None = None
-        self._refresh_at: float | None = None
-        self._api_base = _COPILOT_API_BASE
 
     def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
-        if self._needs_exchange():
-            self._store((yield _exchange_request(self._load_login())))
-        yield self._sign(request)
+        token = self._load_token()
+        yield from OAuth2Auth({"access_token": token, "token_type": "Bearer"}).auth_flow(request)
 
     async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        token = await asyncio.to_thread(self._load_token)
         await request.aread()
-        if self._needs_exchange():
-            response = yield _exchange_request(await asyncio.to_thread(self._load_login))
-            await response.aread()
-            self._store(response)
-        yield self._sign(request)
+        for signed in OAuth2Auth({"access_token": token, "token_type": "Bearer"}).auth_flow(request):
+            yield signed
 
-    def _needs_exchange(self) -> bool:
-        return self._token is None or (self._refresh_at is not None and time.time() >= self._refresh_at)
-
-    def _sign(self, request: httpx2.Request) -> httpx2.Request:
-        """Sign with the Copilot token, at the origin that issued it."""
-        request.headers["Authorization"] = f"Bearer {self._token}"
-        origin = httpx2.URL(self._api_base)
-        if (request.url.host, request.url.port) != (origin.host, origin.port):
-            request.url = request.url.copy_with(scheme=origin.scheme, host=origin.host, port=origin.port)
-        return request
-
-    def _store(self, response: httpx2.Response) -> None:
-        """Cache the Copilot token and the API origin the exchange names."""
-        if response.status_code != 200:
-            raise AuthenticationError(
-                f"GitHub did not exchange the GitHub CLI login for a Copilot token ({response.status_code})"
-            )
-        try:
-            payload = response.json()
-        except ValueError:
-            raise AuthenticationError("The Copilot token exchange returned no JSON") from None
-        token = payload.get("token") if isinstance(payload, dict) else None
-        if not isinstance(token, str) or not token:
-            raise AuthenticationError("The Copilot token exchange returned no token")
-        endpoints = payload.get("endpoints")
-        api = endpoints.get("api") if isinstance(endpoints, dict) else None
-        self._api_base = api.rstrip("/") if isinstance(api, str) and api.startswith("https://") else _COPILOT_API_BASE
-        self._token = token
-        self._refresh_at = _refresh_at(payload)
-
-    def _load_login(self) -> str:
+    def _load_token(self) -> str:
         try:
             result = subprocess.run(  # noqa: S603
                 [self.executable, "auth", "token", "--hostname", self.hostname],
@@ -107,6 +69,73 @@ class GitHubCLIAuth(Auth):
         return result.stdout.strip()
 
 
+class CopilotAuth(Auth):
+    """Exchange a Copilot Plugin GitHub credential for inference tokens.
+
+    Obtain the GitHub credential through OAuth before constructing this object;
+    authorization, persistence and renewal of that credential belong to the
+    caller. GitHub CLI credentials use ``GitHubCLIAuth`` instead.
+
+    Reuse this instance to cache the Copilot token in memory. It is re-exchanged
+    before expiry through the inference client's transport. Requests follow the
+    returned API origin and use the Plugin's client headers unless overridden.
+    """
+
+    requires_request_body = True
+
+    CLIENT_HEADERS: ClassVar[Mapping[str, str]] = {
+        "Copilot-Integration-Id": "vscode-chat",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "X-GitHub-Api-Version": "2025-10-01",
+    }
+
+    def __init__(self, github_token: str) -> None:
+        if not github_token:
+            raise AuthenticationError("Copilot exchange requires a GitHub credential")
+        self._github_token = github_token
+        self._token = OAuth2Token({})
+        self._origin = httpx2.URL(_COPILOT_API_BASE)
+
+    def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
+        if not self._token or self._token.is_expired():
+            response = yield _exchange_request(self._github_token)
+            response.read()
+            self._store(response)
+        yield from self._sign(request)
+
+    async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        await request.aread()
+        if not self._token or self._token.is_expired():
+            response = yield _exchange_request(self._github_token)
+            await response.aread()
+            self._store(response)
+        for signed in self._sign(request):
+            yield signed
+
+    def _sign(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
+        origin = self._origin
+        request.url = request.url.copy_with(scheme=origin.scheme, host=origin.host, port=origin.port)
+        request.headers["Host"] = request.url.netloc.decode("ascii")
+        for name, value in self.CLIENT_HEADERS.items():
+            request.headers.setdefault(name, value)
+        yield from OAuth2Auth(self._token).auth_flow(request)
+
+    def _store(self, response: httpx2.Response) -> None:
+        if response.status_code != 200:
+            raise AuthenticationError(f"GitHub rejected the Copilot token exchange ({response.status_code})")
+        try:
+            payload = response.json()
+        except ValueError:
+            raise AuthenticationError("The Copilot token exchange returned no JSON") from None
+        token = payload.get("token") if isinstance(payload, dict) else None
+        if not isinstance(token, str) or not token:
+            raise AuthenticationError("The Copilot token exchange returned no token")
+        origin = _api_origin(payload)
+        self._token = OAuth2Token({"access_token": token, "token_type": "Bearer", "expires_at": _expires_at(payload)})
+        self._origin = origin
+
+
 class GitHubCopilot(Provider):
     """Copilot inference using the current GitHub CLI login by default.
 
@@ -116,22 +145,12 @@ class GitHubCopilot(Provider):
     name = "github-copilot"
     DEFAULT_API_BASE = _COPILOT_API_BASE
     SUPPORTED_API_FORMATS = ("chat", "responses", "messages")
-    # The client identity Copilot's inference API expects; the first-party editor
-    # sends the same set. Override any of them through headers=.
-    CLIENT_HEADERS: ClassVar[Mapping[str, str]] = {
-        "Copilot-Integration-Id": "vscode-chat",
-        "Editor-Version": "vscode/1.95.0",
-        "Editor-Plugin-Version": "copilot-chat/0.26.7",
-        "X-GitHub-Api-Version": "2025-10-01",
-    }
 
     def __init__(self, **options: Unpack[ProviderOptions]) -> None:
         options.setdefault("api_format", "chat")
         super().__init__(**options)
         if self.auth is None and (self._http_client is None or self._http_client.auth is None):
             self.auth = GitHubCLIAuth()
-        for header, value in self.CLIENT_HEADERS.items():
-            self.headers.setdefault(header, value)
 
     @asynccontextmanager
     async def _stream(
@@ -167,19 +186,27 @@ def _exchange_request(login: str) -> httpx2.Request:
     )
 
 
-def _refresh_at(payload: dict[str, Any]) -> float | None:
-    """When to exchange again: the server's advice, else the declared expiry."""
-    refresh_in = _positive(payload.get("refresh_in"))
-    if refresh_in is not None:
-        return time.time() + refresh_in + _REFRESH_MARGIN
-    expires_at = _positive(payload.get("expires_at"))
-    return None if expires_at is None else expires_at - _REFRESH_MARGIN
+def _api_origin(payload: dict[str, Any]) -> httpx2.URL:
+    try:
+        origin = httpx2.URL(payload["endpoints"]["api"])
+    except (KeyError, TypeError, httpx2.InvalidURL):
+        raise AuthenticationError("The Copilot token exchange returned no valid API origin") from None
+    if origin.scheme != "https" or not origin.host or origin.userinfo or origin.raw_path != b"/" or origin.fragment:
+        raise AuthenticationError("The Copilot token exchange returned no valid API origin")
+    return origin
 
 
-def _positive(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        return None
-    return float(value)
+def _expires_at(payload: dict[str, Any]) -> float:
+    """Use the earlier server deadline; Authlib supplies the refresh leeway."""
+    deadlines = []
+    for field in ("refresh_in", "expires_at"):
+        value = payload.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+            continue
+        deadlines.append(time.time() + value if field == "refresh_in" else value)
+    if not deadlines:
+        raise AuthenticationError("The Copilot token exchange returned no valid expiry")
+    return min(deadlines)
 
 
 async def _copilot_events(
