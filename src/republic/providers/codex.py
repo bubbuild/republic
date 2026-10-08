@@ -25,7 +25,7 @@ from republic._errors import AuthenticationError, UnsupportedFeatureError
 from republic._models import ChatModel
 from republic._options import ChatOptions
 from republic._response import Response
-from republic.auth import Auth, OAuth2Auth
+from republic.auth import Auth, OAuth2Auth, _run_login
 from republic.formats import ApiFormat, ChatApiFormat, HttpRequest
 from republic.history import HistoryProtocol
 
@@ -59,6 +59,19 @@ class CodexAuth(Auth):
         self.account_id = account_id
         self._auth_file: Path | None = None
         self._lock = threading.Lock()
+
+    @classmethod
+    async def login(cls, *, executable: str = "codex", device_auth: bool = False) -> Self:
+        """Run Codex's interactive login and return its file-backed credentials.
+
+        Uses ``$CODEX_HOME`` and selects file storage for this invocation only.
+        Set ``device_auth=True`` to use the CLI's device authorization flow.
+        """
+        arguments = [executable, "login", "--config", 'cli_auth_credentials_store="file"']
+        if device_auth:
+            arguments.append("--device-auth")
+        await _run_login(*arguments)
+        return cls.from_file()
 
     @classmethod
     def from_file(cls, auth_file: str | Path | None = None) -> Self:

@@ -10,13 +10,13 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Generator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, ClassVar, Unpack
+from typing import TYPE_CHECKING, Any, ClassVar, Self, Unpack
 
 import httpx2
 from authlib.oauth2.rfc6749 import OAuth2Token
 
 from republic._errors import AuthenticationError
-from republic.auth import Auth, OAuth2Auth
+from republic.auth import Auth, OAuth2Auth, _run_login
 from republic.formats import ApiFormat, HttpRequest
 from republic.formats._sse import ServerSentEvent
 
@@ -42,6 +42,12 @@ class GitHubCLIAuth(Auth):
     def __init__(self, *, hostname: str = "github.com", executable: str = "gh") -> None:
         self.hostname = hostname
         self.executable = executable
+
+    @classmethod
+    async def login(cls, *, hostname: str = "github.com", executable: str = "gh") -> Self:
+        """Run ``gh auth login`` in the caller's terminal; gh stores the login."""
+        await _run_login(executable, "auth", "login", "--hostname", hostname, "--web")
+        return cls(hostname=hostname, executable=executable)
 
     def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
         token = self._load_token()
