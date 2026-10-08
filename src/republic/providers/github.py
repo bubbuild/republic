@@ -6,14 +6,18 @@ import asyncio
 import json
 import math
 import subprocess
+import sys
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Generator, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Generator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, ClassVar, Self, Unpack
 
 import httpx2
+from authlib.integrations.base_client import OAuthError
+from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc6749 import OAuth2Token
+from pydantic import BaseModel, Field, HttpUrl, PositiveInt
 
 from republic._errors import AuthenticationError
 from republic.auth import Auth, OAuth2Auth, _run_login
@@ -28,6 +32,7 @@ if TYPE_CHECKING:
 _EXCHANGE_URL = "https://api.github.com/copilot_internal/v2/token"
 _COPILOT_API_BASE = "https://api.githubcopilot.com"
 _EXCHANGE_TIMEOUT = httpx2.Timeout(30)
+_PLUGIN_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 
 
 class GitHubCLIAuth(Auth):
@@ -78,9 +83,9 @@ class GitHubCLIAuth(Auth):
 class CopilotAuth(Auth):
     """Exchange a Copilot Plugin GitHub credential for inference tokens.
 
-    Obtain the GitHub credential through OAuth before constructing this object;
-    authorization, persistence and renewal of that credential belong to the
-    caller. GitHub CLI credentials use ``GitHubCLIAuth`` instead.
+    Use ``await CopilotAuth.login()`` or supply an existing Plugin GitHub
+    credential. The caller owns its persistence and renewal; ``github_token``
+    exposes it for storage. GitHub CLI credentials use ``GitHubCLIAuth`` instead.
 
     Reuse this instance to cache the Copilot token in memory. It is re-exchanged
     before expiry through the inference client's transport. Requests follow the
@@ -102,6 +107,40 @@ class CopilotAuth(Auth):
         self._github_token = github_token
         self._token = OAuth2Token({})
         self._origin = httpx2.URL(_COPILOT_API_BASE)
+
+    @property
+    def github_token(self) -> str:
+        """The original GitHub credential, for caller-managed persistence."""
+        return self._github_token
+
+    @classmethod
+    async def login(cls, *, on_authorize: Callable[[str, str], Awaitable[None]] | None = None) -> Self:
+        """Authorize the Copilot Plugin with GitHub's device flow.
+
+        Prints the verification URL and user code to stderr, or awaits
+        ``on_authorize(url, code)`` to display them in the caller's UI.
+        The returned credential stays in memory until the caller saves it.
+        """
+        async with AsyncOAuth2Client(
+            client_id=_PLUGIN_CLIENT_ID,
+            token_endpoint_auth_method="none",  # noqa: S106 - public OAuth client
+            headers={"Accept": "application/json", "User-Agent": "republic"},
+            timeout=30,
+        ) as client:
+            device = await _request_device_code(client)
+            deadline = asyncio.timeout(device.expires_in)
+            try:
+                async with deadline:
+                    url = str(device.verification_uri)
+                    if on_authorize is None:
+                        print(f"Open {url} and enter {device.user_code}", file=sys.stderr)
+                    else:
+                        await on_authorize(url, device.user_code)
+                    return cls(await _poll_device_token(client, device))
+            except TimeoutError:
+                if not deadline.expired():
+                    raise
+                raise AuthenticationError("Copilot device authorization expired; log in again") from None
 
     def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
         if not self._token or self._token.is_expired():
@@ -171,6 +210,56 @@ class GitHubCopilot(Provider):
         if api_format.name == "messages":
             request = replace(request, path="/v1/messages")
         return await super()._send(client, api_format, request, stream=stream)
+
+
+class _DeviceAuthorization(BaseModel):
+    device_code: str = Field(min_length=1, repr=False)
+    user_code: str = Field(min_length=1)
+    verification_uri: HttpUrl
+    expires_in: PositiveInt
+    interval: PositiveInt = 5
+
+
+async def _request_device_code(client: AsyncOAuth2Client) -> _DeviceAuthorization:
+    try:
+        response = await client.post(
+            "https://github.com/login/device/code",
+            data={"client_id": _PLUGIN_CLIENT_ID, "scope": "read:user"},
+            auth=None,
+        )
+        response.raise_for_status()
+        return _DeviceAuthorization.model_validate(response.json())
+    except (httpx2.HTTPError, ValueError):
+        raise AuthenticationError("Cannot start Copilot device authorization") from None
+
+
+async def _poll_device_token(client: AsyncOAuth2Client, device: _DeviceAuthorization) -> str:
+    interval = device.interval
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            token = await client.fetch_token(
+                "https://github.com/login/oauth/access_token",
+                grant_type="urn:ietf:params:oauth:grant-type:device_code",
+                device_code=device.device_code,
+            )
+        except OAuthError as error:
+            if error.error == "authorization_pending":
+                continue
+            if error.error == "slow_down":
+                interval += 5
+                continue
+            if error.error in {"expired_token", "token_expired"}:
+                raise AuthenticationError("Copilot device authorization expired; log in again") from None
+            if error.error == "access_denied":
+                raise AuthenticationError("Copilot device authorization was denied") from None
+            raise AuthenticationError("GitHub rejected Copilot device authorization") from None
+        except (httpx2.HTTPError, TypeError, ValueError):
+            raise AuthenticationError("Cannot complete Copilot device authorization") from None
+        access_token = token.get("access_token") if isinstance(token, dict) else None
+        if not isinstance(access_token, str) or not access_token:
+            raise AuthenticationError("Copilot device authorization returned no token")
+        return access_token
 
 
 def _exchange_request(login: str) -> httpx2.Request:

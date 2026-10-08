@@ -97,13 +97,25 @@ codex = republic.get_model("codex:gpt-6-luna")
 copilot = republic.get_model("github-copilot:gpt-6-luna", api_format="responses")
 ```
 
-Codex defaults to its file login (`$CODEX_HOME/auth.json` or `~/.codex/auth.json`); configure `cli_auth_credentials_store = "file"` before `codex login`. Copilot defaults to `GitHubCLIAuth()`, which reads the current `gh auth login` for each request and sends it directly to the API. Explicit credentials take precedence.
+Codex defaults to its file login (`$CODEX_HOME/auth.json` or `~/.codex/auth.json`). Copilot defaults to `GitHubCLIAuth()`, which reads the current `gh auth login` for each request and sends it directly to the API. Explicit credentials take precedence.
 
 `gh auth token` also honors `GH_TOKEN` and `GITHUB_TOKEN`. For GitHub App installation credentials, pass the issuing app's Copilot integration ID with `headers={"Copilot-Integration-Id": "<integration-id>"}`. These credentials use the direct path, not `CopilotAuth`'s Plugin token exchange.
 
+To log in explicitly, use one of these methods from `republic.providers` and pass the returned object as `auth=`:
+
+```python
+from republic.providers import CodexAuth, GitHubCLIAuth, CopilotAuth
+
+auth = await CodexAuth.login()      # Codex CLI; selects file storage for this login
+auth = await GitHubCLIAuth.login()  # GitHub CLI; gh manages credential storage
+auth = await CopilotAuth.login()    # Copilot Plugin device authorization
+```
+
+Codex accepts `device_auth=True` for device authorization. Both CLI methods accept `executable=`. Copilot displays a URL and code, or calls an async `on_authorize(url, code)` callback supplied by your application. Save `auth.github_token` in your credential store and reuse it with `CopilotAuth(saved_token)`. Normal model requests never start an interactive login.
+
 For custom Codex credentials, pass `auth=CodexAuth.from_file(path)` or `auth=CodexAuth(token, account_id=...)` from `republic.providers`; persist `auth.token` yourself when supplying tokens.
 
-For the Copilot Plugin flow, obtain its GitHub credential through OAuth, then pass `auth=CopilotAuth(github_token)` from `republic.providers`. The caller owns that credential's authorization, storage and renewal. Reuse the auth object to exchange, cache and renew Copilot inference tokens before the server's deadline. Requests follow `endpoints.api`; `headers=` overrides Plugin headers. GitHub CLI credentials use the direct path above. Already-exchanged inference tokens can use `OAuth2Auth(token)` with their API origin and integration headers supplied explicitly.
+For existing Plugin credentials, pass `auth=CopilotAuth(github_token)`; the caller owns their storage and renewal. Reuse the auth object to exchange, cache and renew Copilot inference tokens. Requests follow `endpoints.api`; `headers=` overrides Plugin headers. GitHub CLI credentials use the direct path above.
 
 Codex supports Responses and rejects `max_tokens`. Copilot supports Chat, Responses, and Messages; select a format available to your model and account.
 
