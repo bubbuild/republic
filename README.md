@@ -117,6 +117,8 @@ For custom Codex credentials, pass `auth=CodexAuth.from_file(path)` or `auth=Cod
 
 For existing Plugin credentials, pass `auth=CopilotAuth(github_token)`; the caller owns their storage and renewal. Reuse the auth object to exchange, cache and renew Copilot inference tokens. Requests follow `endpoints.api`; `headers=` overrides Plugin headers. GitHub CLI credentials use the direct path above.
 
+OpenRouter supports `await OpenRouterAuth.login(on_authorize=authorize)` from `republic.providers`. Your async `authorize(url)` callback displays the URL and returns the code the user copies from OpenRouter. Pass the result as `auth=`; save `auth.api_key` and restore it with `OpenRouterAuth(saved_key)`. This [PKCE flow](https://openrouter.ai/docs/guides/overview/auth/oauth) issues an ordinary API key; existing keys also work with `api_key=`.
+
 Codex supports Responses and rejects `max_tokens`. Copilot supports Chat, Responses, and Messages; select a format available to your model and account.
 
 ## Development
