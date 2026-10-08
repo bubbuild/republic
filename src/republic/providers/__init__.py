@@ -3,7 +3,7 @@
 from .anthropic import Anthropic
 from .base import Provider
 from .codex import Codex, CodexAuth
-from .github import GitHubCLIAuth, GitHubCopilot
+from .github import CopilotAuth, GitHubCLIAuth, GitHubCopilot
 from .google import Google
 from .openai import OpenAI, OpenAICompatible
 from .openrouter import OpenRouter
@@ -13,6 +13,7 @@ __all__ = [
     "Anthropic",
     "Codex",
     "CodexAuth",
+    "CopilotAuth",
     "GitHubCLIAuth",
     "GitHubCopilot",
     "Google",
