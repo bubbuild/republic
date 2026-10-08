@@ -234,6 +234,37 @@ async def test_codex_refreshed_credentials_can_be_reused(
         assert path.stat().st_mode & 0o777 == 0o600
 
 
+async def test_codex_refresh_uses_jwt_expiry_when_expires_in_is_missing(
+    monkeypatch: pytest.MonkeyPatch, service: FakeService
+) -> None:
+    now = time.time()
+    monkeypatch.setattr(time, "time", lambda: now)
+    refreshed_tokens = []
+
+    def refresh(request: httpx2.Request) -> httpx2.Response:
+        payload = base64.urlsafe_b64encode(json.dumps({"exp": int(now) + 3600}).encode()).decode().rstrip("=")
+        token = f"header.{payload}.signature"
+        refreshed_tokens.append(token)
+        return httpx2.Response(200, json={"access_token": token, "refresh_token": "dummy-refresh"})
+
+    monkeypatch.setattr(codex, "OAuth2Client", partial(OAuth2Client, transport=httpx2.MockTransport(refresh)))
+    auth = CodexAuth(
+        {"access_token": "expired", "refresh_token": "dummy-refresh", "expires_at": 1}, account_id="account-1"
+    )
+    model = republic.get_model("codex:test", auth=auth, http_client=service.client())
+
+    for _ in range(2):
+        reply(service, "hello")
+        response = await model.chat("Hi")
+        assert response.text == "hello"
+        now += 7200
+
+    assert len(refreshed_tokens) == 2
+    assert [request.headers["authorization"] for request in service.requests] == [
+        f"Bearer {token}" for token in refreshed_tokens
+    ]
+
+
 async def test_codex_refresh_failure_preserves_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = credentials(tmp_path / "auth.json", expires_at=1, refresh_token="private-refresh")
     original = path.read_bytes()
