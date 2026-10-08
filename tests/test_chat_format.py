@@ -113,7 +113,12 @@ async def test_structured_output_is_requested_and_parsed(service: FakeService) -
 
     response = await make_model(service).chat("Forecast?", output_schema=Forecast)
 
-    assert service.body()["response_format"]["json_schema"]["name"] == "Forecast"
+    json_schema = service.body()["response_format"]["json_schema"]
+    assert (json_schema["name"], json_schema["strict"]) == ("Forecast", True)
+    assert (json_schema["schema"]["additionalProperties"], json_schema["schema"]["required"]) == (
+        False,
+        ["city", "sunny"],
+    )
     assert response.output == Forecast(city="Paris", sunny=True)
 
 

@@ -24,6 +24,7 @@ from .base import (
     UsageReport,
     approximate_location,
     provider_payloads,
+    strict_schema,
     unsupported_media,
     unsupported_tool,
 )
@@ -65,7 +66,8 @@ class ResponsesFormat(ChatApiFormat):
                 "format": {
                     "type": "json_schema",
                     "name": request.output_schema.name,
-                    "schema": request.output_schema.schema,
+                    "schema": strict_schema(request.output_schema.schema, require_all=True),
+                    "strict": True,
                 }
             }
         body.update(

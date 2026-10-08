@@ -1,3 +1,5 @@
+import pydantic
+
 import republic
 
 
@@ -15,6 +17,12 @@ class DeepSeek(republic.providers.OpenAICompatible):
     DEFAULT_API_BASE = "https://api.deepseek.com"
 
     name = "deepseek"
+
+
+class Profile(pydantic.BaseModel):
+    name: str
+    age: int
+    email: str
 
 
 async def test_decision():
@@ -83,7 +91,16 @@ async def test_reasoning():
         print()  # Ensure a newline after streaming output
 
 
+async def test_structured_output():
+    model = republic.get_model("magpie:openrouter/moonshotai/kimi-k3")
+    response = await model.chat("Provide 5 fake users for testing.", output_schema=list[Profile])
+    print(response.output)
+    assert all(isinstance(item, Profile) for item in response.output), (  # noqa: S101
+        "Expected output to be a list of Profile instances"
+    )
+
+
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(test_reasoning())
+    asyncio.run(test_structured_output())

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 
+import pydantic
 import pytest
 
 import republic
@@ -221,3 +222,29 @@ async def test_stream_accepts_function_calls_delivered_whole(service: FakeServic
         ToolCallReady(republic.ToolCall("call_1", "get_weather", '{"city":"Paris"}')),
     ]
     assert stream.response.finish_reason == "tool_calls"
+
+
+class Location(pydantic.BaseModel):
+    city: str
+
+
+class Trip(pydantic.BaseModel):
+    origin: Location = pydantic.Field(description="Where the trip starts")
+    note: str | None = None
+
+
+async def test_structured_output_schema_meets_strict_mode(service: FakeService) -> None:
+    text = '{"origin": {"city": "Paris"}, "note": null}'
+    service.reply_json({"output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]})
+
+    response = await make_model(service).chat("Plan", output_schema=Trip)
+
+    text_format = service.body()["text"]["format"]
+    schema = text_format["schema"]
+    assert (text_format["name"], text_format["strict"]) == ("Trip", True)
+    assert (schema["additionalProperties"], schema["required"]) == (False, ["origin", "note"])
+    assert "default" not in schema["properties"]["note"]
+    assert schema["properties"]["origin"]["additionalProperties"] is False
+    assert schema["properties"]["origin"]["description"] == "Where the trip starts"
+    assert schema["$defs"]["Location"]["additionalProperties"] is False
+    assert response.output == Trip(origin=Location(city="Paris"))

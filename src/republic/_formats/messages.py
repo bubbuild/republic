@@ -25,6 +25,7 @@ from .base import (
     approximate_location,
     merge_same_role,
     provider_payloads,
+    strict_schema,
     unsupported_media,
     unsupported_tool,
 )
@@ -267,7 +268,10 @@ def _domain_settings(tool: WebSearch | WebFetch) -> dict[str, Any]:
 def _output_config(request: ChatRequest) -> dict[str, Any]:
     output_config: dict[str, Any] = {}
     if request.output_schema is not None:
-        output_config["format"] = {"type": "json_schema", "schema": _closed_objects(request.output_schema.schema)}
+        output_config["format"] = {
+            "type": "json_schema",
+            "schema": strict_schema(request.output_schema.schema, require_all=False),
+        }
     if (effort := request.options.get("reasoning_effort")) not in (None, "none"):
         output_config["effort"] = effort
     return output_config
@@ -340,15 +344,3 @@ def _usage(usage: Mapping[str, Any]) -> UsageReport:
         cached_tokens=cached_tokens,
         cache_write_tokens=cache_write_tokens,
     )
-
-
-def _closed_objects(schema: Any) -> Any:
-    """Structured outputs require ``additionalProperties: false`` on every object schema."""
-    if isinstance(schema, Mapping):
-        closed = {key: _closed_objects(value) for key, value in schema.items()}
-        if closed.get("type") == "object":
-            closed.setdefault("additionalProperties", False)
-        return closed
-    if isinstance(schema, list):
-        return [_closed_objects(item) for item in schema]
-    return schema

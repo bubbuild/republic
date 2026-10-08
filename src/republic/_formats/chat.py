@@ -22,6 +22,7 @@ from .base import (
     ToolCallFragment,
     UsageReport,
     approximate_location,
+    strict_schema,
     unsupported_tool,
 )
 
@@ -62,7 +63,11 @@ class ChatFormat(ChatApiFormat):
         if request.output_schema is not None:
             body["response_format"] = {
                 "type": "json_schema",
-                "json_schema": {"name": request.output_schema.name, "schema": request.output_schema.schema},
+                "json_schema": {
+                    "name": request.output_schema.name,
+                    "schema": strict_schema(request.output_schema.schema, require_all=True),
+                    "strict": True,
+                },
             }
         body.update(
             request.renamed({

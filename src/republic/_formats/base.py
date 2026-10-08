@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Hashable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
 
@@ -29,6 +30,58 @@ from republic.tools import BuiltinTool, NativeTool, UserLocation
 class OutputSchema:
     name: str
     schema: Mapping[str, Any]
+
+
+def strict_schema(schema: Mapping[str, Any], *, require_all: bool) -> dict[str, Any]:
+    """Adapt a JSON schema to the strict structured-output rules of provider APIs.
+
+    Every object schema gets ``additionalProperties: false``. With
+    ``require_all``, as OpenAI's strict mode demands, every property is also
+    required, ``default: null`` is dropped, and ``$ref`` siblings are inlined.
+    """
+    root = deepcopy(dict(schema))
+    return _strict_node(root, root, require_all=require_all)
+
+
+def _strict_node(node: dict[str, Any], root: Mapping[str, Any], *, require_all: bool) -> dict[str, Any]:
+    def visit(child: Any) -> Any:
+        return _strict_node(child, root, require_all=require_all) if isinstance(child, dict) else child
+
+    for key in ("$defs", "definitions", "properties"):
+        if isinstance(node.get(key), dict):
+            node[key] = {name: visit(child) for name, child in node[key].items()}
+    for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
+        if isinstance(node.get(key), list):
+            node[key] = [visit(child) for child in node[key]]
+    for key in ("items", "additionalProperties", "not"):
+        if key in node:
+            node[key] = visit(node[key])
+    if node.get("type") == "object" and "additionalProperties" not in node:
+        node["additionalProperties"] = False
+    if require_all:
+        _require_all(node, root, visit)
+    return node
+
+
+def _require_all(node: dict[str, Any], root: Mapping[str, Any], visit: Callable[[Any], Any]) -> None:
+    """The extra rules of OpenAI's strict mode, applied to one schema node."""
+    if isinstance(properties := node.get("properties"), dict):
+        node["required"] = list(properties)
+    if "default" in node and node["default"] is None:
+        del node["default"]
+    if isinstance(all_of := node.get("allOf"), list) and len(all_of) == 1:
+        node.update(node.pop("allOf")[0])
+    if isinstance(ref := node.get("$ref"), str) and len(node) > 1:
+        # OpenAI rejects keywords next to $ref, so inline the referenced schema.
+        del node["$ref"]
+        node.update({**visit(deepcopy(_resolve_ref(root, ref))), **node})
+
+
+def _resolve_ref(root: Mapping[str, Any], ref: str) -> dict[str, Any]:
+    target: Any = root
+    for segment in ref.removeprefix("#/").split("/"):
+        target = target[segment]
+    return dict(target)
 
 
 @dataclass(frozen=True)
