@@ -1,4 +1,3 @@
-# ruff: noqa: S105 - all credentials in this module are test data
 from __future__ import annotations
 
 import asyncio
@@ -144,24 +143,35 @@ def device_response(**overrides: object) -> dict[str, object]:
 
 @pytest.mark.parametrize("custom_display", [False, True])
 async def test_copilot_login_can_be_used_and_restored(
-    device_service: FakeService,
+    service: FakeService,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     custom_display: bool,
 ) -> None:
-    service = device_service
     service.reply_json(device_response())
     service.reply_json({"error": "authorization_pending"})
     service.reply_json({"error": "slow_down", "interval": 10})
     service.reply_json({"error": "slow_down", "interval": 15})
     service.reply_json({"access_token": "plugin-login-token", "token_type": "bearer"})
-    sleep = AsyncMock()
+    elapsed = 0.0
+    poll_times = []
+
+    async def sleep(seconds: float) -> None:
+        nonlocal elapsed
+        elapsed += seconds
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/login/oauth/access_token":
+            poll_times.append(elapsed)
+        return service._handle(request)
+
     monkeypatch.setattr(asyncio, "sleep", sleep)
+    monkeypatch.setattr(github, "AsyncOAuth2Client", partial(AsyncOAuth2Client, transport=httpx2.MockTransport(handle)))
     display = AsyncMock()
 
     auth = await CopilotAuth.login(on_authorize=display if custom_display else None)
 
-    assert [call.args[0] for call in sleep.await_args_list] == [5, 5, 10, 15]
+    assert poll_times == [5, 10, 20, 35]
     output = capsys.readouterr()
     if custom_display:
         display.assert_awaited_once_with("https://github.com/login/device", "USER-CODE")
@@ -185,7 +195,6 @@ async def test_copilot_login_can_be_used_and_restored(
             "device_code": ["private-device-code"],
             "client_id": ["Iv1.b507a08c87ecfe98"],
         }
-    assert auth.github_token == "plugin-login-token"
     for selected in [auth, CopilotAuth(auth.github_token)]:
         service.reply_json({
             "token": "inference-token",

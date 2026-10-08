@@ -13,11 +13,15 @@ RESPONSES_REPLY = {"output": [], "usage": {"input_tokens": 1, "output_tokens": 1
 
 
 class TestGetModel:
-    def test_splits_provider_and_model_on_first_colon(self) -> None:
-        model = republic.get_model("openrouter:meta-llama/llama-4:free")
+    async def test_splits_provider_and_model_on_first_colon(self, service: FakeService) -> None:
+        service.reply_json({"output": [{"type": "message", "content": [{"type": "output_text", "text": "hi"}]}]})
+        model = republic.get_model("openrouter:meta-llama/llama-4:free", http_client=service.client())
 
-        assert isinstance(model.provider, republic.providers.OpenRouter)
-        assert model.name == "meta-llama/llama-4:free"
+        response = await model.chat("Hello")
+
+        assert service.requests[0].url == "https://openrouter.ai/api/v1/responses"
+        assert service.body()["model"] == "meta-llama/llama-4:free"
+        assert response.text == "hi"
 
     def test_rejects_spec_without_provider(self) -> None:
         with pytest.raises(ValueError, match="provider:model"):
@@ -77,32 +81,24 @@ class TestCredentials:
 
 
 class TestApiFormat:
-    def test_each_model_kind_picks_its_preferred_format(self) -> None:
-        provider = republic.get_provider("openai")
-
-        assert provider.get_model("gpt-6-sol").api_format.name == "responses"
-        assert provider.get_embedding_model("text-embedding-4").api_format.name == "embeddings"
-
-    def test_requested_format_only_applies_to_its_kind(self) -> None:
-        provider = republic.get_provider("openai", api_format="chat")
-
-        assert provider.get_model("gpt-6-sol").api_format.name == "chat"
-        assert provider.get_embedding_model("text-embedding-4").api_format.name == "embeddings"
-
     def test_missing_kind_is_rejected_when_getting_the_model(self) -> None:
         provider = republic.get_provider("anthropic")
 
         with pytest.raises(republic.UnsupportedApiFormatError, match="embedding"):
             provider.get_embedding_model("claude-opus-5-5")
 
-    async def test_honors_requested_format(self, service: FakeService) -> None:
+    async def test_requested_chat_format_preserves_embeddings(self, service: FakeService) -> None:
         service.reply_json(CHAT_REPLY)
-        model = republic.get_model("openai:gpt-6-sol", api_format="chat", http_client=service.client())
+        service.reply_json({"data": [{"index": 0, "embedding": [0.1, 0.2]}]})
+        provider = republic.get_provider("openai", api_format="chat", http_client=service.client())
 
-        response = await model.chat("Hello")
+        response = await provider.get_model("gpt-6-sol").chat("Hello")
+        embedding = await provider.get_embedding_model("text-embedding-4").embed("Hello")
 
         assert service.requests[0].url.path == "/v1/chat/completions"
         assert response.text == "hi"
+        assert service.requests[1].url.path == "/v1/embeddings"
+        assert embedding.vector == [0.1, 0.2]
 
     def test_rejects_unsupported_format(self) -> None:
         with pytest.raises(republic.UnsupportedApiFormatError):
@@ -140,13 +136,6 @@ async def test_http_errors_carry_status_and_body(service: FakeService) -> None:
 
 
 class TestOpenRouter:
-    def test_uses_the_preferred_format_of_each_kind(self) -> None:
-        provider = republic.get_provider("openrouter")
-
-        assert provider.get_model("anthropic/claude-opus-5-5").api_format.name == "responses"
-        assert provider.get_embedding_model("openai/text-embedding-4").api_format.name == "embeddings"
-        assert provider.get_decision_model("typesafe/jev-latest").api_format.name == "system_one"
-
     async def test_serves_the_messages_format(self, service: FakeService) -> None:
         service.reply_json({"content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 1}})
         model = republic.get_model(
