@@ -126,32 +126,38 @@ async def test_responses_keeps_parallel_calls_with_changing_item_ids(service: Fa
 
 
 @pytest.mark.parametrize("explicit_auth", [False, True])
+@pytest.mark.parametrize("integration", [None, "issuing-app"])
 async def test_github_uses_selected_cli_login_directly(
-    monkeypatch: pytest.MonkeyPatch, service: FakeService, explicit_auth: bool
+    monkeypatch: pytest.MonkeyPatch, service: FakeService, explicit_auth: bool, integration: str | None
 ) -> None:
     commands = []
+    token = "ghs_installation-token" if integration else "cli-token"
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         commands.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout="cli-token\n")
+        return subprocess.CompletedProcess(command, 0, stdout=f"{token}\n")
 
     monkeypatch.setattr(subprocess, "run", run)
     service.reply_json({"choices": [{"message": {"content": "hi"}}]})
     monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
+    headers = {"copilot-integration-id": integration} if integration else {}
     if explicit_auth:
         model = republic.get_model(
-            "github-copilot:test", auth=GitHubCLIAuth(executable="/usr/bin/gh"), http_client=service.client()
+            "github-copilot:test",
+            auth=GitHubCLIAuth(executable="/usr/bin/gh"),
+            headers=headers,
+            http_client=service.client(),
         )
     else:
-        model = republic.get_model("github-copilot:test", http_client=service.client())
+        model = republic.get_model("github-copilot:test", headers=headers, http_client=service.client())
 
     response = await model.chat("hello")
 
     assert commands == [["/usr/bin/gh" if explicit_auth else "gh", "auth", "token", "--hostname", "github.com"]]
     assert len(service.requests) == 1
-    assert service.requests[0].headers["authorization"] == "Bearer cli-token"
+    assert service.requests[0].headers["authorization"] == f"Bearer {token}"
     assert str(service.requests[0].url) == "https://api.githubcopilot.com/chat/completions"
-    assert "copilot-integration-id" not in service.requests[0].headers
+    assert service.requests[0].headers.get_list("copilot-integration-id") == ([integration] if integration else [])
     assert "editor-version" not in service.requests[0].headers
     assert response.text == "hi"
 
