@@ -1,0 +1,6 @@
+data: {"candidates": [{"content": {"parts": [{"text": "The sum of "}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 218,"candidatesTokenCount": 3,"totalTokenCount": 221,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 218}]},"modelVersion": "gemini-2.5-flash","responseId": "XgCzaazDItHRz7IPmsmB4Qk"}
+
+data: {"candidates": [{"content": {"parts": [{"text": "2 and 3 is 5. The product of 2 and 3 is"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 218,"candidatesTokenCount": 20,"totalTokenCount": 238,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 218}]},"modelVersion": "gemini-2.5-flash","responseId": "XgCzaazDItHRz7IPmsmB4Qk"}
+
+data: {"candidates": [{"content": {"parts": [{"text": " 6."}],"role": "model"},"finishReason": "STOP","index": 0}],"usageMetadata": {"promptTokenCount": 218,"candidatesTokenCount": 22,"totalTokenCount": 240,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 218}]},"modelVersion": "gemini-2.5-flash","responseId": "XgCzaazDItHRz7IPmsmB4Qk"}
+

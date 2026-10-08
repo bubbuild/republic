@@ -124,7 +124,8 @@ class Provider:
                 if response.is_error:
                     await response.aread()
                     raise APIStatusError(response.status_code, response.text)
-                yield iter_events(response.aiter_lines())
+                end_marker = "[DONE]" if api_format.name in {"chat", "responses"} else None
+                yield iter_events(response.aiter_lines(), end_marker=end_marker)
             finally:
                 await response.aclose()
 

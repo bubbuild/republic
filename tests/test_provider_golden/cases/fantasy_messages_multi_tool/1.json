@@ -1,0 +1,26 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "id": "msg_01M4yocU9cfPhGbLv7iwpG2g",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "The results are:\n- 2 + 3 = 5\n- 2 \u00d7 3 = 6"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 705,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "output_tokens": 31,
+    "service_tier": "standard",
+    "inference_geo": "not_available"
+  }
+}

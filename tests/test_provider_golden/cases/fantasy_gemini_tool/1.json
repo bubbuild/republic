@@ -1,0 +1,29 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "The weather in Florence, Italy is 40 C."
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 84,
+    "candidatesTokenCount": 12,
+    "totalTokenCount": 96,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 84
+      }
+    ]
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "WQCzaa2iA_Xpz7IP6oC2oQ8"
+}

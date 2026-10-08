@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,44 @@ import pytest
 import republic
 from republic.history import InMemoryHistory
 from tests.conftest import FakeService
+
+
+@pytest.mark.parametrize("provider", ["openai", "openrouter"])
+@pytest.mark.parametrize("api_format", ["chat", "responses"])
+async def test_openai_stream_stops_at_done(service: FakeService, provider: str, api_format: str) -> None:
+    text_event = (
+        {"choices": [{"delta": {"content": "Hello"}}]}
+        if api_format == "chat"
+        else {"type": "response.output_text.delta", "delta": "Hello"}
+    )
+    service.reply_events([text_event, "[DONE]", text_event])
+    model = republic.get_model(f"{provider}:test-model", api_format=api_format, http_client=service.client())
+
+    async with model.stream("Hi") as stream:
+        events = [event async for event in stream]
+
+    assert stream.text == "Hello"
+    assert len(events) == 2
+    assert isinstance(events[-1], republic.events.Completed)
+
+
+@pytest.mark.parametrize(
+    ("provider", "api_format", "payload"),
+    [
+        ("openai", "chat", "not-json"),
+        ("openai", "responses", "not-json"),
+        ("anthropic", "messages", "[DONE]"),
+        ("google", "gemini", "[DONE]"),
+    ],
+)
+async def test_invalid_stream_json_raises(service: FakeService, provider: str, api_format: str, payload: str) -> None:
+    service.reply_events([payload, "[DONE]"])
+    model = republic.get_model(f"{provider}:test-model", api_format=api_format, http_client=service.client())
+
+    with pytest.raises(json.JSONDecodeError):
+        async with model.stream("Hi") as stream:
+            async for _ in stream:
+                pass
 
 
 def chat_reply(text: str) -> dict[str, object]:

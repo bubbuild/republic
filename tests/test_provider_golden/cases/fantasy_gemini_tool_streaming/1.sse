@@ -1,0 +1,4 @@
+data: {"candidates": [{"content": {"parts": [{"text": "The weather in Florence"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 127,"candidatesTokenCount": 4,"totalTokenCount": 131,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 127}]},"modelVersion": "gemini-2.5-flash","responseId": "WgCzaZzmMLnoz7IP_czm6Q4"}
+
+data: {"candidates": [{"content": {"parts": [{"text": ",Italy is 40 C."}],"role": "model"},"finishReason": "STOP","index": 0}],"usageMetadata": {"promptTokenCount": 127,"candidatesTokenCount": 12,"totalTokenCount": 139,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 127}]},"modelVersion": "gemini-2.5-flash","responseId": "WgCzaZzmMLnoz7IP_czm6Q4"}
+

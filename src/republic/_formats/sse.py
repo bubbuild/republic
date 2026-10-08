@@ -10,14 +10,17 @@ class ServerSentEvent:
     data: str
 
 
-async def iter_events(lines: AsyncIterable[str]) -> AsyncIterator[ServerSentEvent]:
-    """Parse the ``text/event-stream`` format into events."""
+async def iter_events(lines: AsyncIterable[str], *, end_marker: str | None = None) -> AsyncIterator[ServerSentEvent]:
+    """Parse SSE events, stopping at the protocol's optional data marker."""
     event = ""
     data: list[str] = []
     async for line in lines:
         if not line:
             if data:
-                yield ServerSentEvent(event or "message", "\n".join(data))
+                payload = "\n".join(data)
+                if payload == end_marker:
+                    return
+                yield ServerSentEvent(event or "message", payload)
             event, data = "", []
             continue
         field, _, value = line.partition(":")
@@ -27,4 +30,6 @@ async def iter_events(lines: AsyncIterable[str]) -> AsyncIterator[ServerSentEven
         elif field == "data":
             data.append(value)
     if data:
-        yield ServerSentEvent(event or "message", "\n".join(data))
+        payload = "\n".join(data)
+        if payload != end_marker:
+            yield ServerSentEvent(event or "message", payload)

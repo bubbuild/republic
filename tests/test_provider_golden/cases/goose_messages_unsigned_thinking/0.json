@@ -1,0 +1,17 @@
+{
+  "id": "msg_123",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "internal reasoning"
+    }
+  ],
+  "model": "glm-4.7",
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 15
+  }
+}

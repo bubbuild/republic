@@ -1,0 +1,2 @@
+data: {"candidates": [{"content": {"parts": [{"text": "Olá!"}],"role": "model"},"finishReason": "STOP","index": 0}],"usageMetadata": {"promptTokenCount": 11,"candidatesTokenCount": 2,"totalTokenCount": 34,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 11}],"thoughtsTokenCount": 21},"modelVersion": "gemini-2.5-flash","responseId": "VwCzabneCuzPz7IP0aL64A0"}
+

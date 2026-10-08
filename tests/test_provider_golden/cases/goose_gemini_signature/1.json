@@ -1,0 +1,18 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "functionCall": {
+              "name": "echo",
+              "args": {}
+            },
+            "thoughtSignature": "sig_456"
+          }
+        ]
+      }
+    }
+  ]
+}
