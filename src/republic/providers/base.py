@@ -59,6 +59,11 @@ class Provider:
         http_client: httpx2.AsyncClient | None = None,
         timeout: httpx2.Timeout | float = DEFAULT_TIMEOUT,
     ) -> None:
+        try:
+            from republic.__version__ import __version__
+        except ImportError:
+            __version__ = "0.0.0"
+
         env_prefix = env_prefix or f"REPUBLIC_{self.name.upper()}"
         api_key = api_key or os.getenv(f"{env_prefix}_API_KEY")
         self.api_base = (api_base or os.getenv(f"{env_prefix}_API_BASE") or self.DEFAULT_API_BASE).rstrip("/")
@@ -71,6 +76,7 @@ class Provider:
         """The preferred format for models of its kind; other kinds use their default."""
         self.headers = dict(headers or {})
         """Sent with every request, such as beta flags or gateway attribution headers."""
+        self.headers.setdefault("User-Agent", f"python-republic/{__version__}")
         self.timeout = timeout
         self._http_client = http_client
 

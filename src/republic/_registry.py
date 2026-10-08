@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypedDict, Unpack
+from typing import TypedDict, TypeVar, Unpack
 
 import httpx2
 
@@ -10,6 +10,8 @@ from republic._formats import ApiFormatName
 from republic._models import ChatModel, DecisionModel, EmbeddingModel
 from republic.history import HistoryProtocol
 from republic.providers import Anthropic, Google, OpenAI, OpenRouter, Provider, TypeSafe
+
+P = TypeVar("P", bound=Provider)
 
 _PROVIDERS: dict[str, type[Provider]] = {
     "openai": OpenAI,
@@ -31,9 +33,10 @@ class ProviderOptions(TypedDict, total=False):
     timeout: httpx2.Timeout | float
 
 
-def register_provider(provider_class: type[Provider], name: str) -> None:
+def register_provider(provider_class: type[P], name: str | None = None) -> type[P]:
     """Make ``provider_class`` available as ``name`` in model specs such as ``"name:model"``."""
-    _PROVIDERS[name] = provider_class
+    _PROVIDERS[name or provider_class.name] = provider_class
+    return provider_class
 
 
 def get_provider(name: str, **options: Unpack[ProviderOptions]) -> Provider:
