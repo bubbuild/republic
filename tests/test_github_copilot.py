@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 
 import httpx2
 import pytest
@@ -113,7 +114,7 @@ async def test_responses_keeps_parallel_calls_with_changing_item_ids(service: Fa
 
 
 @pytest.mark.parametrize("explicit_auth", [False, True])
-async def test_github_uses_selected_cli_login(
+async def test_github_exchanges_the_cli_login_for_copilot_tokens(
     monkeypatch: pytest.MonkeyPatch, service: FakeService, explicit_auth: bool
 ) -> None:
     commands = []
@@ -123,6 +124,11 @@ async def test_github_uses_selected_cli_login(
         return subprocess.CompletedProcess(command, 0, stdout="cli-token\n")
 
     monkeypatch.setattr(subprocess, "run", run)
+    service.reply_json({
+        "token": "copilot-token",
+        "expires_at": int(time.time()) + 1800,
+        "endpoints": {"api": "https://api.individual.githubcopilot.com"},
+    })
     service.reply_json({"choices": [{"message": {"content": "hi"}}]})
     monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
     if explicit_auth:
@@ -135,9 +141,126 @@ async def test_github_uses_selected_cli_login(
     response = await model.chat("hello")
 
     assert commands == [["/usr/bin/gh" if explicit_auth else "gh", "auth", "token", "--hostname", "github.com"]]
-    assert service.requests[0].headers["authorization"] == "Bearer cli-token"
-    assert str(service.requests[0].url) == "https://api.githubcopilot.com/chat/completions"
+    exchange, inference = service.requests
+    assert str(exchange.url) == "https://api.github.com/copilot_internal/v2/token"
+    assert exchange.headers["authorization"] == "token cli-token"
+    assert exchange.headers["x-github-api-version"] == "2025-04-01"
+    # The login alone is rejected by inference, and the exchange names the origin to use.
+    assert str(inference.url) == "https://api.individual.githubcopilot.com/chat/completions"
+    assert inference.headers["authorization"] == "Bearer copilot-token"
+    assert inference.headers["copilot-integration-id"] == "vscode-chat"
+    assert inference.headers["editor-version"] == "vscode/1.95.0"
+    assert inference.headers["editor-plugin-version"] == "copilot-chat/0.26.7"
+    assert inference.headers["x-github-api-version"] == "2025-10-01"
     assert response.text == "hi"
+
+
+async def test_copilot_reuses_the_token_then_renews_it(monkeypatch: pytest.MonkeyPatch, service: FakeService) -> None:
+    commands = []
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="cli-token\n")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
+    issued = time.time()
+    service.reply_json({
+        "token": "first-token",
+        "refresh_in": 1800,
+        "endpoints": {"api": "https://api.githubcopilot.com"},
+    })
+    service.reply_json({"choices": [{"message": {"content": "one"}}]})
+    service.reply_json({"choices": [{"message": {"content": "two"}}]})
+    service.reply_json({
+        "token": "second-token",
+        "refresh_in": 1800,
+        "endpoints": {"api": "https://api.githubcopilot.com"},
+    })
+    service.reply_json({"choices": [{"message": {"content": "three"}}]})
+    model = republic.get_model("github-copilot:test", http_client=service.client())
+
+    assert (await model.chat("one")).text == "one"
+    assert (await model.chat("two")).text == "two"
+    assert len(commands) == 1
+    assert [request.headers.get("authorization") for request in service.requests] == [
+        "token cli-token",
+        "Bearer first-token",
+        "Bearer first-token",
+    ]
+
+    monkeypatch.setattr(time, "time", lambda: issued + 1900)
+    assert (await model.chat("three")).text == "three"
+    assert len(commands) == 2
+    assert [request.headers.get("authorization") for request in service.requests[3:]] == [
+        "token cli-token",
+        "Bearer second-token",
+    ]
+
+
+async def test_copilot_exchange_failure_stops_before_inference(
+    monkeypatch: pytest.MonkeyPatch, service: FakeService
+) -> None:
+    monkeypatch.setattr(
+        subprocess, "run", lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="cli-token\n")
+    )
+    monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
+    service.reply_json({"message": "the account has no Copilot access"}, status_code=403)
+    model = republic.get_model("github-copilot:test", http_client=service.client())
+
+    with pytest.raises(republic.AuthenticationError) as error:
+        await model.chat("hello")
+
+    assert len(service.requests) == 1
+    assert str(service.requests[0].url) == "https://api.github.com/copilot_internal/v2/token"
+    assert "no Copilot access" not in str(error.value)
+
+
+async def test_copilot_streams_after_the_exchange(monkeypatch: pytest.MonkeyPatch, service: FakeService) -> None:
+    monkeypatch.setattr(
+        subprocess, "run", lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="cli-token\n")
+    )
+    monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
+    service.reply_json({
+        "token": "copilot-token",
+        "refresh_in": 1800,
+        "endpoints": {"api": "https://api.githubcopilot.com"},
+    })
+    service.reply_events([{"choices": [{"delta": {"content": "hi"}}]}])
+    model = republic.get_model("github-copilot:test", http_client=service.client())
+
+    async with model.stream("hello") as stream:
+        async for _ in stream:
+            pass
+
+    assert stream.text == "hi"
+    assert [str(request.url) for request in service.requests] == [
+        "https://api.github.com/copilot_internal/v2/token",
+        "https://api.githubcopilot.com/chat/completions",
+    ]
+
+
+def test_github_auth_also_signs_sync_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        subprocess, "run", lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="cli-token\n")
+    )
+    requests = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.url.host == "api.github.com":
+            return httpx2.Response(200, json={"token": "copilot-token", "refresh_in": 1800})
+        return httpx2.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+
+    with httpx2.Client(transport=httpx2.MockTransport(handler)) as client:
+        response = client.post("https://api.githubcopilot.com/chat/completions", json={}, auth=GitHubCLIAuth())
+
+    assert [str(request.url) for request in requests] == [
+        "https://api.github.com/copilot_internal/v2/token",
+        "https://api.githubcopilot.com/chat/completions",
+    ]
+    assert requests[-1].headers["authorization"] == "Bearer copilot-token"
+    assert response.json()["choices"][0]["message"]["content"] == "hi"
 
 
 async def test_github_failure_does_not_fall_back_or_expose_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
