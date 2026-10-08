@@ -10,7 +10,7 @@ from republic._models import ChatModel, DecisionModel, EmbeddingModel
 from republic.auth import Auth
 from republic.formats import ApiFormatName
 from republic.history import HistoryProtocol
-from republic.providers import Anthropic, Codex, GitHubCopilot, Google, OpenAI, OpenRouter, Provider, TypeSafe
+from republic.providers import Anthropic, Codex, GitHubCopilot, Google, Grok, OpenAI, OpenRouter, Provider, TypeSafe
 
 P = TypeVar("P", bound=Provider)
 
@@ -20,6 +20,7 @@ _PROVIDERS: dict[str, type[Provider]] = {
     "openai": OpenAI,
     "anthropic": Anthropic,
     "google": Google,
+    "grok": Grok,
     "openrouter": OpenRouter,
     "typesafe": TypeSafe,
 }

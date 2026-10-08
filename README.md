@@ -18,7 +18,7 @@ async with model.stream("Tell me a story") as stream:
             print(event.chunk, end="")
 ```
 
-Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, and `github-copilot`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first supported format in that order is used unless `api_format=` names another. Copilot defaults to `chat`; select another format according to the model's supported endpoints. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own.
+Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, and `grok`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first supported format in that order is used unless `api_format=` names another. Copilot defaults to `chat`; select another format according to the model's supported endpoints. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own.
 
 Tools are schemas only. Execute the calls yourself and send the results back, keeping the assistant message so reasoning state survives the round trip:
 
@@ -116,6 +116,8 @@ Codex accepts `device_auth=True` for device authorization. Both CLI methods acce
 For custom Codex credentials, pass `auth=CodexAuth.from_file(path)` or `auth=CodexAuth(token, account_id=...)` from `republic.providers`; persist `auth.token` yourself when supplying tokens.
 
 For existing Plugin credentials, pass `auth=CopilotAuth(github_token)`; the caller owns their storage and renewal. Reuse the auth object to exchange, cache and renew Copilot inference tokens. Requests follow `endpoints.api`; `headers=` overrides Plugin headers. GitHub CLI credentials use the direct path above.
+
+`grok:model` supports Chat and Responses using the official Grok CLI's xAI OAuth login by default. Use `await GrokAuth.login()` (optionally `device_auth=True`) or `GrokAuth.from_file(path)` from `republic.providers`. The default file is `$GROK_HOME/auth.json` or `~/.grok/auth.json`; `GROK_AUTH_PATH` overrides it. Expiring tokens are refreshed through Authlib and saved under the CLI's file lock. For caller-managed credentials, use `GrokAuth(token)` and persist `auth.token`; explicit `api_key=` and `auth=` take precedence.
 
 Codex supports Responses and rejects `max_tokens`. Copilot supports Chat, Responses, and Messages; select a format available to your model and account.
 
