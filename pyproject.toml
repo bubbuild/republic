@@ -11,6 +11,7 @@ keywords = ["ai", "ai-provider", "python"]
 requires-python = ">=3.11,<4.0"
 dependencies = [
     "authlib>=1.8",
+    "filelock>=3.32",
     "httpx2>=2.13",
     "pydantic>=2.13.5",
 ]
