@@ -132,7 +132,7 @@ class CodexAuth(Auth):
 
 
 class Codex(Provider):
-    """Responses-only provider; pass ``auth=CodexAuth.from_file()`` for a Codex login."""
+    """Responses-only provider using the local Codex login by default."""
 
     name = "codex"
     DEFAULT_API_BASE = "https://chatgpt.com/backend-api/codex"
@@ -140,6 +140,8 @@ class Codex(Provider):
 
     def __init__(self, **options: Unpack[ProviderOptions]) -> None:
         super().__init__(**options)
+        if self.auth is None and (self._http_client is None or self._http_client.auth is None):
+            self.auth = CodexAuth.from_file()
         self.headers.setdefault("OpenAI-Beta", "responses=experimental")
         self.headers.setdefault("originator", "republic")
 

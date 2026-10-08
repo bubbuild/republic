@@ -88,7 +88,7 @@ async def test_codex_keeps_reasoning_and_tool_round_trip(service: FakeService) -
         },
     ])
     reply(service, "sunny")
-    model = republic.get_model("codex:test", http_client=service.client())
+    model = republic.get_model("codex:test", api_key="test-key", http_client=service.client())
 
     first = await model.chat("weather?")
     result = republic.tool_result(first.tool_calls[0], "sunny")
@@ -104,7 +104,7 @@ async def test_codex_keeps_reasoning_and_tool_round_trip(service: FakeService) -
 
 
 async def test_codex_rejects_token_limit_instead_of_ignoring_it(service: FakeService) -> None:
-    model = republic.get_model("codex:test", http_client=service.client())
+    model = republic.get_model("codex:test", api_key="test-key", http_client=service.client())
     with pytest.raises(republic.UnsupportedFeatureError, match="max_tokens"):
         await model.chat("hello", max_tokens=10)
     assert not service.requests
@@ -114,7 +114,7 @@ def test_codex_rejects_other_formats_and_embeddings() -> None:
     with pytest.raises(republic.UnsupportedApiFormatError):
         republic.get_model("codex:test", api_format="chat")
     with pytest.raises(republic.UnsupportedApiFormatError):
-        republic.get_embedding_model("codex:test")
+        republic.get_embedding_model("codex:test", api_key="test-key")
 
 
 def credentials(path: Path, **tokens: object) -> Path:
@@ -126,6 +126,30 @@ def credentials(path: Path, **tokens: object) -> Path:
         })
     )
     return path
+
+
+async def test_codex_uses_local_login_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service: FakeService
+) -> None:
+    credentials(tmp_path / "auth.json")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.delenv("REPUBLIC_CODEX_API_KEY", raising=False)
+    reply(service, "hello")
+    model = republic.get_model("codex:test", http_client=service.client())
+
+    response = await model.chat("Hi")
+
+    assert response.text == "hello"
+    assert service.requests[0].headers["authorization"] == "Bearer dummy-access"
+    assert service.requests[0].headers["chatgpt-account-id"] == "account-1"
+
+
+def test_codex_reports_missing_default_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.delenv("REPUBLIC_CODEX_API_KEY", raising=False)
+
+    with pytest.raises(republic.AuthenticationError, match="codex login"):
+        republic.get_model("codex:test")
 
 
 async def test_codex_reads_current_file_and_keeps_body(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

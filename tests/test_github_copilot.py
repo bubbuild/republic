@@ -14,7 +14,9 @@ from tests.conftest import FakeService
 async def test_messages_stops_at_copilot_terminal_marker(service: FakeService) -> None:
     text = {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}}
     service.reply_events([text, "[DONE]", text])
-    model = republic.get_model("github-copilot:test", api_format="messages", http_client=service.client())
+    model = republic.get_model(
+        "github-copilot:test", api_format="messages", api_key="test-key", http_client=service.client()
+    )
 
     async with model.stream("Hi") as stream:
         events = [event async for event in stream]
@@ -27,7 +29,9 @@ async def test_messages_stops_at_copilot_terminal_marker(service: FakeService) -
 @pytest.mark.parametrize("api_format", ["responses", "messages"])
 async def test_malformed_copilot_events_still_raise(service: FakeService, api_format: str) -> None:
     service.reply_events(["not-json", "[DONE]"])
-    model = republic.get_model("github-copilot:test", api_format=api_format, http_client=service.client())
+    model = republic.get_model(
+        "github-copilot:test", api_format=api_format, api_key="test-key", http_client=service.client()
+    )
 
     with pytest.raises(json.JSONDecodeError):
         async with model.stream("Hi") as stream:
@@ -80,7 +84,9 @@ async def test_responses_keeps_parallel_calls_with_changing_item_ids(service: Fa
         "[DONE]",
     ])
     service.reply_json({"output": [{"type": "message", "content": [{"type": "output_text", "text": "done"}]}]})
-    model = republic.get_model("github-copilot:test", api_format="responses", http_client=service.client())
+    model = republic.get_model(
+        "github-copilot:test", api_format="responses", api_key="test-key", http_client=service.client()
+    )
 
     async with model.stream("Calculate") as stream:
         events = [event async for event in stream]
@@ -106,7 +112,10 @@ async def test_responses_keeps_parallel_calls_with_changing_item_ids(service: Fa
     ]
 
 
-async def test_github_uses_selected_cli_login(monkeypatch: pytest.MonkeyPatch, service: FakeService) -> None:
+@pytest.mark.parametrize("explicit_auth", [False, True])
+async def test_github_uses_selected_cli_login(
+    monkeypatch: pytest.MonkeyPatch, service: FakeService, explicit_auth: bool
+) -> None:
     commands = []
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -115,13 +124,17 @@ async def test_github_uses_selected_cli_login(monkeypatch: pytest.MonkeyPatch, s
 
     monkeypatch.setattr(subprocess, "run", run)
     service.reply_json({"choices": [{"message": {"content": "hi"}}]})
-    model = republic.get_model(
-        "github-copilot:test", auth=GitHubCLIAuth(executable="/usr/bin/gh"), http_client=service.client()
-    )
+    monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
+    if explicit_auth:
+        model = republic.get_model(
+            "github-copilot:test", auth=GitHubCLIAuth(executable="/usr/bin/gh"), http_client=service.client()
+        )
+    else:
+        model = republic.get_model("github-copilot:test", http_client=service.client())
 
     response = await model.chat("hello")
 
-    assert commands == [["/usr/bin/gh", "auth", "token", "--hostname", "github.com"]]
+    assert commands == [["/usr/bin/gh" if explicit_auth else "gh", "auth", "token", "--hostname", "github.com"]]
     assert service.requests[0].headers["authorization"] == "Bearer cli-token"
     assert str(service.requests[0].url) == "https://api.githubcopilot.com/chat/completions"
     assert response.text == "hi"
@@ -129,12 +142,14 @@ async def test_github_uses_selected_cli_login(monkeypatch: pytest.MonkeyPatch, s
 
 async def test_github_failure_does_not_fall_back_or_expose_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "unwanted-fallback")
+    monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", "sensitive stderr"))
     async with httpx2.AsyncClient(
         transport=httpx2.MockTransport(lambda _: pytest.fail("must not send inference"))
     ) as client:
+        model = republic.get_model("github-copilot:test", http_client=client)
         with pytest.raises(republic.AuthenticationError) as error:
-            await client.post("https://example.test", json={}, auth=GitHubCLIAuth())
+            await model.chat("hello")
     assert "sensitive" not in str(error.value)
 
 
@@ -155,7 +170,9 @@ async def test_copilot_uses_each_native_endpoint(service: FakeService, api_forma
             "messages": {"content": [{"type": "text", "text": "hi"}], "usage": {"input_tokens": 1, "output_tokens": 1}},
         }[api_format]
         service.reply_json(body)
-    model = republic.get_model("github-copilot:test", api_format=api_format, http_client=service.client())
+    model = republic.get_model(
+        "github-copilot:test", api_format=api_format, api_key="test-key", http_client=service.client()
+    )
 
     if streaming:
         async with model.stream("hello") as stream:

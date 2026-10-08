@@ -93,15 +93,13 @@ Republic stops at providers. Gateways, agent loops, and tool execution stay out.
 `auth=` accepts a standard `httpx2.Auth` object and overrides API-key authentication. `republic.auth` exports `Auth`, `HeaderAuth`, and Authlib's `OAuth2Auth`.
 
 ```python
-from republic.providers import CodexAuth, GitHubCLIAuth
-
-codex = republic.get_model("codex:gpt-6-luna", auth=CodexAuth.from_file())
-copilot = republic.get_model(
-    "github-copilot:gpt-6-luna", api_format="responses", auth=GitHubCLIAuth()
-)
+codex = republic.get_model("codex:gpt-6-luna")
+copilot = republic.get_model("github-copilot:gpt-6-luna", api_format="responses")
 ```
 
-`CodexAuth.from_file(path)` reads and refreshes Codex's file login, defaulting to `$CODEX_HOME/auth.json` (`~/.codex/auth.json` when unset). Configure `cli_auth_credentials_store = "file"` before `codex login`. For existing tokens, use `CodexAuth(token, account_id=...)` and persist the refreshed `auth.token` yourself. Copilot can use an existing token with `OAuth2Auth(token)`.
+Codex defaults to its file login (`$CODEX_HOME/auth.json` or `~/.codex/auth.json`); configure `cli_auth_credentials_store = "file"` before `codex login`. Copilot defaults to the current `gh auth login`. Explicit credentials take precedence.
+
+For custom Codex credentials, pass `auth=CodexAuth.from_file(path)` or `auth=CodexAuth(token, account_id=...)` from `republic.providers`; persist `auth.token` yourself when supplying tokens. Copilot accepts existing tokens through `OAuth2Auth(token)`.
 
 Codex supports Responses and rejects `max_tokens`. Copilot supports Chat, Responses, and Messages; select a format available to your model and account.
 

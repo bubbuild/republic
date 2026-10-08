@@ -61,7 +61,7 @@ class GitHubCLIAuth(Auth):
 
 
 class GitHubCopilot(Provider):
-    """Copilot inference with ``auth=GitHubCLIAuth()`` and an eligible account.
+    """Copilot inference using the current GitHub CLI login by default.
 
     Select the format supported by your model; chat is the default.
     """
@@ -73,6 +73,8 @@ class GitHubCopilot(Provider):
     def __init__(self, **options: Unpack[ProviderOptions]) -> None:
         options.setdefault("api_format", "chat")
         super().__init__(**options)
+        if self.auth is None and (self._http_client is None or self._http_client.auth is None):
+            self.auth = GitHubCLIAuth()
 
     @asynccontextmanager
     async def _stream(
