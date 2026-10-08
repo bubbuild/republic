@@ -62,7 +62,7 @@ class TestCredentials:
         assert service.requests[0].headers["anthropic-version"] == "2023-06-01"
 
     async def test_custom_auth_is_used_as_is(self, service: FakeService) -> None:
-        class TokenAuth(httpx2.Auth):
+        class TokenAuth(republic.auth.Auth):
             def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
                 request.headers["x-token"] = "secret"
                 yield request

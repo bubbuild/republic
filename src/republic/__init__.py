@@ -3,7 +3,7 @@
 Gateways, agent loops, and tool execution stay outside the package.
 """
 
-from republic import decisions, events, formats, history, providers, tools
+from republic import auth, decisions, events, formats, history, providers, tools
 from republic._content import (
     Image,
     Message,
@@ -24,6 +24,7 @@ from republic._content import (
 from republic._errors import (
     APIResponseError,
     APIStatusError,
+    AuthenticationError,
     ProviderNotFoundError,
     RepublicError,
     StreamNotFinishedError,
@@ -38,6 +39,7 @@ from republic._response import BuiltinToolCall, Citation, EmbeddingResponse, Fin
 __all__ = [
     "APIResponseError",
     "APIStatusError",
+    "AuthenticationError",
     "BuiltinToolCall",
     "ChatModel",
     "ChatOptions",
@@ -66,6 +68,7 @@ __all__ = [
     "UnsupportedFeatureError",
     "Video",
     "assistant",
+    "auth",
     "decisions",
     "events",
     "formats",

@@ -1,10 +1,24 @@
-"""Built-in providers and the base class for custom ones."""
+"""Built-in providers, their authentication, and the base class for custom ones."""
 
 from .anthropic import Anthropic
 from .base import Provider
+from .codex import Codex, CodexAuth
+from .github import GitHubCLIAuth, GitHubCopilot
 from .google import Google
 from .openai import OpenAI, OpenAICompatible
 from .openrouter import OpenRouter
 from .typesafe import TypeSafe
 
-__all__ = ["Anthropic", "Google", "OpenAI", "OpenAICompatible", "OpenRouter", "Provider", "TypeSafe"]
+__all__ = [
+    "Anthropic",
+    "Codex",
+    "CodexAuth",
+    "GitHubCLIAuth",
+    "GitHubCopilot",
+    "Google",
+    "OpenAI",
+    "OpenAICompatible",
+    "OpenRouter",
+    "Provider",
+    "TypeSafe",
+]

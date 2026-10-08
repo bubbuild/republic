@@ -7,13 +7,16 @@ import httpx2
 
 from republic._errors import ProviderNotFoundError
 from republic._models import ChatModel, DecisionModel, EmbeddingModel
+from republic.auth import Auth
 from republic.formats import ApiFormatName
 from republic.history import HistoryProtocol
-from republic.providers import Anthropic, Google, OpenAI, OpenRouter, Provider, TypeSafe
+from republic.providers import Anthropic, Codex, GitHubCopilot, Google, OpenAI, OpenRouter, Provider, TypeSafe
 
 P = TypeVar("P", bound=Provider)
 
 _PROVIDERS: dict[str, type[Provider]] = {
+    "codex": Codex,
+    "github-copilot": GitHubCopilot,
     "openai": OpenAI,
     "anthropic": Anthropic,
     "google": Google,
@@ -25,7 +28,7 @@ _PROVIDERS: dict[str, type[Provider]] = {
 class ProviderOptions(TypedDict, total=False):
     api_key: str
     api_base: str
-    auth: httpx2.Auth
+    auth: Auth
     api_format: ApiFormatName
     headers: Mapping[str, str]
     extra_body: Mapping[str, Any]

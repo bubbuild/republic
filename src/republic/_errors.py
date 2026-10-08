@@ -5,6 +5,10 @@ class RepublicError(Exception):
     """Base class for errors raised by Republic."""
 
 
+class AuthenticationError(RepublicError):
+    """Raised when local credentials cannot be loaded or refreshed."""
+
+
 class ProviderNotFoundError(RepublicError, LookupError):
     """Raised when no provider is registered under the requested name."""
 
