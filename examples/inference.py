@@ -64,7 +64,7 @@ async def test_reasoning():
     model = republic.get_model("deepseek:deepseek-flash")
     response = await model.chat("Explain the implications of quantum computing.", reasoning_effort="none")
     print(response.text)
-    assert not response.reasoning, "Expected no reasoning when reasoning_effort is 'none'"
+    assert not response.reasoning, "Expected no reasoning when reasoning_effort is 'none'"  # noqa: S101
 
     reasoning_head = False
     answer_head = False
