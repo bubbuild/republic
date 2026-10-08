@@ -1,0 +1,8 @@
+{
+  "usageMetadata": {
+    "promptTokenCount": 100,
+    "candidatesTokenCount": 50,
+    "thoughtsTokenCount": 200,
+    "totalTokenCount": 350
+  }
+}

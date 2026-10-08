@@ -1,0 +1,37 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "functionCall": {
+              "name": "weather",
+              "args": {
+                "location": "Florence,Italy"
+              }
+            },
+            "thoughtSignature": "CvMBAb4+9vvZC/KtDBiEfP1WF+wUiObd6G6yg5vTA8dfeleB3pTysSfmipkwxCrjEL9Y29JxnkMMXZvzkVMlyiK01pvWtZ++SnHMyuy9J04IrT/6oDhaDculJL+1gJhI+4i1UlPgJBXlUnpkPcznVuYKh6YEvWhNQc3Wrz305DeBdPIb2WmZmGv2gOVlhL3yjUrmxVWuRrtt9bQHX9B29bKtvY6L5QnE+iXEDpDlB6N5Qoe0JDqjJMn2K4WmVbxXivQN+XcYrEeRbV8v0A3yKIIxozry6h8C5cWiqMcXdaPK+tDNq4+tljWouipUhKvSkQY1yQ3K"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0,
+      "finishMessage": "Model generated function call(s)."
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 54,
+    "candidatesTokenCount": 15,
+    "totalTokenCount": 117,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 54
+      }
+    ],
+    "thoughtsTokenCount": 48
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "WACzacOoAtThz7IPuNuJoQI"
+}

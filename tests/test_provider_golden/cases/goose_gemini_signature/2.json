@@ -1,0 +1,15 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Done!",
+            "thoughtSignature": "thought_sig_abc"
+          }
+        ]
+      }
+    }
+  ]
+}

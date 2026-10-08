@@ -181,7 +181,8 @@ class _MessagesStreamParser(StreamParser):
                 block["thinking"] = block.get("thinking", "") + delta["thinking"]
                 yield ReasoningDelta(delta["thinking"])
             case "signature_delta":
-                self._blocks[index]["signature"] = delta["signature"]
+                block = self._blocks[index]
+                block["signature"] = block.get("signature", "") + delta["signature"]
 
     def _stop(self, index: int) -> Iterable[Delta]:
         if index in self._tool_indexes:

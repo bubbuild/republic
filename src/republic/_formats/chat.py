@@ -117,8 +117,6 @@ class ChatFormat(ChatApiFormat):
 
 class _ChatStreamParser(StreamParser):
     def feed(self, event: str, data: str) -> Iterable[Delta]:
-        if data == "[DONE]":
-            return
         chunk = json.loads(data)
         _raise_for_error(chunk)
         for choice in chunk.get("choices") or ():

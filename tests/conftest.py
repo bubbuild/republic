@@ -18,6 +18,9 @@ class FakeService:
     def reply_json(self, body: Any, *, status_code: int = 200) -> None:
         self._responses.append(httpx2.Response(status_code, json=body))
 
+    def reply_bytes(self, body: bytes, *, content_type: str) -> None:
+        self._responses.append(httpx2.Response(200, content=body, headers={"content-type": content_type}))
+
     def reply_events(self, events: Iterable[Any]) -> None:
         lines = []
         for event in events:
