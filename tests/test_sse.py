@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from republic._formats.sse import ServerSentEvent, iter_events
+from republic.formats._sse import ServerSentEvent, iter_events
 
 
 @pytest.mark.parametrize("separator", [False, True], ids=["eof", "blank-line"])

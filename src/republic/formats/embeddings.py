@@ -7,7 +7,7 @@ from typing import Any
 
 from republic._response import EmbeddingResponse, TokenUsage
 
-from .base import EmbeddingApiFormat, HttpRequest
+from ._base import EmbeddingApiFormat, HttpRequest
 
 
 class EmbeddingsFormat(EmbeddingApiFormat):

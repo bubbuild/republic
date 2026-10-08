@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypedDict, TypeVar, Unpack
+from typing import Any, TypedDict, TypeVar, Unpack
 
 import httpx2
 
 from republic._errors import ProviderNotFoundError
-from republic._formats import ApiFormatName
 from republic._models import ChatModel, DecisionModel, EmbeddingModel
+from republic.formats import ApiFormatName
 from republic.history import HistoryProtocol
 from republic.providers import Anthropic, Google, OpenAI, OpenRouter, Provider, TypeSafe
 
@@ -28,6 +28,7 @@ class ProviderOptions(TypedDict, total=False):
     auth: httpx2.Auth
     api_format: ApiFormatName
     headers: Mapping[str, str]
+    extra_body: Mapping[str, Any]
     env_prefix: str
     http_client: httpx2.AsyncClient
     timeout: httpx2.Timeout | float

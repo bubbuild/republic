@@ -46,6 +46,28 @@ A response carries `text`, `reasoning`, `refusal`, `tool_calls`, `output` (with 
 
 Other entry points: `republic.image()` and `republic.video()` inputs, `republic.history.InMemoryHistory`, and `republic.get_embedding_model()` with `embed()` / `embed_many()`.
 
+Services that speak a known API format with their own dialect plug in through format hooks. Subclass a format from `republic.formats` and return it from `Provider.select_api_format()`, which also receives the model name:
+
+```python
+from republic.formats import ChatFormat
+
+
+class DeepSeekChat(ChatFormat):
+    def reasoning_fields(self, effort, *, include_reasoning):
+        return {"thinking": {"type": "disabled" if effort == "none" else "enabled"}} if effort else {}
+
+
+class DeepSeek(republic.providers.OpenAICompatible):
+    name = "deepseek"
+    DEFAULT_API_BASE = "https://api.deepseek.com"
+
+    def select_api_format(self, format_kind, model):
+        chat = DeepSeekChat()
+        return chat if isinstance(chat, format_kind) else super().select_api_format(format_kind, model)
+```
+
+Every chat format has `reasoning_fields()`; `chat` also has `max_tokens_fields()` and `reasoning_text()`. Providers accept `extra_body=` for fields every request needs; it deep-merges with each call's `extra_body`.
+
 Decision models answer typed questions with calibrated probabilities instead of generating text:
 
 ```python

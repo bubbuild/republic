@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 import republic
-from republic._formats import ApiFormatName
 from republic.events import BuiltinToolCallReady, CitationAdded
+from republic.formats import ApiFormatName
 from republic.tools import BuiltinTool, CodeExecution, ImageGeneration, NativeTool, UserLocation, WebFetch, WebSearch
 from tests.conftest import FakeService
 

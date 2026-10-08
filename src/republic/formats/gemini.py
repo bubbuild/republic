@@ -11,12 +11,12 @@ from typing import Any
 
 from republic._content import Image, Message, ProviderData, Text, Tool, ToolResult, Video, _Media
 from republic._errors import APIResponseError, UnsupportedFeatureError
-from republic._options import ToolChoice
+from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.events import BuiltinToolCallReady, CitationAdded, ImageReady, ReasoningDelta, TextDelta
 from republic.tools import BuiltinTool, CodeExecution, NativeTool, WebFetch, WebSearch
 
-from .base import (
+from ._base import (
     ChatApiFormat,
     ChatRequest,
     Delta,
@@ -25,6 +25,7 @@ from .base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    deep_merge,
     merge_same_role,
     provider_payloads,
     unsupported_tool,
@@ -67,6 +68,10 @@ class GeminiFormat(ChatApiFormat):
             body["toolConfig"] = {"functionCallingConfig": _function_calling_config(tool_choice)}
         if config := _generation_config(request):
             body["generationConfig"] = config
+        effort = options.get("reasoning_effort")
+        body = deep_merge(
+            body, self.reasoning_fields(effort, include_reasoning=options.get("include_reasoning", False))
+        )
         if stream:
             return HttpRequest(
                 f"/models/{request.model}:streamGenerateContent", request.body(body), params={"alt": "sse"}
@@ -78,6 +83,15 @@ class GeminiFormat(ChatApiFormat):
 
     def stream_parser(self) -> StreamParser:
         return _GeminiStreamParser()
+
+    def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
+        """Gemini 3 levels; override for Gemini 2.5, which takes ``thinkingBudget`` instead."""
+        thinking: dict[str, Any] = {}
+        if effort is not None:
+            thinking["thinkingLevel"] = effort
+        if include_reasoning:
+            thinking["includeThoughts"] = True
+        return {"generationConfig": {"thinkingConfig": thinking}} if thinking else {}
 
 
 class _GeminiStreamParser(StreamParser):
@@ -212,13 +226,6 @@ def _generation_config(request: ChatRequest) -> dict[str, Any]:
         config["responseJsonSchema"] = request.output_schema.schema
     if (stop := options.get("stop")) is not None:
         config["stopSequences"] = list(stop)
-    thinking: dict[str, Any] = {}
-    if (effort := options.get("reasoning_effort")) is not None:
-        thinking["thinkingLevel"] = effort
-    if options.get("include_reasoning"):
-        thinking["includeThoughts"] = True
-    if thinking:
-        config["thinkingConfig"] = thinking
     return config
 
 

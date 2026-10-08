@@ -105,7 +105,7 @@ class TestContent:
             republic.video(b"mp4")
 
     def test_assistant_tool_results_announce_calls_once(self) -> None:
-        from republic._formats.base import normalize
+        from republic.formats._base import normalize
 
         call = republic.ToolCall("call_1", "lookup", "{}")
         result = republic.tool_result(call, "done")

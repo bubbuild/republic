@@ -13,7 +13,7 @@ from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.events import BuiltinToolCallReady, CitationAdded, ReasoningDelta, RefusalDelta, TextDelta
 from republic.tools import BuiltinTool, CodeExecution, NativeTool, WebFetch, WebSearch
 
-from .base import (
+from ._base import (
     ChatApiFormat,
     ChatRequest,
     Delta,
@@ -23,6 +23,7 @@ from .base import (
     ToolCallFragment,
     UsageReport,
     approximate_location,
+    deep_merge,
     merge_same_role,
     provider_payloads,
     strict_schema,
@@ -70,8 +71,9 @@ class MessagesFormat(ChatApiFormat):
         if output_config := _output_config(request):
             body["output_config"] = output_config
         effort = options.get("reasoning_effort")
-        if thinking := _thinking(effort, include_reasoning=options.get("include_reasoning", False)):
-            body["thinking"] = thinking
+        body = deep_merge(
+            body, self.reasoning_fields(effort, include_reasoning=options.get("include_reasoning", False))
+        )
         body.update(request.renamed({"temperature": "temperature", "top_p": "top_p", "top_k": "top_k"}))
         if (stop := options.get("stop")) is not None:
             body["stop_sequences"] = list(stop)
@@ -102,6 +104,19 @@ class MessagesFormat(ChatApiFormat):
 
     def stream_parser(self) -> StreamParser:
         return _MessagesStreamParser()
+
+    def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
+        """Thinking must be enabled explicitly on some models; ``display`` makes it readable."""
+        if effort == "none":
+            return {"thinking": {"type": "disabled"}}
+        if effort is None and not include_reasoning:
+            return {}
+        fields: dict[str, Any] = {"thinking": {"type": "adaptive"}}
+        if include_reasoning:
+            fields["thinking"]["display"] = "summarized"
+        if effort is not None:
+            fields["output_config"] = {"effort": effort}
+        return fields
 
     def _entry(self, message: Message) -> dict[str, Any]:
         if message.role == "tool":
@@ -273,21 +288,7 @@ def _output_config(request: ChatRequest) -> dict[str, Any]:
             "type": "json_schema",
             "schema": strict_schema(request.output_schema.schema, require_all=False),
         }
-    if (effort := request.options.get("reasoning_effort")) not in (None, "none"):
-        output_config["effort"] = effort
     return output_config
-
-
-def _thinking(effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any] | None:
-    """Thinking must be enabled explicitly on some models; ``display`` makes it readable."""
-    if effort == "none":
-        return {"type": "disabled"}
-    if effort is None and not include_reasoning:
-        return None
-    thinking: dict[str, Any] = {"type": "adaptive"}
-    if include_reasoning:
-        thinking["display"] = "summarized"
-    return thinking
 
 
 def _stop_deltas(message: Mapping[str, Any]) -> Iterable[Delta]:

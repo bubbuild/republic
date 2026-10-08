@@ -9,11 +9,12 @@ from typing import Any
 
 from republic._content import Image, Message, ProviderData, Text, Tool, Video
 from republic._errors import APIResponseError
+from republic._options import ReasoningEffort
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.events import BuiltinToolCallReady, CitationAdded, ImageReady, ReasoningDelta, RefusalDelta, TextDelta
 from republic.tools import BuiltinTool, CodeExecution, ImageGeneration, NativeTool, WebSearch
 
-from .base import (
+from ._base import (
     ChatApiFormat,
     ChatRequest,
     Delta,
@@ -23,6 +24,7 @@ from .base import (
     ToolCallFragment,
     UsageReport,
     approximate_location,
+    deep_merge,
     provider_payloads,
     strict_schema,
     unsupported_media,
@@ -78,13 +80,10 @@ class ResponsesFormat(ChatApiFormat):
                 "parallel_tool_calls": "parallel_tool_calls",
             })
         )
-        reasoning: dict[str, Any] = {}
-        if (effort := request.options.get("reasoning_effort")) is not None:
-            reasoning["effort"] = effort
-        if request.options.get("include_reasoning"):
-            reasoning["summary"] = "auto"
-        if reasoning:
-            body["reasoning"] = reasoning
+        effort = request.options.get("reasoning_effort")
+        body = deep_merge(
+            body, self.reasoning_fields(effort, include_reasoning=request.options.get("include_reasoning", False))
+        )
         if stream:
             body["stream"] = True
         return HttpRequest("/responses", request.body(body))
@@ -97,6 +96,14 @@ class ResponsesFormat(ChatApiFormat):
 
     def stream_parser(self) -> StreamParser:
         return _ResponsesStreamParser()
+
+    def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
+        reasoning: dict[str, Any] = {}
+        if effort is not None:
+            reasoning["effort"] = effort
+        if include_reasoning:
+            reasoning["summary"] = "auto"
+        return {"reasoning": reasoning} if reasoning else {}
 
     def _input_items(self, message: Message) -> list[Mapping[str, Any]]:
         match message.role:

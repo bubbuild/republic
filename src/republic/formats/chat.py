@@ -8,11 +8,12 @@ from typing import Any
 
 from republic._content import Image, Message, Text, Tool, Video, media_from_data_url
 from republic._errors import APIResponseError
+from republic._options import ReasoningEffort
 from republic._response import Citation, FinishReason
 from republic.events import CitationAdded, ImageReady, ReasoningDelta, RefusalDelta, TextDelta
 from republic.tools import NativeTool, WebSearch
 
-from .base import (
+from ._base import (
     ChatApiFormat,
     ChatRequest,
     Delta,
@@ -22,6 +23,7 @@ from .base import (
     ToolCallFragment,
     UsageReport,
     approximate_location,
+    deep_merge,
     strict_schema,
     unsupported_tool,
 )
@@ -69,9 +71,10 @@ class ChatFormat(ChatApiFormat):
                     "strict": True,
                 },
             }
+        if (max_tokens := request.options.get("max_tokens")) is not None:
+            body.update(self.max_tokens_fields(max_tokens))
         body.update(
             request.renamed({
-                "max_tokens": "max_completion_tokens",
                 "temperature": "temperature",
                 "top_p": "top_p",
                 # Not part of the OpenAI API, but accepted by most compatible servers.
@@ -79,9 +82,12 @@ class ChatFormat(ChatApiFormat):
                 "presence_penalty": "presence_penalty",
                 "frequency_penalty": "frequency_penalty",
                 "seed": "seed",
-                "reasoning_effort": "reasoning_effort",
                 "parallel_tool_calls": "parallel_tool_calls",
             })
+        )
+        effort = request.options.get("reasoning_effort")
+        body = deep_merge(
+            body, self.reasoning_fields(effort, include_reasoning=request.options.get("include_reasoning", False))
         )
         if (stop := request.options.get("stop")) is not None:
             body["stop"] = list(stop)
@@ -94,7 +100,7 @@ class ChatFormat(ChatApiFormat):
         _raise_for_error(data)
         choice = data["choices"][0]
         message = choice["message"]
-        if reasoning := _reasoning(message):
+        if reasoning := self.reasoning_text(message):
             yield ReasoningDelta(reasoning)
         if content := message.get("content"):
             yield TextDelta(content)
@@ -112,16 +118,31 @@ class ChatFormat(ChatApiFormat):
             yield _usage(usage)
 
     def stream_parser(self) -> StreamParser:
-        return _ChatStreamParser()
+        return _ChatStreamParser(self)
+
+    def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
+        # Compatible servers that return reasoning do so by default, so include_reasoning needs no field.
+        return {} if effort is None else {"reasoning_effort": effort}
+
+    def max_tokens_fields(self, max_tokens: int) -> dict[str, Any]:
+        """OpenAI deprecated ``max_tokens``; override for servers that only accept it."""
+        return {"max_completion_tokens": max_tokens}
+
+    def reasoning_text(self, message: Mapping[str, Any]) -> str | None:
+        """Reasoning in a message or delta, as exposed by vLLM, DeepSeek (``reasoning_content``) or OpenRouter."""
+        return message.get("reasoning_content") or message.get("reasoning")
 
 
 class _ChatStreamParser(StreamParser):
+    def __init__(self, api_format: ChatFormat) -> None:
+        self._api_format = api_format
+
     def feed(self, event: str, data: str) -> Iterable[Delta]:
         chunk = json.loads(data)
         _raise_for_error(chunk)
         for choice in chunk.get("choices") or ():
             delta = choice.get("delta") or {}
-            if reasoning := _reasoning(delta):
+            if reasoning := self._api_format.reasoning_text(delta):
                 yield ReasoningDelta(reasoning)
             if content := delta.get("content"):
                 yield TextDelta(content)
@@ -212,11 +233,6 @@ def _info(data: Mapping[str, Any], choice: Mapping[str, Any]) -> ResponseInfo:
         model=data.get("model"),
         finish_reason=None if finish_reason is None else _FINISH_REASONS.get(finish_reason, "other"),
     )
-
-
-def _reasoning(message: Mapping[str, Any]) -> str | None:
-    """Reasoning text as exposed by compatible servers (vLLM, DeepSeek) and gateways (OpenRouter)."""
-    return message.get("reasoning_content") or message.get("reasoning")
 
 
 def _image_deltas(message: Mapping[str, Any]) -> Iterable[Delta]:

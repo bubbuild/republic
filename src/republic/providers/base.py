@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 import httpx2
 
 from republic._errors import APIStatusError, UnsupportedApiFormatError
-from republic._formats import API_FORMATS, ApiFormatName
-from republic._formats.base import ApiFormat, ChatApiFormat, DecisionApiFormat, EmbeddingApiFormat, HttpRequest
-from republic._formats.sse import ServerSentEvent, iter_events
+from republic.formats import _API_FORMATS, ApiFormatName
+from republic.formats._base import ApiFormat, ChatApiFormat, DecisionApiFormat, EmbeddingApiFormat, HttpRequest
+from republic.formats._sse import ServerSentEvent, iter_events
 
 if TYPE_CHECKING:
     from republic._models import ChatModel, DecisionModel, EmbeddingModel
@@ -55,6 +55,7 @@ class Provider:
         auth: httpx2.Auth | None = None,
         api_format: ApiFormatName | None = None,
         headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, Any] | None = None,
         env_prefix: str | None = None,
         http_client: httpx2.AsyncClient | None = None,
         timeout: httpx2.Timeout | float = DEFAULT_TIMEOUT,
@@ -77,33 +78,41 @@ class Provider:
         self.headers = dict(headers or {})
         """Sent with every request, such as beta flags or gateway attribution headers."""
         self.headers.setdefault("User-Agent", f"python-republic/{__version__}")
+        self.extra_body = dict(extra_body or {})
+        """Merged into every chat request body, under the ``extra_body`` of each call."""
         self.timeout = timeout
         self._http_client = http_client
 
     def get_model(self, name: str, *, history: HistoryProtocol | None = None) -> ChatModel:
         from republic._models import ChatModel
 
-        return ChatModel(self, name, self._select_api_format(ChatApiFormat), history=history)
+        return ChatModel(self, name, self.select_api_format(ChatApiFormat, name), history=history)
 
     def get_embedding_model(self, name: str) -> EmbeddingModel:
         from republic._models import EmbeddingModel
 
-        return EmbeddingModel(self, name, self._select_api_format(EmbeddingApiFormat))
+        return EmbeddingModel(self, name, self.select_api_format(EmbeddingApiFormat, name))
 
     def get_decision_model(self, name: str) -> DecisionModel:
         from republic._models import DecisionModel
 
-        return DecisionModel(self, name, self._select_api_format(DecisionApiFormat))
+        return DecisionModel(self, name, self.select_api_format(DecisionApiFormat, name))
 
     def _api_key_auth(self, api_key: str) -> httpx2.Auth:
         """Authenticate requests with the API key. Override for other header schemes."""
         return HeaderAuth("Authorization", f"Bearer {api_key}")
 
-    def _select_api_format(self, format_kind: type[_FormatT]) -> _FormatT:
+    def select_api_format(self, format_kind: type[_FormatT], model: str) -> _FormatT:
+        """Pick the API format used by ``model`` for one kind of model.
+
+        The requested ``api_format`` wins, then the first supported format of
+        the kind in preference order. Override to return a format subclass
+        whose hooks match this service, or to vary the format by model.
+        """
         candidates = [self.api_format] if self.api_format is not None else []
-        candidates.extend(name for name in API_FORMATS if name in self.SUPPORTED_API_FORMATS)
+        candidates.extend(name for name in _API_FORMATS if name in self.SUPPORTED_API_FORMATS)
         for name in candidates:
-            if isinstance(api_format := API_FORMATS[name], format_kind):
+            if isinstance(api_format := _API_FORMATS[name], format_kind):
                 return api_format
         raise UnsupportedApiFormatError(f"Provider {self.name!r} supports no {format_kind.kind} API format")
 

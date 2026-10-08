@@ -8,7 +8,7 @@ from typing import Any, ClassVar
 
 from republic._content import Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
 from republic._errors import UnsupportedFeatureError
-from republic._options import ChatOptions
+from republic._options import ChatOptions, ReasoningEffort
 from republic._response import EmbeddingResponse, FinishReason, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
 from republic.events import (
@@ -30,6 +30,17 @@ from republic.tools import BuiltinTool, NativeTool, UserLocation
 class OutputSchema:
     name: str
     schema: Mapping[str, Any]
+
+
+def deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
+    """Merge ``override`` into ``base``, combining nested mappings instead of replacing them."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def strict_schema(schema: Mapping[str, Any], *, require_all: bool) -> dict[str, Any]:
@@ -118,7 +129,7 @@ class ChatRequest:
 
     def body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Merge ``extra_body`` over the body built by the API format."""
-        return {**body, **self.options.get("extra_body", {})}
+        return deep_merge(body, self.options.get("extra_body", {}))
 
 
 @dataclass(frozen=True)
@@ -194,7 +205,18 @@ class ApiFormat(ABC):
 
 
 class ChatApiFormat(ApiFormat):
+    """A chat wire protocol.
+
+    Option mappings that differ between services speaking the same protocol
+    are hook methods, so a provider can return a subclass from
+    :meth:`~republic.providers.Provider.select_api_format`.
+    """
+
     kind = "chat"
+
+    @abstractmethod
+    def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
+        """The request body fragment for reasoning options, deep-merged into the body."""
 
     @abstractmethod
     def chat_request(self, request: ChatRequest, *, stream: bool) -> HttpRequest: ...

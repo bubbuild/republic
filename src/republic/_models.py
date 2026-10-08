@@ -10,20 +10,21 @@ import pydantic
 
 from republic._content import Input, Message, ToolCall, to_messages
 from republic._errors import StreamNotFinishedError
-from republic._formats.base import (
+from republic._options import ChatOptions
+from republic._response import EmbeddingResponse, OutputT, Response, TokenUsage
+from republic.decisions import DecisionResponse, JSONValue, Question
+from republic.events import Completed, Event
+from republic.formats._base import (
     ChatApiFormat,
     ChatRequest,
     DecisionApiFormat,
     EmbeddingApiFormat,
     OutputSchema,
     ResponseBuilder,
+    deep_merge,
     normalize,
 )
-from republic._formats.sse import ServerSentEvent
-from republic._options import ChatOptions
-from republic._response import EmbeddingResponse, OutputT, Response, TokenUsage
-from republic.decisions import DecisionResponse, JSONValue, Question
-from republic.events import Completed, Event
+from republic.formats._sse import ServerSentEvent
 
 if TYPE_CHECKING:
     from republic.history import HistoryProtocol
@@ -89,6 +90,9 @@ class ChatModel:
     async def _request(
         self, new_messages: list[Message], options: ChatOptions, adapter: pydantic.TypeAdapter[Any] | None
     ) -> ChatRequest:
+        if self.provider.extra_body:
+            options = ChatOptions(**options)
+            options["extra_body"] = deep_merge(self.provider.extra_body, options.get("extra_body", {}))
         past_messages = await self.history.read() if self.history is not None else []
         return ChatRequest(
             model=self.name,

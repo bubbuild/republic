@@ -32,7 +32,10 @@ class Forecast(pydantic.BaseModel):
 
 
 def make_model(service: FakeService) -> republic.ChatModel:
-    return republic.get_model("openrouter:vendor/model", api_key="key", api_format="chat", http_client=service.client())
+    provider = republic.providers.OpenAICompatible(
+        api_key="key", api_base="https://compat.example/v1", http_client=service.client()
+    )
+    return provider.get_model("vendor/model")
 
 
 async def test_chat_sends_messages_and_reads_text_and_usage(service: FakeService) -> None:

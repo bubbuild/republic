@@ -3,7 +3,7 @@
 Gateways, agent loops, and tool execution stay outside the package.
 """
 
-from republic import decisions, events, history, providers, tools
+from republic import decisions, events, formats, history, providers, tools
 from republic._content import (
     Image,
     Message,
@@ -68,6 +68,7 @@ __all__ = [
     "assistant",
     "decisions",
     "events",
+    "formats",
     "get_decision_model",
     "get_embedding_model",
     "get_model",

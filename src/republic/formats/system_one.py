@@ -10,7 +10,7 @@ import pydantic
 from republic._response import TokenUsage
 from republic.decisions import Answer, Choice, DecisionResponse, JSONValue, Noul, Question, Score
 
-from .base import DecisionApiFormat, HttpRequest
+from ._base import DecisionApiFormat, HttpRequest
 
 _ANSWERS: pydantic.TypeAdapter[dict[str, Answer]] = pydantic.TypeAdapter(
     dict[str, Annotated[Answer, pydantic.Field(discriminator="type")]]
