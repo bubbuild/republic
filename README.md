@@ -7,7 +7,7 @@ One Python interface for chat, streaming, tool calls, and structured output acro
 Republic requires Python 3.11 or later.
 
 ```sh
-python -m pip install "git+https://github.com/bubbuild/republic.git@dev"
+python -m pip install republic
 export REPUBLIC_OPENAI_API_KEY="your-api-key"
 ```
 

@@ -1,7 +1,7 @@
 [project]
 name = "republic"
 dynamic = ["version"]
-description = "A Python library focused on AI providers. Under reconstruction."
+description = "A Python library for AI providers."
 authors = [
     { name = "Chojan Shang", email = "psiace@apache.org" },
     { name = "Frost Ming", email = "me@frostming.com" },
@@ -16,7 +16,6 @@ dependencies = [
     "pydantic>=2.13.5",
 ]
 classifiers = [
-    "Private :: Do Not Upload",
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -28,7 +27,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bubbuild/republic"
+Homepage = "https://getrepublic.org"
+Documentation = "https://getrepublic.org"
 Repository = "https://github.com/bubbuild/republic"
 Issues = "https://github.com/bubbuild/republic/issues"
 
@@ -38,6 +38,10 @@ image = [
 ]
 
 [dependency-groups]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-terminal>=4.8.0",
+]
 dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",

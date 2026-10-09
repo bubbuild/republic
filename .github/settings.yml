@@ -1,7 +1,7 @@
 repository:
-  default_branch: dev
-  description: "A Python library focused on AI providers. Under reconstruction."
-  homepage: "https://github.com/bubbuild/republic"
+  default_branch: main
+  description: "A Python library for AI providers."
+  homepage: "https://getrepublic.org"
   topics:
     - ai
     - ai-provider

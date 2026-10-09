@@ -1,6 +1,6 @@
 # Project instructions
 
-Republic is a Python provider library under reconstruction. Keep gateways, agent loops, and tool execution outside the package. Use English in repository files and GitHub contributions.
+Republic is a Python provider library. Keep gateways, agent loops, and tool execution outside the package. Use English in repository files and GitHub contributions.
 
 Use the prepared uv environment. Run `uv run prek run --all-files`, `uv run ty check`, and affected behavior tests before publishing implementation changes. Main checks Python 3.11–3.14 and builds the package.
 
