@@ -24,7 +24,7 @@ from republic.auth import Auth, OAuth2Auth, _run_login
 from republic.formats import ApiFormat, HttpRequest
 from republic.formats._sse import ServerSentEvent
 
-from .base import Provider
+from .base import HttpStream, Provider
 
 if TYPE_CHECKING:
     from republic._registry import ProviderOptions
@@ -197,11 +197,9 @@ class GitHubCopilot(Provider):
             self.auth = GitHubCLIAuth()
 
     @asynccontextmanager
-    async def _stream(
-        self, api_format: ApiFormat, request: HttpRequest
-    ) -> AsyncGenerator[AsyncIterator[ServerSentEvent]]:
-        async with super()._stream(api_format, request) as events:
-            yield _copilot_events(events, api_format)
+    async def _stream(self, api_format: ApiFormat, request: HttpRequest) -> AsyncGenerator[HttpStream]:
+        async with super()._stream(api_format, request) as response:
+            yield replace(response, events=_copilot_events(response.events, api_format))
 
     async def _send(
         self, client: httpx2.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool
@@ -310,6 +308,7 @@ async def _copilot_events(
     async for event in events:
         # Copilot terminates Messages streams with this marker as well.
         if event.data == "[DONE]":
+            yield ServerSentEvent("message_stop", '{"type":"message_stop"}') if api_format.name == "messages" else event
             break
         yield _stable_tool_id(event, item_ids) if api_format.name == "responses" else event
 

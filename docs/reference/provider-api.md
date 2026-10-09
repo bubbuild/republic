@@ -26,6 +26,10 @@ print(stream.response.text)
 
 Consume the stream before reading its final response or shortcuts such as `stream.output`. Reading them early raises `StreamNotFinishedError`.
 
+A clean EOF alone does not complete a stream. Chat Completions requires `[DONE]`; Responses requires `response.completed`, `response.incomplete`, or the `[DONE]` marker used by compatible services; Messages requires `message_stop` (Copilot also accepts `[DONE]`); Gemini requires a candidate's `finishReason`. A provider-reported output limit or paused turn is a terminal result, not a transport truncation.
+
+If the stream ends without its completion signal, Republic raises `StreamIncompleteError`, emits no `Completed` event and writes no conversation history. Any partial events already yielded remain available to the caller, but `stream.response` stays unavailable. Transport failures and provider error events also leave history unchanged. Custom `StreamParser` implementations must set `self.completed = True` on their terminal event, or override `finish()` to validate completion according to their protocol.
+
 ### Initialization
 
 ```python

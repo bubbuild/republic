@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
 
 from republic._content import Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
-from republic._errors import UnsupportedFeatureError
+from republic._errors import StreamIncompleteError, UnsupportedFeatureError
 from republic._options import ChatOptions, ReasoningEffort
 from republic._response import EmbeddingResponse, FinishReason, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
@@ -192,8 +192,16 @@ Delta = (
 class StreamParser(ABC):
     """Turns server-sent events of one response into deltas."""
 
+    completed: bool = False
+    """Set by a parser when its protocol reports a terminal response."""
+
     @abstractmethod
     def feed(self, event: str, data: str) -> Iterable[Delta]: ...
+
+    def finish(self) -> None:
+        """Validate a clean EOF before finalizing the response or writing history."""
+        if not self.completed:
+            raise StreamIncompleteError("Stream ended without a completion signal")
 
 
 class ApiFormat(ABC):

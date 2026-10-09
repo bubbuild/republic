@@ -86,6 +86,7 @@ async def test_codex_keeps_reasoning_and_tool_round_trip(service: FakeService) -
             "type": "response.output_item.done",
             "item": {"type": "function_call", "call_id": "c_1", "name": "weather", "arguments": '{"city":"Paris"}'},
         },
+        {"type": "response.completed", "response": {"status": "completed", "output": []}},
     ])
     reply(service, "sunny")
     model = republic.get_model("codex:test", api_key="test-key", http_client=service.client())

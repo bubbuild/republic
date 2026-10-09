@@ -116,6 +116,7 @@ class _GeminiStreamParser(StreamParser):
                 yield from self._part_deltas(part)
             yield from _grounding_deltas(candidate)
             if reason := candidate.get("finishReason"):
+                self.completed = True
                 finish_reason = _finish_reason(reason)
         yield ResponseInfo(id=data.get("responseId"), model=data.get("modelVersion"), finish_reason=finish_reason)
         if usage := data.get("usageMetadata"):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import AsyncExitStack
+from collections.abc import AsyncIterator, Generator, Mapping, Sequence
+from contextlib import AsyncExitStack, contextmanager
 from dataclasses import replace
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Generic, Self, Unpack, overload
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Generic, Self, Unpack, overload
 import pydantic
 
 from republic._content import Input, Message, ToolCall, to_messages
-from republic._errors import StreamNotFinishedError
+from republic._errors import APIResponseError, StreamNotFinishedError, request_id
 from republic._options import ChatOptions
 from republic._response import EmbeddingResponse, OutputT, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
@@ -67,11 +67,12 @@ class ChatModel:
         new_messages = to_messages(prompt)
         adapter = _adapter(output_schema)
         request = await self._request(new_messages, ChatOptions(**options), adapter)
-        data = await self.provider._post(self.api_format, self.api_format.chat_request(request, stream=False))
-        builder = ResponseBuilder()
-        for delta in self.api_format.parse_chat(data):
-            builder.add(delta)
-        return await self._finish(new_messages, builder, adapter)
+        response = await self.provider._post(self.api_format, self.api_format.chat_request(request, stream=False))
+        with _response_errors(response.headers):
+            builder = ResponseBuilder()
+            for delta in self.api_format.parse_chat(response.json()):
+                builder.add(delta)
+            return await self._finish(new_messages, builder, adapter, headers=response.headers)
 
     @overload
     def stream(self, prompt: Input, *, output_schema: None = None, **options: Unpack[ChatOptions]) -> Stream[None]: ...
@@ -102,9 +103,14 @@ class ChatModel:
         )
 
     async def _finish(
-        self, new_messages: list[Message], builder: ResponseBuilder, adapter: pydantic.TypeAdapter[Any] | None
+        self,
+        new_messages: list[Message],
+        builder: ResponseBuilder,
+        adapter: pydantic.TypeAdapter[Any] | None,
+        *,
+        headers: Mapping[str, str],
     ) -> Response[Any]:
-        response = builder.response()
+        response = replace(builder.response(), headers=dict(headers), request_id=request_id(headers))
         if adapter is not None and response.refusal is None:
             response = replace(response, output=adapter.validate_json(response.text))
         if self.history is not None:
@@ -134,13 +140,18 @@ class Stream(Generic[OutputT]):
         self._events: AsyncIterator[ServerSentEvent] | None = None
         self._iterated = False
         self._response: Response[OutputT] | None = None
+        self.headers: Mapping[str, str] = {}
+        self.request_id: str | None = None
 
     async def __aenter__(self) -> Self:
         request = await self._model._request(self._new_messages, self._options, self._adapter)
         api_format = self._model.api_format
-        self._events = await self._exit_stack.enter_async_context(
+        response = await self._exit_stack.enter_async_context(
             self._model.provider._stream(api_format, api_format.chat_request(request, stream=True))
         )
+        self._events = response.events
+        self.headers = response.headers
+        self.request_id = request_id(self.headers)
         return self
 
     async def __aexit__(
@@ -156,13 +167,15 @@ class Stream(Generic[OutputT]):
         self._iterated = True
         parser = self._model.api_format.stream_parser()
         builder = ResponseBuilder()
-        async for event in self._events:
-            for delta in parser.feed(event.event, event.data):
-                for public_event in builder.add(delta):
-                    yield public_event
-        for public_event in builder.release_tool_calls():
-            yield public_event
-        self._response = await self._model._finish(self._new_messages, builder, self._adapter)
+        with _response_errors(self.headers):
+            async for event in self._events:
+                for delta in parser.feed(event.event, event.data):
+                    for public_event in builder.add(delta):
+                        yield public_event
+            parser.finish()
+            for public_event in builder.release_tool_calls():
+                yield public_event
+            self._response = await self._model._finish(self._new_messages, builder, self._adapter, headers=self.headers)
         yield Completed(self._response)
 
     @property
@@ -208,7 +221,13 @@ class EmbeddingModel:
         ``dimensions`` shortens vectors on models that support it.
         """
         request = self.api_format.embedding_request(self.name, texts, dimensions=dimensions)
-        return self.api_format.parse_embedding(await self.provider._post(self.api_format, request))
+        response = await self.provider._post(self.api_format, request)
+        with _response_errors(response.headers):
+            return replace(
+                self.api_format.parse_embedding(response.json()),
+                headers=dict(response.headers),
+                request_id=request_id(response.headers),
+            )
 
 
 class DecisionModel:
@@ -222,7 +241,22 @@ class DecisionModel:
     async def decide(self, state: JSONValue, *, questions: Mapping[str, Question]) -> DecisionResponse:
         """Answer every question about ``state``. Answers come back under the same ids."""
         request = self.api_format.decision_request(self.name, state, questions)
-        return self.api_format.parse_decision(await self.provider._post(self.api_format, request))
+        response = await self.provider._post(self.api_format, request)
+        with _response_errors(response.headers):
+            return replace(
+                self.api_format.parse_decision(response.json()),
+                headers=dict(response.headers),
+                request_id=request_id(response.headers),
+            )
+
+
+@contextmanager
+def _response_errors(headers: Mapping[str, str]) -> Generator[None]:
+    try:
+        yield
+    except APIResponseError as exc:
+        exc._set_headers(headers)
+        raise
 
 
 def _adapter(output_schema: type[Any] | None) -> pydantic.TypeAdapter[Any] | None:

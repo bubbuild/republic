@@ -153,6 +153,8 @@ class _MessagesStreamParser(StreamParser):
     def feed(self, event: str, data: str) -> Iterable[Delta]:
         payload = json.loads(data)
         match payload["type"]:
+            case "message_stop":
+                self.completed = True
             case "message_start":
                 message = payload["message"]
                 yield ResponseInfo(id=message.get("id"), model=message.get("model"))

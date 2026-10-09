@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
+import math
 import os
-from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
+import random
+import time
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import httpx2
 
-from republic._errors import APIStatusError, UnsupportedApiFormatError, UnsupportedFeatureError
+from republic._errors import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    UnsupportedApiFormatError,
+    UnsupportedFeatureError,
+)
 from republic._response import ModelInfo
 from republic.auth import Auth, HeaderAuth
 from republic.formats import _API_FORMATS, ApiFormatName
@@ -23,6 +35,12 @@ if TYPE_CHECKING:
 DEFAULT_TIMEOUT = httpx2.Timeout(600, connect=10)
 
 _FormatT = TypeVar("_FormatT", bound=ApiFormat)
+
+
+@dataclass(frozen=True)
+class HttpStream:
+    events: AsyncIterator[ServerSentEvent]
+    headers: Mapping[str, str]
 
 
 class Provider:
@@ -53,7 +71,14 @@ class Provider:
         env_prefix: str | None = None,
         http_client: httpx2.AsyncClient | None = None,
         timeout: httpx2.Timeout | float = DEFAULT_TIMEOUT,
+        max_retries: int = 2,
+        retry_delay: float = 0.5,
+        max_retry_delay: float = 60,
     ) -> None:
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
+            raise ValueError("max_retries must be a nonnegative integer")
+        if any(not math.isfinite(value) or value < 0 for value in (retry_delay, max_retry_delay)):
+            raise ValueError("Retry delays must be finite and nonnegative")
         try:
             from republic.__version__ import __version__
         except ImportError:
@@ -75,6 +100,9 @@ class Provider:
         self.extra_body = dict(extra_body or {})
         """Merged into every chat request body, under the ``extra_body`` of each call."""
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.max_retry_delay = max_retry_delay
         self._http_client = http_client
 
     def get_model(self, name: str, *, history: HistoryProtocol | None = None) -> ChatModel:
@@ -103,11 +131,13 @@ class Provider:
         params = self._models_params(None)
         async with self._client() as client:
             while params is not None:
-                response = await client.get(
-                    f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
+                response = await self._retry(
+                    lambda params=params: client.get(
+                        f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
+                    )
                 )
                 if response.is_error:
-                    raise APIStatusError(response.status_code, response.text)
+                    raise APIStatusError(response.status_code, response.text, headers=response.headers)
                 data = response.json()
                 models.extend(self._parse_models(data))
                 params = self._models_params(data)
@@ -148,27 +178,52 @@ class Provider:
                 return api_format
         raise UnsupportedApiFormatError(f"Provider {self.name!r} supports no {format_kind.kind} API format")
 
-    async def _post(self, api_format: ApiFormat, request: HttpRequest) -> Any:
+    async def _post(self, api_format: ApiFormat, request: HttpRequest) -> httpx2.Response:
         async with self._client() as client:
-            response = await self._send(client, api_format, request, stream=False)
+            response = await self._retry(lambda: self._send(client, api_format, request, stream=False))
             if response.is_error:
-                raise APIStatusError(response.status_code, response.text)
-            return response.json()
+                raise APIStatusError(response.status_code, response.text, headers=response.headers)
+            return response
 
     @asynccontextmanager
-    async def _stream(
-        self, api_format: ApiFormat, request: HttpRequest
-    ) -> AsyncGenerator[AsyncIterator[ServerSentEvent]]:
+    async def _stream(self, api_format: ApiFormat, request: HttpRequest) -> AsyncGenerator[HttpStream]:
         async with self._client() as client:
-            response = await self._send(client, api_format, request, stream=True)
+            response = await self._retry(lambda: self._send(client, api_format, request, stream=True))
             try:
                 if response.is_error:
                     await response.aread()
-                    raise APIStatusError(response.status_code, response.text)
+                    raise APIStatusError(response.status_code, response.text, headers=response.headers)
                 end_marker = "[DONE]" if api_format.name in {"chat", "responses"} else None
-                yield iter_events(response.aiter_lines(), end_marker=end_marker)
+                yield HttpStream(_response_events(response, end_marker), dict(response.headers))
+            except httpx2.RequestError as exc:
+                raise _connection_error(exc, headers=response.headers) from exc
             finally:
                 await response.aclose()
+
+    async def _retry(self, send: Callable[[], Awaitable[httpx2.Response]]) -> httpx2.Response:
+        """Retry only the request, never replay a successful streaming response."""
+        for attempt in range(self.max_retries + 1):
+            headers: Mapping[str, str] = {}
+            try:
+                response = await send()
+            except httpx2.RequestError as exc:
+                retryable = isinstance(exc, (httpx2.TimeoutException, httpx2.NetworkError, httpx2.RemoteProtocolError))
+                if not retryable or attempt == self.max_retries:
+                    raise _connection_error(exc) from exc
+            else:
+                if attempt == self.max_retries or not (
+                    response.status_code in {408, 409, 429} or response.status_code >= 500
+                ):
+                    return response
+                headers = dict(response.headers)
+                # Release the response before sleeping, including unread SSE error bodies.
+                await response.aclose()
+            delay = _retry_after(headers)
+            if delay is None:
+                delay = min(self.max_retry_delay, self.retry_delay * 2 ** min(attempt, 30))
+                delay *= random.uniform(0.75, 1)  # noqa: S311 - retry jitter, not cryptography
+            await asyncio.sleep(min(delay, self.max_retry_delay))
+        raise AssertionError("Unreachable retry state")
 
     @asynccontextmanager
     async def _client(self) -> AsyncGenerator[httpx2.AsyncClient]:
@@ -191,3 +246,37 @@ class Provider:
         )
         auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
         return await client.send(built, auth=auth, stream=stream)
+
+
+def _retry_after(headers: Mapping[str, str]) -> float | None:
+    """Accept Retry-After seconds or an HTTP date, and the millisecond variant."""
+    for name, divisor in (("retry-after-ms", 1000), ("retry-after", 1)):
+        if (value := headers.get(name)) is None:
+            continue
+        try:
+            delay = float(value) / divisor
+        except ValueError:
+            if name != "retry-after":
+                continue
+            try:
+                delay = parsedate_to_datetime(value).timestamp() - time.time()
+            except (ValueError, TypeError, OverflowError):
+                continue
+        if math.isfinite(delay):
+            return max(0, delay)
+    return None
+
+
+def _connection_error(exc: httpx2.RequestError, *, headers: Mapping[str, str] | None = None) -> APIConnectionError:
+    error_type = APITimeoutError if isinstance(exc, httpx2.TimeoutException) else APIConnectionError
+    return error_type(
+        "Provider request timed out" if error_type is APITimeoutError else "Provider connection failed", headers=headers
+    )
+
+
+async def _response_events(response: httpx2.Response, end_marker: str | None) -> AsyncIterator[ServerSentEvent]:
+    try:
+        async for event in iter_events(response.aiter_lines(), end_marker=end_marker, yield_end_marker=True):
+            yield event
+    except httpx2.RequestError as exc:
+        raise _connection_error(exc, headers=response.headers) from exc

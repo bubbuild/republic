@@ -397,7 +397,7 @@ async def test_copilot_uses_each_native_endpoint(
             "responses": {"type": "response.output_text.delta", "delta": "hi"},
             "messages": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}},
         }[api_format]
-        service.reply_events([event])
+        service.reply_events([event, "[DONE]"])
     else:
         body = {
             "chat": {"choices": [{"message": {"content": "hi"}}]},
