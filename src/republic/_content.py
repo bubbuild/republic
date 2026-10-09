@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
@@ -73,6 +74,13 @@ class Image(_Media):
 
 
 @dataclass(frozen=True)
+class Audio(_Media):
+    """Audio input, represented by MIME type and inline bytes or a remote URL."""
+
+    kind: ClassVar[str] = "audio"
+
+
+@dataclass(frozen=True)
 class Video(_Media):
     kind: ClassVar[str] = "video"
 
@@ -89,7 +97,7 @@ class ProviderData:
     payload: Mapping[str, Any]
 
 
-Part = Text | Reasoning | Image | Video | ProviderData
+Part = Text | Reasoning | Image | Audio | Video | ProviderData
 
 _MediaT = TypeVar("_MediaT", bound=_Media)
 
@@ -143,7 +151,7 @@ class Message:
         return "".join(part.text for part in self.parts if isinstance(part, Reasoning))
 
 
-UserContent = str | Image | Video
+UserContent = str | Image | Audio | Video
 
 
 def _to_part(content: UserContent) -> Part:
@@ -156,7 +164,7 @@ def system(text: str) -> Message:
 
 
 def user(*content: UserContent) -> Message:
-    """Build a user message from text, images, and videos."""
+    """Build a user message from text, images, audio, and videos."""
     return Message("user", tuple(_to_part(item) for item in content))
 
 
@@ -189,6 +197,11 @@ def image(source: str | os.PathLike[str] | bytes, *, media_type: str | None = No
     return _load_media(Image, source, media_type)
 
 
+def audio(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Audio:
+    """Load audio from a path, a URL, a data URL, or raw bytes."""
+    return _load_media(Audio, source, media_type)
+
+
 def video(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Video:
     """Load a video from a path, a URL, a data URL, or raw bytes."""
     return _load_media(Video, source, media_type)
@@ -218,7 +231,8 @@ def media_from_data_url(media_class: type[_MediaT], url: str) -> _MediaT:
 
 
 def _guess_media_type(media_class: type[_Media], name: str) -> str:
-    guessed, _ = mimetypes.guess_type(name)
+    path = urlsplit(name).path if name.startswith(_REMOTE_PREFIXES) else name
+    guessed, _ = mimetypes.guess_type(path)
     if guessed is None:
         raise ValueError(f"Cannot guess the media type of {name!r}; pass media_type explicitly")
     return guessed

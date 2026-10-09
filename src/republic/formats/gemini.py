@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from republic._content import Image, Message, ProviderData, Text, Tool, ToolResult, Video, _Media
+from republic._content import Audio, Image, Message, ProviderData, Text, Tool, ToolResult, Video, _Media
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.errors import APIResponseError, UnsupportedFeatureError
@@ -254,7 +254,7 @@ def _content(message: Message) -> dict[str, Any]:
     if message.role == "tool":
         return {"role": "user", "parts": [_function_response(result) for result in message.tool_results]}
     parts: list[Mapping[str, Any]] = provider_payloads(message, GeminiFormat.name)
-    parts.extend(_part(part) for part in message.parts if isinstance(part, Text | Image | Video))
+    parts.extend(_part(part) for part in message.parts if isinstance(part, Text | Image | Audio | Video))
     for call in message.tool_calls:
         function_call: dict[str, Any] = {"name": call.name, "args": call.args}
         if call_id := call.metadata.get(_CALL_ID):

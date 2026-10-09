@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
-from republic._content import Image, Message, ProviderData, Text, Tool, Video
+from republic._content import Audio, Image, Message, ProviderData, Text, Tool, Video
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.errors import APIResponseError
@@ -330,6 +330,8 @@ def _user_block(part: object) -> dict[str, Any]:
                 "type": "image",
                 "source": {"type": "base64", "media_type": part.media_type, "data": part.base64_data},
             }
+        case Audio():
+            raise unsupported_media(MessagesFormat.name, "audio")
         case Video():
             raise unsupported_media(MessagesFormat.name, "video")
     raise TypeError(f"Unexpected user content: {part!r}")
