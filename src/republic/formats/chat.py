@@ -43,7 +43,7 @@ class ChatFormat(ChatApiFormat):
     def chat_request(self, request: ChatRequest, *, stream: bool) -> HttpRequest:
         body: dict[str, Any] = {
             "model": request.model,
-            "messages": [entry for message in request.messages for entry in _message_entries(message)],
+            "messages": [entry for message in request.messages for entry in _message_entries(self, message)],
         }
         tools: list[Mapping[str, Any]] = [_tool(tool) for tool in request.tools]
         for builtin_tool in request.builtin_tools(self.name):
@@ -102,7 +102,7 @@ class ChatFormat(ChatApiFormat):
         message = choice["message"]
         if reasoning := self.reasoning_text(message):
             yield ReasoningDelta(reasoning)
-        if content := message.get("content"):
+        if content := self.content_text(message):
             yield TextDelta(content)
         yield from _citation_deltas(message)
         if refusal := message.get("refusal"):
@@ -132,6 +132,14 @@ class ChatFormat(ChatApiFormat):
         """Reasoning in a message or delta, as exposed by vLLM, DeepSeek (``reasoning_content``) or OpenRouter."""
         return message.get("reasoning_content") or message.get("reasoning")
 
+    def content_text(self, message: Mapping[str, Any]) -> str | None:
+        """Answer text in a message or delta; override for servers that return content parts."""
+        return message.get("content")
+
+    def assistant_fields(self, message: Message) -> dict[str, Any]:
+        """Fields added to an assistant message sent back, such as reasoning some servers require."""
+        return {}
+
 
 class _ChatStreamParser(StreamParser):
     def __init__(self, api_format: ChatFormat) -> None:
@@ -144,7 +152,7 @@ class _ChatStreamParser(StreamParser):
             delta = choice.get("delta") or {}
             if reasoning := self._api_format.reasoning_text(delta):
                 yield ReasoningDelta(reasoning)
-            if content := delta.get("content"):
+            if content := self._api_format.content_text(delta):
                 yield TextDelta(content)
             yield from _citation_deltas(delta)
             if refusal := delta.get("refusal"):
@@ -164,7 +172,7 @@ class _ChatStreamParser(StreamParser):
             yield _usage(usage)
 
 
-def _message_entries(message: Message) -> list[dict[str, Any]]:
+def _message_entries(api_format: ChatFormat, message: Message) -> list[dict[str, Any]]:
     match message.role:
         case "system":
             return [{"role": "system", "content": message.text}]
@@ -177,6 +185,7 @@ def _message_entries(message: Message) -> list[dict[str, Any]]:
                     {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": call.arguments}}
                     for call in message.tool_calls
                 ]
+            entry.update(api_format.assistant_fields(message))
             return [entry]
         case "tool":
             return [

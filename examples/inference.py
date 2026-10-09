@@ -3,22 +3,6 @@ import pydantic
 import republic
 
 
-@republic.register_provider
-class Magpie(republic.providers.OpenAICompatible):
-    SUPPORTED_API_FORMATS = ("responses", "messages", "chat", "system_one")
-    DEFAULT_API_BASE = "http://127.0.0.1:3425/v1"
-
-    name = "magpie"
-
-
-@republic.register_provider
-class DeepSeek(republic.providers.OpenAICompatible):
-    SUPPORTED_API_FORMATS = ("chat",)
-    DEFAULT_API_BASE = "https://api.deepseek.com"
-
-    name = "deepseek"
-
-
 class Profile(pydantic.BaseModel):
     name: str
     age: int

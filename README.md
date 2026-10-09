@@ -18,7 +18,7 @@ async with model.stream("Tell me a story") as stream:
             print(event.chunk, end="")
 ```
 
-Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, and `grok`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first format listed in `SUPPORTED_API_FORMATS` is used unless `api_format=` names another; the built-in providers list `responses`, then `messages`, then `chat`, except Copilot, which defaults to `chat`. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own.
+Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, `grok`, `azure-openai`, `ollama`, `deepseek`, `moonshot`, `zai`, `together`, `mistral`, `minimax`, and `magpie`. Hyphens become underscores in environment variables, as in `REPUBLIC_AZURE_OPENAI_API_KEY`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first format listed in `SUPPORTED_API_FORMATS` is used unless `api_format=` names another; the built-in providers list `responses`, then `messages`, then `chat`, except Copilot, Ollama, Magpie, and DeepSeek, which default to `chat`. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own. `republic.all_providers()` lists every registered name.
 
 Tools are schemas only. Execute the calls yourself and send the results back, keeping the assistant message so reasoning state survives the round trip:
 
@@ -46,27 +46,24 @@ A response carries `text`, `reasoning`, `refusal`, `tool_calls`, `output` (with 
 
 Other entry points: `republic.image()` and `republic.video()` inputs, `republic.history.InMemoryHistory`, and `republic.get_embedding_model()` with `embed()` / `embed_many()`.
 
-Services that speak a known API format with their own dialect plug in through format hooks. Subclass a format from `republic.formats` and return it from `Provider.select_api_format()`, which also receives the model name:
+Services that speak a known API format with their own dialect plug in through format hooks. Subclass a format from `republic.formats` and set it as `CHAT_FORMAT` on an `OpenAICompatible` subclass, or return it from `Provider.select_api_format()`, which also receives the model name:
 
 ```python
 from republic.formats import ChatFormat
 
 
-class DeepSeekChat(ChatFormat):
+class AcmeChat(ChatFormat):
     def reasoning_fields(self, effort, *, include_reasoning):
         return {"thinking": {"type": "disabled" if effort == "none" else "enabled"}} if effort else {}
 
 
-class DeepSeek(republic.providers.OpenAICompatible):
-    name = "deepseek"
-    DEFAULT_API_BASE = "https://api.deepseek.com"
-
-    def select_api_format(self, format_kind, model):
-        chat = DeepSeekChat()
-        return chat if isinstance(chat, format_kind) else super().select_api_format(format_kind, model)
+class Acme(republic.providers.OpenAICompatible):
+    name = "acme"
+    DEFAULT_API_BASE = "https://api.acme.example/v1"
+    CHAT_FORMAT = AcmeChat()
 ```
 
-Every chat format has `reasoning_fields()`; `chat` also has `max_tokens_fields()` and `reasoning_text()`. Providers accept `extra_body=` for fields every request needs; it deep-merges with each call's `extra_body`.
+Every chat format has `reasoning_fields()`; `chat` also has `max_tokens_fields()`, `reasoning_text()`, `content_text()`, and `assistant_fields()`. Providers accept `extra_body=` for fields every request needs; it deep-merges with each call's `extra_body`.
 
 Decision models answer typed questions with calibrated probabilities instead of generating text:
 
@@ -120,6 +117,8 @@ For existing Plugin credentials, pass `auth=CopilotAuth(github_token)`; the call
 `grok:model` supports Chat and Responses using the official Grok CLI's xAI OAuth login by default. Use `await GrokAuth.login()` (optionally `device_auth=True`) or `GrokAuth.from_file(path)` from `republic.providers`. The default file is `$GROK_HOME/auth.json` or `~/.grok/auth.json`; `GROK_AUTH_PATH` overrides it. Expiring tokens are refreshed through Authlib and saved under the CLI's file lock. For caller-managed credentials, use `GrokAuth(token)` and persist `auth.token`; explicit `api_key=` and `auth=` take precedence.
 
 OpenRouter supports `await OpenRouterAuth.login(on_authorize=authorize)` from `republic.providers`. Your async `authorize(url)` callback displays the URL and returns the code the user copies from OpenRouter. Pass the result as `auth=`; save `auth.api_key` and restore it with `OpenRouterAuth(saved_key)`. This [PKCE flow](https://openrouter.ai/docs/guides/overview/auth/oauth) issues an ordinary API key; existing keys also work with `api_key=`.
+
+`azure-openai:DEPLOYMENT` uses the Azure OpenAI v1 API with the deployment name as the model. Name the resource with `AzureOpenAI(resource=...)` or `REPUBLIC_AZURE_OPENAI_RESOURCE`, or give a full `api_base=` such as `https://RESOURCE.openai.azure.com/openai/v1`, which takes precedence. API keys go in the `api-key` header; pass `auth=` for Microsoft Entra ID tokens. `magpie` targets a local [Magpie](https://github.com/yetone/magpie) gateway at `http://127.0.0.1:3425/v1`. `deepseek` also speaks Responses; its Messages API is served from `https://api.deepseek.com/anthropic`, which the provider targets for `api_format="messages"`. `minimax` defaults to its Anthropic-compatible Messages API and also speaks chat; use `api_base="https://api.minimaxi.com"` in China. `ollama` defaults to a local server at `http://localhost:11434/v1` and needs no key; point `api_base=` at `https://ollama.com/v1` with an API key for Ollama Cloud. Over chat, DeepSeek, Moonshot, Z.ai, and MiniMax send `reasoning_content` back so thinking models keep their reasoning across tool calls; Mistral does the same with its thinking chunks.
 
 Codex supports Responses and rejects `max_tokens`. Copilot supports Chat, Responses, and Messages; select a format available to your model and account.
 

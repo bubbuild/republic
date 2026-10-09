@@ -29,7 +29,8 @@ class Provider:
 
     Credentials fall back to the ``{env_prefix}_API_KEY`` and
     ``{env_prefix}_API_BASE`` environment variables. The prefix defaults to
-    ``REPUBLIC_{NAME}``, for example ``REPUBLIC_OPENAI``.
+    ``REPUBLIC_{NAME}`` with hyphens as underscores, for example
+    ``REPUBLIC_OPENAI`` or ``REPUBLIC_AZURE_OPENAI``.
     """
 
     name: ClassVar[str]
@@ -55,7 +56,7 @@ class Provider:
         except ImportError:
             __version__ = "0.0.0"
 
-        env_prefix = env_prefix or f"REPUBLIC_{self.name.upper()}"
+        env_prefix = env_prefix or f"REPUBLIC_{self.name.upper().replace('-', '_')}"
         api_key = api_key or os.getenv(f"{env_prefix}_API_KEY")
         self.api_base = (api_base or os.getenv(f"{env_prefix}_API_BASE") or self.DEFAULT_API_BASE).rstrip("/")
         self.auth = auth or (self._api_key_auth(api_key) if api_key else None)
