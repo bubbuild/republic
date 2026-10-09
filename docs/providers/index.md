@@ -8,7 +8,7 @@ Start with [OpenAI](openai.md), [Anthropic](anthropic.md), [Google Gemini](googl
 
 ## Use an account login
 
-Reuse a [Codex ChatGPT login](codex.md) or [GitHub CLI login for Copilot](github-copilot.md). These pages also show how to start a new authorization explicitly, including [Copilot Plugin device authorization](github-copilot.md#authorize-the-copilot-plugin).
+Reuse a [Codex ChatGPT login](codex.md) or [GitHub CLI login for Copilot](github-copilot.md). These pages also show how to start a new authorization explicitly, including [Copilot Plugin device authorization](github-copilot.md#authorize-the-copilot-plugin). [OpenRouter PKCE authorization](openrouter.md#authorize-with-oauth-pkce) returns an API key for the same OpenRouter provider.
 
 See [authentication](../guides/authentication.md) for credential storage and renewal responsibilities.
 

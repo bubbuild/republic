@@ -1,6 +1,6 @@
-# OpenRouter API
+# OpenRouter API keys and OAuth PKCE
 
-Use the `openrouter` provider with an OpenRouter API key. It supports chat, embeddings, and decisions. Chat requests default to Responses; Chat Completions and Messages are also available.
+Use the `openrouter` provider with an API key supplied directly or obtained through OAuth PKCE authorization. It supports chat, embeddings, and decisions. Chat requests default to Responses; Chat Completions and Messages are also available.
 
 ## Get started
 
@@ -23,7 +23,41 @@ asyncio.run(main())
 
 ## Authentication
 
-Republic reads `REPUBLIC_OPENROUTER_API_KEY` when the provider is created. You can pass a key loaded by your application as `api_key=`; see [API-key authentication](../guides/authentication.md#use-an-api-key).
+### Use an API key
+
+Republic reads `REPUBLIC_OPENROUTER_API_KEY` when the provider is created. You can pass an existing key as `api_key=` or `auth=OpenRouterAuth(saved_key)`, with `OpenRouterAuth` imported from `republic.providers`.
+
+### Authorize with OAuth PKCE
+
+`OpenRouterAuth.login()` creates an authorization URL and exchanges the returned code for an API key. Your callback displays the URL and returns the code the user copies from OpenRouter. This complete terminal example provides that callback:
+
+```python
+import asyncio
+
+import republic
+from republic.providers import OpenRouterAuth
+
+
+async def authorize(url: str) -> str:
+    print(f"Open this URL and authorize access: {url}")
+    return await asyncio.to_thread(input, "Authorization code: ")
+
+
+async def main():
+    auth = await OpenRouterAuth.login(on_authorize=authorize)
+    model = republic.get_model("openrouter:MODEL_ID", auth=auth)
+    response = await model.chat("Say hello in one sentence.")
+    print(response.text)
+
+
+asyncio.run(main())
+```
+
+The flow uses PKCE with S256 to bind the code exchange to the login request. A desktop or web application can supply its own callback instead of terminal input. The callback owns the authorization UI and cancellation; Republic does not run a browser or callback server.
+
+### Store credentials
+
+OpenRouter issues an API key, not a refreshable OAuth token. Save `auth.api_key` in your application's credential store and restore it with `OpenRouterAuth(saved_key)`. Login does not persist the key automatically, and model requests do not refresh it.
 
 ## Model support
 

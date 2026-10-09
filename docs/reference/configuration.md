@@ -56,6 +56,7 @@ Credential sources can have different read timing:
 | `CodexAuth.from_file()` | File path selected at construction; contents read then and before each request |
 | `GitHubCLIAuth()` | `gh auth token` runs for each request and follows the CLI's credential selection |
 | `CopilotAuth(token)` | Original credential supplied by the caller; inference token exchanged on demand and renewed before expiry |
+| `OpenRouterAuth(key)` | Fixed key supplied by the caller; requests do not refresh it |
 
 Transport settings belong to the HTTP client. Setting `httpx2.AsyncClient(trust_env=False)` controls that client's environment handling; it does not disable Republic's API-key or base-URL lookup. Republic has no separate switch to turn off provider environment lookup.
 
@@ -85,7 +86,7 @@ asyncio.run(main())
 
 Republic leaves a supplied client open. In the example, leaving the application's `async with` block closes it. Exiting a model stream closes that response while leaving the supplied client available for later requests.
 
-This client is used for inference requests and Copilot Plugin token exchange. Codex token refresh and Copilot device login create their own auth clients; an injected inference client's transport options do not configure those clients. CLI login methods use the selected CLI's network configuration.
+This client is used for inference requests and Copilot Plugin token exchange. Codex token refresh, Copilot device login, and OpenRouter authorization-code exchange create their own auth clients; an injected inference client's transport options do not configure those clients. CLI login methods use the selected CLI's network configuration.
 
 ## Request body merging
 

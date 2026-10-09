@@ -44,6 +44,7 @@ Call `.login()` explicitly when you need a new authorization, then pass the retu
 | [Codex](../providers/codex.md#log-in-explicitly) | `CodexAuth.login()` | Codex CLI; optional device authorization |
 | [GitHub CLI](../providers/github-copilot.md#log-in-with-github-cli) | `GitHubCLIAuth.login()` | GitHub CLI |
 | [Copilot Plugin](../providers/github-copilot.md#authorize-the-copilot-plugin) | `CopilotAuth.login()` | GitHub device authorization; optional display callback |
+| [OpenRouter](../providers/openrouter.md#authorize-with-oauth-pkce) | `OpenRouterAuth.login(on_authorize=...)` | Caller displays the authorization URL and returns the copied code |
 
 Normal model requests reuse credentials without starting an interactive login. Account authorization and model access are separate: the service determines which models your account can use.
 
@@ -54,12 +55,13 @@ Reuse auth objects across requests. Storage and renewal depend on how you obtain
 | Credential source | Storage | Renewal |
 | --- | --- | --- |
 | API key | Your application | Replace the key when needed |
+| OpenRouter PKCE login | Your application saves `auth.api_key` | Returns an API key; requests do not refresh it |
 | Codex file login | CLI credential file; Republic saves refreshed tokens there | Republic refreshes tokens when a refresh token is available |
 | `CodexAuth(token, account_id=...)` | Your application saves the updated `auth.token` | Republic refreshes tokens when a refresh token is available |
 | GitHub CLI login | GitHub CLI | Republic reads `gh auth token` for each request |
 | Copilot Plugin login | Your application saves `auth.github_token` | Republic renews the exchanged inference token; your application manages the original GitHub credential |
 
-Restore a saved Plugin credential with `CopilotAuth(saved_token)`. The provider pages contain login examples and service-specific credential paths.
+Restore an OpenRouter key with `OpenRouterAuth(saved_key)` or a Plugin credential with `CopilotAuth(saved_token)`. The provider pages contain login examples and service-specific credential paths.
 
 ## Supply an auth object
 

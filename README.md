@@ -45,7 +45,7 @@ The same `chat()` call returns `response.text`. The [provider directory](docs/pr
 
 The [quickstart](docs/quickstart.md) covers a complete request and a streaming response. [Build a minimal agent](docs/guides/minimal-agent.md) with a tool function and a loop that returns results to the model. [Tool use](docs/guides/tools.md) explains the messages in each round trip.
 
-Providers accept `api_key=` or an `auth=` object. The [authentication guide](docs/guides/authentication.md) covers API keys, CLI logins, OAuth authorization, and credential storage and renewal. See [configuration](docs/reference/configuration.md) for precedence, custom endpoints, and HTTP client ownership.
+Providers accept `api_key=` or an `auth=` object. The [authentication guide](docs/guides/authentication.md) covers API keys, CLI logins, OAuth authorization, and credential storage and renewal, including [OpenRouter PKCE login](docs/providers/openrouter.md#authorize-with-oauth-pkce). See [configuration](docs/reference/configuration.md) for precedence, custom endpoints, and HTTP client ownership.
 
 [Structured output](docs/guides/structured-output.md) returns values validated against your Python type. Republic also supports images and video as inputs, provider-run tools, embeddings, and decision models. Availability depends on the selected provider, model, and API format. [Why Republic stops at providers](docs/philosophy.md) explains how the library supports this without taking over the application.
 
