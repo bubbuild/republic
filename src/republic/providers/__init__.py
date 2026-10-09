@@ -6,7 +6,7 @@ from .codex import Codex, CodexAuth
 from .github import CopilotAuth, GitHubCLIAuth, GitHubCopilot
 from .google import Google
 from .openai import OpenAI, OpenAICompatible
-from .openrouter import OpenRouter
+from .openrouter import OpenRouter, OpenRouterAuth
 from .typesafe import TypeSafe
 
 __all__ = [
@@ -20,6 +20,7 @@ __all__ = [
     "OpenAI",
     "OpenAICompatible",
     "OpenRouter",
+    "OpenRouterAuth",
     "Provider",
     "TypeSafe",
 ]
