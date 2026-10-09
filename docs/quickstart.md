@@ -57,7 +57,7 @@ python hello.py
 
 The first answer appears after `chat()` finishes. The second arrives in text chunks, followed by its token count. The wording and counts will vary. These are two independent requests; a model does not retain earlier messages unless you supply conversation history.
 
-The `async with` block closes the stream. Consume the iterator before reading `stream.response`; reading it early raises `StreamNotFinishedError`. The final response has the same shape as the response from `chat()`.
+The `async with` block closes the stream. Consume the iterator before reading `stream.response`; reading it early raises `errors.StreamNotFinishedError`. The final response has the same shape as the response from `chat()`.
 
 ## Try another provider
 

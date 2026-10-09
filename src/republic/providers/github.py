@@ -19,8 +19,8 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc6749 import OAuth2Token
 from pydantic import BaseModel, Field, HttpUrl, PositiveInt
 
-from republic._errors import AuthenticationError
 from republic.auth import Auth, OAuth2Auth, _run_login
+from republic.errors import AuthenticationError
 from republic.formats import ApiFormat, HttpRequest
 from republic.formats._sse import ServerSentEvent
 

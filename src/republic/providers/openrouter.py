@@ -7,9 +7,9 @@ import httpx2
 from authlib.common.security import generate_token
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 
-from republic._errors import AuthenticationError
 from republic._options import ReasoningEffort
 from republic.auth import HeaderAuth
+from republic.errors import AuthenticationError
 from republic.formats.chat import ChatFormat
 
 from .base import Provider, _FormatT

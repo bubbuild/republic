@@ -2,7 +2,7 @@
 
 Pass them in ``tools=`` next to function :class:`~republic.Tool` schemas. Each
 API format maps them to its native tool and raises
-:class:`~republic.UnsupportedFeatureError` for tools or settings it has no
+:class:`~republic.errors.UnsupportedFeatureError` for tools or settings it has no
 equivalent for. Use :class:`NativeTool` for anything else a provider offers.
 """
 

@@ -17,7 +17,7 @@ class ChatOptions(TypedDict, total=False):
     """Generation options shared by chat requests.
 
     Each API format maps them to its own fields and raises
-    :class:`~republic.UnsupportedFeatureError` for options it cannot express.
+    :class:`~republic.errors.UnsupportedFeatureError` for options it cannot express.
     Use ``extra_body`` for anything provider-specific; it is merged last.
     """
 

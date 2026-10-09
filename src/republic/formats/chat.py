@@ -7,9 +7,9 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from republic._content import Image, Message, Text, Tool, Video, media_from_data_url
-from republic._errors import APIResponseError
 from republic._options import ReasoningEffort
 from republic._response import Citation, FinishReason
+from republic.errors import APIResponseError
 from republic.events import CitationAdded, ImageReady, ReasoningDelta, RefusalDelta, TextDelta
 from republic.tools import NativeTool, WebSearch
 

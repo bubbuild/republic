@@ -7,9 +7,9 @@ from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
 from republic._content import Image, Message, ProviderData, Text, Tool, Video
-from republic._errors import APIResponseError
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
+from republic.errors import APIResponseError
 from republic.events import BuiltinToolCallReady, CitationAdded, ReasoningDelta, RefusalDelta, TextDelta
 from republic.tools import BuiltinTool, CodeExecution, NativeTool, WebFetch, WebSearch
 

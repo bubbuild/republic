@@ -2,6 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+__all__ = [
+    "APIConnectionError",
+    "APIResponseError",
+    "APIStatusError",
+    "APITimeoutError",
+    "AuthenticationError",
+    "ProviderNotFoundError",
+    "RepublicError",
+    "StreamIncompleteError",
+    "StreamNotFinishedError",
+    "UnsupportedApiFormatError",
+    "UnsupportedFeatureError",
+]
+
 
 class RepublicError(Exception):
     """Base class for errors raised by Republic."""

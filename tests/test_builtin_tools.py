@@ -50,7 +50,7 @@ class TestResponses:
         [WebSearch(max_uses=3), WebFetch(), NativeTool("messages", {"type": "bash_20250124", "name": "bash"})],
     )
     async def test_unsupported_tools_are_rejected(self, service: FakeService, tool: BuiltinTool) -> None:
-        with pytest.raises(republic.UnsupportedFeatureError):
+        with pytest.raises(republic.errors.UnsupportedFeatureError):
             await make_model(service, "openai:gpt-6-sol").chat("Hi", tools=[tool])
 
     async def test_search_results_round_trip(self, service: FakeService) -> None:
@@ -127,7 +127,7 @@ class TestMessages:
         ]
 
     async def test_image_generation_is_rejected(self, service: FakeService) -> None:
-        with pytest.raises(republic.UnsupportedFeatureError, match="ImageGeneration"):
+        with pytest.raises(republic.errors.UnsupportedFeatureError, match="ImageGeneration"):
             await make_model(service, "anthropic:claude-opus-5-5").chat("Hi", tools=[ImageGeneration()])
 
     async def test_server_tool_blocks_round_trip(self, service: FakeService) -> None:
@@ -230,7 +230,7 @@ class TestGemini:
 
     @pytest.mark.parametrize("tool", [WebSearch(allowed_domains=["example.com"]), ImageGeneration()])
     async def test_unsupported_tools_are_rejected(self, service: FakeService, tool: BuiltinTool) -> None:
-        with pytest.raises(republic.UnsupportedFeatureError):
+        with pytest.raises(republic.errors.UnsupportedFeatureError):
             await make_model(service, "google:gemini-3-pro").chat("Hi", tools=[tool])
 
     async def test_code_execution_and_grounding_round_trip(self, service: FakeService) -> None:
@@ -290,5 +290,5 @@ class TestChat:
         assert response.citations == (republic.Citation("https://weather.example", title="W"),)
 
     async def test_code_execution_is_rejected(self, service: FakeService) -> None:
-        with pytest.raises(republic.UnsupportedFeatureError, match="CodeExecution"):
+        with pytest.raises(republic.errors.UnsupportedFeatureError, match="CodeExecution"):
             await make_model(service, "openrouter:vendor/model", "chat").chat("Hi", tools=[CodeExecution()])

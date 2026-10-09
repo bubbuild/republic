@@ -97,7 +97,7 @@ async def test_exchange_errors_do_not_expose_credentials(
     async def authorize(url: str) -> str:
         return "private-code"
 
-    with pytest.raises(republic.AuthenticationError) as caught:
+    with pytest.raises(republic.errors.AuthenticationError) as caught:
         await OpenRouterAuth.login(on_authorize=authorize)
     assert "private-code" not in "".join(traceback.format_exception(caught.value))
 
@@ -109,11 +109,11 @@ async def test_no_exchange_without_authorization(login_service: FakeService, can
             raise asyncio.CancelledError
         return " "
 
-    with pytest.raises(asyncio.CancelledError if cancelled else republic.AuthenticationError):
+    with pytest.raises(asyncio.CancelledError if cancelled else republic.errors.AuthenticationError):
         await OpenRouterAuth.login(on_authorize=authorize)
     assert login_service.requests == []
 
 
 def test_empty_key_is_rejected() -> None:
-    with pytest.raises(republic.AuthenticationError):
+    with pytest.raises(republic.errors.AuthenticationError):
         OpenRouterAuth("")

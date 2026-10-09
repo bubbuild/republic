@@ -103,7 +103,7 @@ async def test_structured_output_closes_object_schemas(service: FakeService) -> 
 
 
 async def test_video_input_is_rejected(service: FakeService) -> None:
-    with pytest.raises(republic.UnsupportedFeatureError):
+    with pytest.raises(republic.errors.UnsupportedFeatureError):
         await make_model(service).chat(republic.user(republic.video("https://example.com/clip.mp4")))
 
 
@@ -181,7 +181,7 @@ async def test_generation_options_map_to_messages_fields(service: FakeService) -
 
 
 async def test_seed_is_rejected(service: FakeService) -> None:
-    with pytest.raises(republic.UnsupportedFeatureError, match="seed"):
+    with pytest.raises(republic.errors.UnsupportedFeatureError, match="seed"):
         await make_model(service).chat("Hi", seed=1)
 
 

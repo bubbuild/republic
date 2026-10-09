@@ -21,11 +21,11 @@ from authlib.integrations.httpx_client import OAuth2Client
 from authlib.oauth2.rfc6749 import OAuth2Token
 
 from republic._content import Input
-from republic._errors import AuthenticationError, UnsupportedFeatureError
 from republic._models import ChatModel
 from republic._options import ChatOptions
 from republic._response import Response
 from republic.auth import Auth, OAuth2Auth, _run_login
+from republic.errors import AuthenticationError, UnsupportedFeatureError
 from republic.formats import ApiFormat, ChatApiFormat, HttpRequest
 from republic.history import HistoryProtocol
 

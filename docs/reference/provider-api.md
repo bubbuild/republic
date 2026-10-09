@@ -24,11 +24,11 @@ async with model.stream("Hello, how are you?") as stream:
 print(stream.response.text)
 ```
 
-Consume the stream before reading its final response or shortcuts such as `stream.output`. Reading them early raises `StreamNotFinishedError`.
+Consume the stream before reading its final response or shortcuts such as `stream.output`. Reading them early raises `errors.StreamNotFinishedError`.
 
 A clean EOF alone does not complete a stream. Chat Completions requires `[DONE]`; Responses requires `response.completed`, `response.incomplete`, or the `[DONE]` marker used by compatible services; Messages requires `message_stop` (Copilot also accepts `[DONE]`); Gemini requires a candidate's `finishReason`. A provider-reported output limit or paused turn is a terminal result, not a transport truncation.
 
-If the stream ends without its completion signal, Republic raises `StreamIncompleteError`, emits no `Completed` event and writes no conversation history. Any partial events already yielded remain available to the caller, but `stream.response` stays unavailable. Transport failures and provider error events also leave history unchanged. Custom `StreamParser` implementations must set `self.completed = True` on their terminal event, or override `finish()` to validate completion according to their protocol.
+If the stream ends without its completion signal, Republic raises `errors.StreamIncompleteError`, emits no `Completed` event and writes no conversation history. Any partial events already yielded remain available to the caller, but `stream.response` stays unavailable. Transport failures and provider error events also leave history unchanged. Custom `StreamParser` implementations must set `self.completed = True` on their terminal event, or override `finish()` to validate completion according to their protocol.
 
 ### Initialization
 
@@ -155,7 +155,7 @@ for model in await provider.list_models():
     print(model.id, model.display_name)
 ```
 
-`list_models()` returns `republic.ModelInfo` values for every page of the service's model list. Pass `model.id` to `get_model()` or another model getter; `model.raw` keeps the service's entry, such as context length or pricing. Codex has no model list and raises `UnsupportedFeatureError`.
+`list_models()` returns `republic.ModelInfo` values for every page of the service's model list. Pass `model.id` to `get_model()` or another model getter; `model.raw` keeps the service's entry, such as context length or pricing. Codex has no model list and raises `errors.UnsupportedFeatureError`.
 
 A custom provider sets `MODELS_PATH` relative to `api_base`, or `None` when the service has no list. Override `_parse_models()` for another response shape and `_models_params()` for pagination.
 
@@ -214,7 +214,7 @@ provider = republic.get_provider("openai", api_format="chat")
 model = provider.get_model("gpt-6-sol")
 ```
 
-A format not supported by the provider, such as `messages` for OpenAI, raises `UnsupportedApiFormatError`. A preferred chat format does not prevent selecting an embedding or decision format for another model kind.
+A format not supported by the provider, such as `messages` for OpenAI, raises `errors.UnsupportedApiFormatError`. A preferred chat format does not prevent selecting an embedding or decision format for another model kind.
 
 ## Optional conversation history
 

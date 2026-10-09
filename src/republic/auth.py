@@ -14,7 +14,7 @@ import httpx2
 from authlib.integrations.httpx_client import OAuth2Auth
 from httpx2 import Auth
 
-from republic._errors import AuthenticationError
+from republic.errors import AuthenticationError
 
 __all__ = ["Auth", "HeaderAuth", "OAuth2Auth"]
 

@@ -3,7 +3,7 @@
 Gateways, agent loops, and tool execution stay outside the package.
 """
 
-from republic import auth, decisions, events, formats, history, providers, tools
+from republic import auth, decisions, errors, events, formats, history, providers, tools
 from republic._content import (
     Image,
     Message,
@@ -20,19 +20,6 @@ from republic._content import (
     tool_result,
     user,
     video,
-)
-from republic._errors import (
-    APIConnectionError,
-    APIResponseError,
-    APIStatusError,
-    APITimeoutError,
-    AuthenticationError,
-    ProviderNotFoundError,
-    RepublicError,
-    StreamIncompleteError,
-    StreamNotFinishedError,
-    UnsupportedApiFormatError,
-    UnsupportedFeatureError,
 )
 from republic._models import ChatModel, DecisionModel, EmbeddingModel, Stream
 from republic._options import ChatOptions, ReasoningEffort, ToolChoice
@@ -55,11 +42,6 @@ from republic._response import (
 )
 
 __all__ = [
-    "APIConnectionError",
-    "APIResponseError",
-    "APIStatusError",
-    "APITimeoutError",
-    "AuthenticationError",
     "BuiltinToolCall",
     "ChatModel",
     "ChatOptions",
@@ -72,27 +54,22 @@ __all__ = [
     "Message",
     "ModelInfo",
     "ProviderData",
-    "ProviderNotFoundError",
     "Reasoning",
     "ReasoningEffort",
-    "RepublicError",
     "Response",
     "Stream",
-    "StreamIncompleteError",
-    "StreamNotFinishedError",
     "Text",
     "TokenUsage",
     "Tool",
     "ToolCall",
     "ToolChoice",
     "ToolResult",
-    "UnsupportedApiFormatError",
-    "UnsupportedFeatureError",
     "Video",
     "all_providers",
     "assistant",
     "auth",
     "decisions",
+    "errors",
     "events",
     "formats",
     "get_decision_model",

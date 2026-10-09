@@ -92,7 +92,7 @@ async def test_function_calls_keep_signatures_and_omit_generated_ids(service: Fa
 async def test_blocked_prompt_raises(service: FakeService) -> None:
     service.reply_json({"promptFeedback": {"blockReason": "SAFETY"}})
 
-    with pytest.raises(republic.APIResponseError, match="SAFETY"):
+    with pytest.raises(republic.errors.APIResponseError, match="SAFETY"):
         await make_model(service).chat("Hi")
 
 
@@ -169,7 +169,7 @@ async def test_generation_options_map_to_generation_config(service: FakeService)
 
 
 async def test_parallel_tool_calls_is_rejected(service: FakeService) -> None:
-    with pytest.raises(republic.UnsupportedFeatureError, match="parallel_tool_calls"):
+    with pytest.raises(republic.errors.UnsupportedFeatureError, match="parallel_tool_calls"):
         await make_model(service).chat("Hi", parallel_tool_calls=False)
 
 
@@ -190,5 +190,5 @@ async def test_reasoning_and_sampling_options(service: FakeService) -> None:
 
 
 async def test_strict_tools_are_rejected(service: FakeService) -> None:
-    with pytest.raises(republic.UnsupportedFeatureError, match="strict"):
+    with pytest.raises(republic.errors.UnsupportedFeatureError, match="strict"):
         await make_model(service).chat("Hi", tools=[republic.Tool("lookup", strict=True)])

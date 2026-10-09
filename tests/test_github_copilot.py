@@ -274,7 +274,7 @@ async def test_copilot_exchange_failure_stops_before_inference(
         assert (await model.chat("hello")).text == "hi"
         monkeypatch.setattr(time, "time", lambda: 1241)
 
-    with pytest.raises(republic.AuthenticationError) as error:
+    with pytest.raises(republic.errors.AuthenticationError) as error:
         await model.chat("hello")
 
     assert len(service.requests) == (3 if renewal else 1)
@@ -297,7 +297,7 @@ async def test_copilot_invalid_exchange_stops_before_inference(service: FakeServ
     service.reply_json(payload)
     model = republic.get_model("github-copilot:test", auth=CopilotAuth("plugin-token"), http_client=service.client())
 
-    with pytest.raises(republic.AuthenticationError):
+    with pytest.raises(republic.errors.AuthenticationError):
         await model.chat("hello")
 
     assert len(service.requests) == 1
@@ -374,7 +374,7 @@ async def test_github_failure_does_not_fall_back_or_expose_stderr(monkeypatch: p
         transport=httpx2.MockTransport(lambda _: pytest.fail("must not send inference"))
     ) as client:
         model = republic.get_model("github-copilot:test", http_client=client)
-        with pytest.raises(republic.AuthenticationError) as error:
+        with pytest.raises(republic.errors.AuthenticationError) as error:
             await model.chat("hello")
     assert "sensitive" not in str(error.value)
 

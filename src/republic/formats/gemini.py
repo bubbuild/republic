@@ -10,9 +10,9 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from republic._content import Image, Message, ProviderData, Text, Tool, ToolResult, Video, _Media
-from republic._errors import APIResponseError, UnsupportedFeatureError
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
+from republic.errors import APIResponseError, UnsupportedFeatureError
 from republic.events import BuiltinToolCallReady, CitationAdded, ImageReady, ReasoningDelta, TextDelta
 from republic.tools import BuiltinTool, CodeExecution, NativeTool, WebFetch, WebSearch
 

@@ -5,9 +5,9 @@ from typing import Any, TypedDict, TypeVar, Unpack
 
 import httpx2
 
-from republic._errors import ProviderNotFoundError
 from republic._models import ChatModel, DecisionModel, EmbeddingModel
 from republic.auth import Auth
+from republic.errors import ProviderNotFoundError
 from republic.formats import ApiFormatName
 from republic.history import HistoryProtocol
 from republic.providers import (

@@ -89,7 +89,7 @@ async def test_generated_images_are_returned(service: FakeService) -> None:
 async def test_video_input_is_rejected(service: FakeService) -> None:
     clip = republic.video(b"mp4", media_type="video/mp4")
 
-    with pytest.raises(republic.UnsupportedFeatureError):
+    with pytest.raises(republic.errors.UnsupportedFeatureError):
         await make_model(service).chat(republic.user("Describe", clip))
 
 
@@ -150,7 +150,7 @@ async def test_stream_events(service: FakeService) -> None:
 async def test_stream_failure_raises(service: FakeService) -> None:
     service.reply_events([{"type": "response.failed", "response": {"error": {"message": "overloaded"}}}])
 
-    with pytest.raises(republic.APIResponseError, match="overloaded"):
+    with pytest.raises(republic.errors.APIResponseError, match="overloaded"):
         async with make_model(service).stream("Hi") as stream:
             async for _ in stream:
                 pass
@@ -160,7 +160,7 @@ async def test_reading_unfinished_stream_raises(service: FakeService) -> None:
     service.reply_events([{"type": "response.output_text.delta", "delta": "Hel"}])
 
     async with make_model(service).stream("Hi") as stream:
-        with pytest.raises(republic.StreamNotFinishedError):
+        with pytest.raises(republic.errors.StreamNotFinishedError):
             _ = stream.text
 
 
@@ -177,7 +177,7 @@ async def test_generation_options_map_to_responses_fields(service: FakeService) 
 
 
 async def test_options_without_a_responses_field_are_rejected(service: FakeService) -> None:
-    with pytest.raises(republic.UnsupportedFeatureError, match="stop, seed"):
+    with pytest.raises(republic.errors.UnsupportedFeatureError, match="stop, seed"):
         await make_model(service).chat("Hi", stop=["END"], seed=1)
 
 

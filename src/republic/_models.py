@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Any, Generic, Self, Unpack, overload
 import pydantic
 
 from republic._content import Input, Message, ToolCall, to_messages
-from republic._errors import APIResponseError, StreamNotFinishedError, request_id
 from republic._options import ChatOptions
 from republic._response import EmbeddingResponse, OutputT, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
+from republic.errors import APIResponseError, StreamNotFinishedError, request_id
 from republic.events import Completed, Event
 from republic.formats._base import (
     ChatApiFormat,

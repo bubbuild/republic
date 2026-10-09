@@ -65,7 +65,7 @@ async def test_does_not_retry_permanent_errors(status: int, sleep: AsyncMock) ->
 
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(handle)) as client:
         model = republic.get_model("openai:test", http_client=client)
-        with pytest.raises(republic.APIStatusError) as caught:
+        with pytest.raises(republic.errors.APIStatusError) as caught:
             await model.chat("Hi")
     assert len(requests) == 1
     assert caught.value.status_code == status
@@ -85,7 +85,7 @@ async def test_exhausted_retries_keep_last_response(max_retries: int, sleep: Asy
 
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(handle)) as client:
         model = republic.get_model("openai:test", http_client=client, max_retries=max_retries)
-        with pytest.raises(republic.APIStatusError) as caught:
+        with pytest.raises(republic.errors.APIStatusError) as caught:
             await model.chat("Hi")
     assert len(requests) == max_retries + 1
     assert caught.value.body == f"failure {max_retries + 1}"
@@ -134,10 +134,10 @@ async def test_transient_network_errors_can_recover(failure: type[httpx2.Request
 
 @pytest.mark.parametrize(
     ("failure", "expected"),
-    [(httpx2.ConnectError, republic.APIConnectionError), (httpx2.ReadTimeout, republic.APITimeoutError)],
+    [(httpx2.ConnectError, republic.errors.APIConnectionError), (httpx2.ReadTimeout, republic.errors.APITimeoutError)],
 )
 async def test_network_error_normalization_preserves_cause(
-    failure: type[httpx2.RequestError], expected: type[republic.APIConnectionError], sleep: AsyncMock
+    failure: type[httpx2.RequestError], expected: type[republic.errors.APIConnectionError], sleep: AsyncMock
 ) -> None:
     requests = []
 
@@ -202,7 +202,7 @@ async def test_api_response_errors_preserve_headers(streaming: bool) -> None:
     response = sse([error]) if streaming else httpx2.Response(200, json=error, headers=HEADERS)
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda request: response)) as client:
         model = republic.get_model("openai:test", api_format="chat", http_client=client)
-        with pytest.raises(republic.APIResponseError) as caught:
+        with pytest.raises(republic.errors.APIResponseError) as caught:
             if streaming:
                 async with model.stream("Hi") as stream:
                     [event async for event in stream]
@@ -255,12 +255,12 @@ async def test_stream_completion_and_history(
                 assert stream.response.request_id == "req_1"
                 assert stream.response.headers == stream.headers
             else:
-                with pytest.raises(republic.StreamIncompleteError) as caught:
+                with pytest.raises(republic.errors.StreamIncompleteError) as caught:
                     async for event in stream:
                         events.append(event)
                 assert caught.value.request_id == "req_1"
                 assert all(not isinstance(event, republic.events.Completed) for event in events)
-                with pytest.raises(republic.StreamNotFinishedError):
+                with pytest.raises(republic.errors.StreamNotFinishedError):
                     _ = stream.response
     assert await history.read() == ([republic.user("Hi"), stream.response.message] if complete else [])
     assert response.is_closed
@@ -293,7 +293,9 @@ async def test_does_not_replay_open_stream_even_before_first_chunk(
     history = InMemoryHistory()
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(handle)) as client:
         model = republic.get_model("openai:test", api_format="chat", http_client=client, history=history)
-        expected = republic.APITimeoutError if failure is httpx2.ReadTimeout else republic.APIConnectionError
+        expected = (
+            republic.errors.APITimeoutError if failure is httpx2.ReadTimeout else republic.errors.APIConnectionError
+        )
         with pytest.raises(expected) as caught:
             async with model.stream("Hi") as stream:
                 [event async for event in stream]
@@ -362,7 +364,7 @@ async def test_concurrent_stream_metadata_belongs_to_each_call() -> None:
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "google"])
 async def test_empty_stream_is_incomplete(provider: str) -> None:
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda request: sse([]))) as client:
-        with pytest.raises(republic.StreamIncompleteError):
+        with pytest.raises(republic.errors.StreamIncompleteError):
             async with republic.get_model(f"{provider}:test", http_client=client).stream("Hi") as stream:
                 [event async for event in stream]
 
@@ -370,7 +372,7 @@ async def test_empty_stream_is_incomplete(provider: str) -> None:
 async def test_messages_stop_reason_without_message_stop_is_incomplete() -> None:
     reply = sse([{"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}])
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda request: reply)) as client:
-        with pytest.raises(republic.StreamIncompleteError):
+        with pytest.raises(republic.errors.StreamIncompleteError):
             async with republic.get_model("anthropic:test", http_client=client).stream("Hi") as stream:
                 [event async for event in stream]
 
@@ -408,7 +410,7 @@ async def test_truncated_tool_arguments_are_not_released_as_ready() -> None:
     ])
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda request: reply)) as client:
         events = []
-        with pytest.raises(republic.StreamIncompleteError):
+        with pytest.raises(republic.errors.StreamIncompleteError):
             async with republic.get_model("openai:test", api_format="chat", http_client=client).stream("Hi") as stream:
                 async for event in stream:
                     events.append(event)

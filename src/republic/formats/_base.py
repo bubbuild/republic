@@ -7,10 +7,10 @@ from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
 
 from republic._content import Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
-from republic._errors import StreamIncompleteError, UnsupportedFeatureError
 from republic._options import ChatOptions, ReasoningEffort
 from republic._response import EmbeddingResponse, FinishReason, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
+from republic.errors import StreamIncompleteError, UnsupportedFeatureError
 from republic.events import (
     BuiltinToolCallReady,
     CitationAdded,

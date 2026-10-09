@@ -18,8 +18,8 @@ from authlib.integrations.httpx_client import OAuth2Client
 from authlib.oauth2.rfc6749 import OAuth2Token
 from filelock import FileLock
 
-from republic._errors import AuthenticationError
 from republic.auth import Auth, OAuth2Auth, _run_login
+from republic.errors import AuthenticationError
 
 from .base import Provider
 

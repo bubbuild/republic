@@ -27,7 +27,7 @@ Republic reads `REPUBLIC_MISTRAL_API_KEY` when the provider is created and sends
 
 ## Model support
 
-Chat requests send `max_tokens`, map `seed` to `random_seed`, and omit `stream_options` because Mistral reports usage in the last chunk. `top_k` raises `UnsupportedFeatureError`.
+Chat requests send `max_tokens`, map `seed` to `random_seed`, and omit `stream_options` because Mistral reports usage in the last chunk. `top_k` raises `errors.UnsupportedFeatureError`.
 
 With `reasoning_effort`, reasoning models return thinking chunks, which Republic exposes as `response.reasoning`. Earlier thinking is sent back as a thinking chunk; keep `response.message` in the conversation.
 

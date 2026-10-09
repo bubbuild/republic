@@ -78,7 +78,7 @@ async def test_github_login_keeps_cli_credential_lookup(monkeypatch: pytest.Monk
 
 @pytest.mark.parametrize("auth_type", [CodexAuth, GitHubCLIAuth])
 async def test_cli_login_reports_missing_executable(auth_type: type[CodexAuth | GitHubCLIAuth], tmp_path: Path) -> None:
-    with pytest.raises(republic.AuthenticationError, match="Cannot start"):
+    with pytest.raises(republic.errors.AuthenticationError, match="Cannot start"):
         await auth_type.login(executable=str(tmp_path / "missing-cli"))
 
 
@@ -90,7 +90,7 @@ async def test_cli_login_reports_failure(
     process.wait.return_value = 2
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
 
-    with pytest.raises(republic.AuthenticationError, match="exit 2"):
+    with pytest.raises(republic.errors.AuthenticationError, match="exit 2"):
         await auth_type.login()
 
 
@@ -226,7 +226,7 @@ async def test_copilot_login_reports_oauth_failure(
     device_service.reply_json({"error": error, "error_description": "private-device-code"}, status_code=400)
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-    with pytest.raises(republic.AuthenticationError, match=message) as caught:
+    with pytest.raises(republic.errors.AuthenticationError, match=message) as caught:
         await CopilotAuth.login(on_authorize=AsyncMock())
 
     assert len(device_service.requests) == 2
@@ -240,7 +240,7 @@ async def test_copilot_login_requires_an_access_token(
     device_service.reply_json(device_response())
     device_service.reply_json(body)
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-    with pytest.raises(republic.AuthenticationError, match="no token"):
+    with pytest.raises(republic.errors.AuthenticationError, match="no token"):
         await CopilotAuth.login(on_authorize=AsyncMock())
 
 
@@ -252,7 +252,7 @@ async def test_copilot_login_rejects_invalid_device_response(
 ) -> None:
     device_service.reply_json(device_response(**overrides))
     display = AsyncMock()
-    with pytest.raises(republic.AuthenticationError, match="Cannot start") as caught:
+    with pytest.raises(republic.errors.AuthenticationError, match="Cannot start") as caught:
         await CopilotAuth.login(on_authorize=display)
     display.assert_not_awaited()
     assert "private-device-code" not in "".join(traceback.format_exception(caught.value))
@@ -266,7 +266,7 @@ async def test_copilot_login_stops_at_device_expiry(device_service: FakeService,
         if during_display:
             await asyncio.Event().wait()
 
-    with pytest.raises(republic.AuthenticationError, match="expired"):
+    with pytest.raises(republic.errors.AuthenticationError, match="expired"):
         await asyncio.wait_for(CopilotAuth.login(on_authorize=display), timeout=5)
     assert len(device_service.requests) == 1
 
@@ -286,7 +286,7 @@ async def test_copilot_login_reports_invalid_server_responses(
         device_service.reply_json(None)
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-    with pytest.raises(republic.AuthenticationError, match="Cannot") as caught:
+    with pytest.raises(republic.errors.AuthenticationError, match="Cannot") as caught:
         await CopilotAuth.login(on_authorize=AsyncMock())
 
     assert len(device_service.requests) == (1 if stage == "device" else 2)

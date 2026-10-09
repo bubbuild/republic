@@ -29,7 +29,7 @@ class TestGetModel:
             republic.get_model("gpt-6-sol")
 
     def test_rejects_unknown_provider(self) -> None:
-        with pytest.raises(republic.ProviderNotFoundError):
+        with pytest.raises(republic.errors.ProviderNotFoundError):
             republic.get_model("nowhere:model")
 
 
@@ -92,7 +92,7 @@ class TestApiFormat:
     def test_missing_kind_is_rejected_when_getting_the_model(self) -> None:
         provider = republic.get_provider("anthropic")
 
-        with pytest.raises(republic.UnsupportedApiFormatError, match="embedding"):
+        with pytest.raises(republic.errors.UnsupportedApiFormatError, match="embedding"):
             provider.get_embedding_model("claude-opus-5-5")
 
     async def test_requested_chat_format_preserves_embeddings(self, service: FakeService) -> None:
@@ -109,7 +109,7 @@ class TestApiFormat:
         assert embedding.vector == [0.1, 0.2]
 
     def test_rejects_unsupported_format(self) -> None:
-        with pytest.raises(republic.UnsupportedApiFormatError):
+        with pytest.raises(republic.errors.UnsupportedApiFormatError):
             republic.get_model("openai:gpt-6-sol", api_format="messages")
 
 
@@ -145,7 +145,7 @@ async def test_http_errors_carry_status_and_body(service: FakeService) -> None:
     service.reply_json({"error": "bad key"}, status_code=401)
     model = republic.get_model("openai:gpt-6-sol", http_client=service.client())
 
-    with pytest.raises(republic.APIStatusError) as exc_info:
+    with pytest.raises(republic.errors.APIStatusError) as exc_info:
         await model.chat("Hello")
 
     assert exc_info.value.status_code == 401

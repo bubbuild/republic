@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 import republic
-from republic import ModelInfo, UnsupportedFeatureError
+from republic import ModelInfo, errors
 from tests.conftest import FakeService
 
 
@@ -84,7 +84,7 @@ async def test_error_status_raises(service: FakeService) -> None:
     service.reply_json({"error": "nope"}, status_code=401)
     provider = republic.get_provider("openai", api_key="key", http_client=service.client())
 
-    with pytest.raises(republic.APIStatusError) as error:
+    with pytest.raises(republic.errors.APIStatusError) as error:
         await provider.list_models()
 
     assert error.value.status_code == 401
@@ -93,5 +93,5 @@ async def test_error_status_raises(service: FakeService) -> None:
 async def test_codex_cannot_list_models(service: FakeService) -> None:
     provider = republic.get_provider("codex", auth=republic.auth.HeaderAuth("Authorization", "Bearer t"))
 
-    with pytest.raises(UnsupportedFeatureError):
+    with pytest.raises(errors.UnsupportedFeatureError):
         await provider.list_models()

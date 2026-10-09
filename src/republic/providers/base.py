@@ -15,15 +15,15 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import httpx2
 
-from republic._errors import (
+from republic._response import ModelInfo
+from republic.auth import Auth, HeaderAuth
+from republic.errors import (
     APIConnectionError,
     APIStatusError,
     APITimeoutError,
     UnsupportedApiFormatError,
     UnsupportedFeatureError,
 )
-from republic._response import ModelInfo
-from republic.auth import Auth, HeaderAuth
 from republic.formats import _API_FORMATS, ApiFormatName
 from republic.formats._base import ApiFormat, ChatApiFormat, DecisionApiFormat, EmbeddingApiFormat, HttpRequest
 from republic.formats._sse import ServerSentEvent, iter_events

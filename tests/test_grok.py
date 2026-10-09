@@ -187,7 +187,7 @@ async def test_failed_refresh_does_not_replace_credentials_or_send_inference(
     else:
         refresh_service.reply_json({} if failure == "missing" else {"access_token": "new", "expires_in": "invalid"})
     model = republic.get_model("grok:test", http_client=service.client())
-    with pytest.raises(republic.AuthenticationError) as caught:
+    with pytest.raises(republic.errors.AuthenticationError) as caught:
         await model.chat("Hi")
     assert "private-refresh-token" not in "".join(traceback.format_exception(caught.value))
     assert auth_file.read_bytes() == original
@@ -230,11 +230,11 @@ async def test_login_returns_usable_cli_credentials(
 def test_invalid_cli_store_reports_login_error(tmp_path: Path, body: str) -> None:
     path = tmp_path / "auth.json"
     path.write_text(body)
-    with pytest.raises(republic.AuthenticationError, match="grok login"):
+    with pytest.raises(republic.errors.AuthenticationError, match="grok login"):
         GrokAuth.from_file(path)
 
 
 @pytest.mark.parametrize("token", [{}, {"access_token": "valid"}, {"access_token": "valid", "expires_at": "bad"}])
 def test_invalid_explicit_credentials_are_rejected(token: dict) -> None:
-    with pytest.raises(republic.AuthenticationError):
+    with pytest.raises(republic.errors.AuthenticationError):
         GrokAuth(token)

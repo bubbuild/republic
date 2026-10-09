@@ -96,7 +96,7 @@ This client is used for inference requests and Copilot Plugin token exchange. Co
 
 Provider-level `extra_body` applies to every chat request. Each call's `extra_body` merges over it recursively for mappings; other values replace the earlier value. The resulting fields merge after the API format builds the request and can override generated fields.
 
-Use named options such as `max_tokens` when the format can express them. Use `extra_body` for fields specific to the selected service. An option the format cannot express raises `UnsupportedFeatureError`; a format that can encode an option does not guarantee every model accepts it.
+Use named options such as `max_tokens` when the format can express them. Use `extra_body` for fields specific to the selected service. An option the format cannot express raises `errors.UnsupportedFeatureError`; a format that can encode an option does not guarantee every model accepts it.
 
 ## Retries
 
@@ -113,7 +113,7 @@ model = republic.get_model(
 
 Retries wait with exponential backoff and jitter. A valid `retry-after-ms` or `Retry-After` header takes precedence; `Retry-After` accepts seconds or an HTTP date. All waits are capped by `max_retry_delay`. The failed response is closed before waiting. `max_retries=2` means at most three attempts; configure timeouts separately because each attempt has its own timeout.
 
-For a stream, only the initial request can be retried. Once a successful HTTP response is opened, Republic never replays it, even if reading fails before the first event. Transport failures raise `APIConnectionError` or its `APITimeoutError` subclass, with the original exception as `__cause__`. Cancellation propagates without a retry.
+For a stream, only the initial request can be retried. Once a successful HTTP response is opened, Republic never replays it, even if reading fails before the first event. Transport failures raise `errors.APIConnectionError` or its `errors.APITimeoutError` subclass, with the original exception as `__cause__`. Cancellation propagates without a retry.
 
 A timeout can occur after the service accepted a request. Retrying can therefore produce another generation or repeat a provider-run tool operation; set `max_retries=0` when your application requires a single attempt.
 
@@ -128,4 +128,21 @@ print(response.request_id)
 
 A stream exposes `stream.request_id` and `stream.headers` as soon as its context is entered, before the final response is available. These values belong to that call, so concurrent requests do not overwrite one another's metadata.
 
-`APIStatusError` preserves `status_code`, `body`, `headers` and `request_id` from the final failed attempt. `APIResponseError` and `StreamIncompleteError` preserve response headers and request IDs too. Connection and timeout errors retain headers when a response was already opened; connection failures before a response have no request ID.
+`errors.APIStatusError` preserves `status_code`, `body`, `headers` and `request_id` from the final failed attempt. `errors.APIResponseError` and `errors.StreamIncompleteError` preserve response headers and request IDs too. Connection and timeout errors retain headers when a response was already opened; connection failures before a response have no request ID.
+
+## Error imports
+
+Exception classes are exported from `republic.errors`, rather than the package root. Import the module to catch Republic errors:
+
+```python
+from republic import errors
+
+try:
+    response = await model.chat("Hello")
+except errors.APIStatusError as exc:
+    print(exc.status_code, exc.request_id)
+except errors.APIConnectionError as exc:
+    print(exc.__cause__)
+```
+
+`errors.RepublicError` is the common base class. Direct imports such as `from republic.errors import APIStatusError` are also supported.

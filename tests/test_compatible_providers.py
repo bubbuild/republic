@@ -247,7 +247,7 @@ class TestMistral:
     async def test_rejects_top_k(self, service: FakeService) -> None:
         model = republic.get_model("mistral:mistral-small-latest", api_key="key", http_client=service.client())
 
-        with pytest.raises(republic.UnsupportedFeatureError, match="top_k"):
+        with pytest.raises(republic.errors.UnsupportedFeatureError, match="top_k"):
             await model.chat("Hello", top_k=5)
 
     async def test_reads_thinking_chunks_and_sends_them_back(self, service: FakeService) -> None:

@@ -99,5 +99,5 @@ async def test_unknown_answer_attribute_raises(service: FakeService) -> None:
 
 
 def test_chat_providers_have_no_decision_format() -> None:
-    with pytest.raises(republic.UnsupportedApiFormatError, match="decision"):
+    with pytest.raises(republic.errors.UnsupportedApiFormatError, match="decision"):
         republic.get_decision_model("openai:gpt-6-sol")

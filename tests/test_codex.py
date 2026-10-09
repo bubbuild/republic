@@ -106,15 +106,15 @@ async def test_codex_keeps_reasoning_and_tool_round_trip(service: FakeService) -
 
 async def test_codex_rejects_token_limit_instead_of_ignoring_it(service: FakeService) -> None:
     model = republic.get_model("codex:test", api_key="test-key", http_client=service.client())
-    with pytest.raises(republic.UnsupportedFeatureError, match="max_tokens"):
+    with pytest.raises(republic.errors.UnsupportedFeatureError, match="max_tokens"):
         await model.chat("hello", max_tokens=10)
     assert not service.requests
 
 
 def test_codex_rejects_other_formats_and_embeddings() -> None:
-    with pytest.raises(republic.UnsupportedApiFormatError):
+    with pytest.raises(republic.errors.UnsupportedApiFormatError):
         republic.get_model("codex:test", api_format="chat")
-    with pytest.raises(republic.UnsupportedApiFormatError):
+    with pytest.raises(republic.errors.UnsupportedApiFormatError):
         republic.get_embedding_model("codex:test", api_key="test-key")
 
 
@@ -149,7 +149,7 @@ def test_codex_reports_missing_default_login(tmp_path: Path, monkeypatch: pytest
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
     monkeypatch.delenv("REPUBLIC_CODEX_API_KEY", raising=False)
 
-    with pytest.raises(republic.AuthenticationError, match="codex login"):
+    with pytest.raises(republic.errors.AuthenticationError, match="codex login"):
         republic.get_model("codex:test")
 
 
@@ -276,7 +276,7 @@ async def test_codex_refresh_failure_preserves_credentials(tmp_path: Path, monke
     async with httpx2.AsyncClient(
         transport=httpx2.MockTransport(lambda _: pytest.fail("must not send inference"))
     ) as client:
-        with pytest.raises(republic.AuthenticationError) as error:
+        with pytest.raises(republic.errors.AuthenticationError) as error:
             await client.post("https://example.test", json={}, auth=CodexAuth.from_file(path))
 
     assert "private-refresh" not in "".join(traceback.format_exception(error.value))
@@ -291,7 +291,7 @@ async def test_codex_bad_credentials_fail_before_request(tmp_path: Path, content
     async with httpx2.AsyncClient(
         transport=httpx2.MockTransport(lambda _: pytest.fail("must not send inference"))
     ) as client:
-        with pytest.raises(republic.AuthenticationError):
+        with pytest.raises(republic.errors.AuthenticationError):
             await client.post("https://example.test", json={}, auth=CodexAuth.from_file(path))
 
 
@@ -349,7 +349,7 @@ async def test_codex_provided_token_can_retry_after_refresh_failure(monkeypatch:
 
     monkeypatch.setattr(codex, "OAuth2Client", partial(OAuth2Client, transport=httpx2.MockTransport(refresh)))
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
-        with pytest.raises(republic.AuthenticationError) as error:
+        with pytest.raises(republic.errors.AuthenticationError) as error:
             await client.post("https://example.test", json={}, auth=auth)
         assert not inference_requests
         assert "private-refresh" not in "".join(traceback.format_exception(error.value))
@@ -370,5 +370,5 @@ async def test_codex_expired_provided_token_requires_refresh_token() -> None:
     async with httpx2.AsyncClient(
         transport=httpx2.MockTransport(lambda _: pytest.fail("must not send inference"))
     ) as client:
-        with pytest.raises(republic.AuthenticationError, match="no refresh token"):
+        with pytest.raises(republic.errors.AuthenticationError, match="no refresh token"):
             await client.post("https://example.test", json={}, auth=auth)
