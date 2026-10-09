@@ -6,6 +6,7 @@ import httpx2
 import pytest
 
 import republic
+from republic import _registry
 from tests.conftest import FakeService
 
 CHAT_REPLY = {"choices": [{"message": {"content": "hi"}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
@@ -129,6 +130,15 @@ class TestRegisterProvider:
         assert service.requests[0].url.path == "/v1/messages"
         assert service.requests[0].headers["authorization"] == "Bearer custom-key"
         assert response.text == "ok"
+
+    def test_all_providers_lists_built_in_and_registered_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(_registry, "_PROVIDERS", dict(_registry._PROVIDERS))
+
+        republic.register_provider(republic.providers.OpenAICompatible, "listed")
+
+        names = republic.all_providers()
+        assert {"openai", "azure-openai", "minimax", "listed"} <= set(names)
+        assert list(names) == sorted(names)
 
 
 async def test_http_errors_carry_status_and_body(service: FakeService) -> None:

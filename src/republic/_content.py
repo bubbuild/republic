@@ -25,7 +25,10 @@ class Text:
 
 @dataclass(frozen=True)
 class Reasoning:
-    """Readable reasoning returned by the model. It is never sent back to providers."""
+    """Readable reasoning returned by the model.
+
+    It is only sent back to chat servers that require it, such as DeepSeek during tool use.
+    """
 
     text: str
 

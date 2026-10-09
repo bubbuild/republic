@@ -4,7 +4,7 @@ Choose a service, then use an API key or an account login supported by that serv
 
 ## Use an API key
 
-Start with [OpenAI](openai.md), [Anthropic](anthropic.md), [Google Gemini](google.md), [OpenRouter](openrouter.md), [Grok](grok.md#use-an-api-key), or [TypeSafe](typesafe.md). Each page shows the environment variable and a complete request.
+Start with [OpenAI](openai.md), [Anthropic](anthropic.md), [Google Gemini](google.md), [OpenRouter](openrouter.md), [Grok](grok.md#use-an-api-key), or [TypeSafe](typesafe.md). Republic also includes [Azure OpenAI](azure-openai.md), [DeepSeek](deepseek.md), [Moonshot AI](moonshot.md), [Z.ai](zai.md), [MiniMax](minimax.md), [Mistral AI](mistral.md), and [Together AI](together.md). [Ollama](ollama.md) and [Magpie](magpie.md) run locally and need no key. Each page shows the environment variable and a complete request.
 
 ## Use an account login
 
@@ -26,6 +26,15 @@ The first chat format in each row is the default. Formats describe the available
 | [Codex](codex.md) | `codex` | Chat | `responses` | Codex file login |
 | [GitHub Copilot](github-copilot.md) | `github-copilot` | Chat | `chat`, `responses`, `messages` | GitHub CLI login |
 | [Grok](grok.md) | `grok` | Chat | `responses`, `chat` | Grok file login |
+| [Azure OpenAI](azure-openai.md) | `azure-openai` | Chat, embeddings | `responses`, `chat` | `REPUBLIC_AZURE_OPENAI_API_KEY` |
+| [DeepSeek](deepseek.md) | `deepseek` | Chat | `chat`, `responses`, `messages` | `REPUBLIC_DEEPSEEK_API_KEY` |
+| [Moonshot AI](moonshot.md) | `moonshot` | Chat | `chat` | `REPUBLIC_MOONSHOT_API_KEY` |
+| [Z.ai](zai.md) | `zai` | Chat | `chat` | `REPUBLIC_ZAI_API_KEY` |
+| [MiniMax](minimax.md) | `minimax` | Chat | `messages`, `chat` | `REPUBLIC_MINIMAX_API_KEY` |
+| [Mistral AI](mistral.md) | `mistral` | Chat, embeddings | `chat` | `REPUBLIC_MISTRAL_API_KEY` |
+| [Together AI](together.md) | `together` | Chat, embeddings | `chat` | `REPUBLIC_TOGETHER_API_KEY` |
+| [Ollama](ollama.md) | `ollama` | Chat, embeddings | `chat`, `responses` | None for a local server |
+| [Magpie](magpie.md) | `magpie` | Chat, decisions | `chat`, `responses`, `messages` | None; the gateway holds credentials |
 
 ## Select a model and format
 

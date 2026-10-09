@@ -33,7 +33,14 @@ from republic._errors import (
 )
 from republic._models import ChatModel, DecisionModel, EmbeddingModel, Stream
 from republic._options import ChatOptions, ReasoningEffort, ToolChoice
-from republic._registry import get_decision_model, get_embedding_model, get_model, get_provider, register_provider
+from republic._registry import (
+    all_providers,
+    get_decision_model,
+    get_embedding_model,
+    get_model,
+    get_provider,
+    register_provider,
+)
 from republic._response import BuiltinToolCall, Citation, EmbeddingResponse, FinishReason, Response, TokenUsage
 
 __all__ = [
@@ -67,6 +74,7 @@ __all__ = [
     "UnsupportedApiFormatError",
     "UnsupportedFeatureError",
     "Video",
+    "all_providers",
     "assistant",
     "auth",
     "decisions",

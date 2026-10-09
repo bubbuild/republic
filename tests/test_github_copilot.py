@@ -139,7 +139,7 @@ async def test_github_uses_selected_cli_login_directly(
 
     monkeypatch.setattr(subprocess, "run", run)
     service.reply_json({"choices": [{"message": {"content": "hi"}}]})
-    monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
+    monkeypatch.delenv("REPUBLIC_GITHUB_COPILOT_API_KEY", raising=False)
     headers = {"copilot-integration-id": integration} if integration else {}
     if explicit_auth:
         model = republic.get_model(
@@ -368,7 +368,7 @@ def test_copilot_auth_reads_sync_exchange_responses() -> None:
 
 async def test_github_failure_does_not_fall_back_or_expose_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "unwanted-fallback")
-    monkeypatch.delenv("REPUBLIC_GITHUB-COPILOT_API_KEY", raising=False)
+    monkeypatch.delenv("REPUBLIC_GITHUB_COPILOT_API_KEY", raising=False)
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", "sensitive stderr"))
     async with httpx2.AsyncClient(
         transport=httpx2.MockTransport(lambda _: pytest.fail("must not send inference"))

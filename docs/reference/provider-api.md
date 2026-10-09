@@ -141,7 +141,7 @@ Total tokens are input plus output tokens. Reasoning tokens are included in outp
 
 ### Built-in providers
 
-The registered names are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, and `grok`. See [supported providers](../providers/index.md) for model kinds, formats, and authentication paths.
+The registered names are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, `grok`, `azure-openai`, `ollama`, `deepseek`, `moonshot`, `zai`, `together`, `mistral`, `minimax`, and `magpie`. `republic.all_providers()` returns every registered name, including custom providers, sorted. See [supported providers](../providers/index.md) for model kinds, formats, and authentication paths.
 
 ### Custom providers
 
@@ -160,9 +160,34 @@ republic.register_provider(MyCustomProvider, "custom")
 model = republic.get_model("custom:gpt-6-sol")
 ```
 
+### Service dialects
+
+Services that speak a known format with their own fields plug in through format hooks. Subclass a format from `republic.formats` and set it as `CHAT_FORMAT` on an `OpenAICompatible` subclass, or return it from `Provider.select_api_format()`, which also receives the model name:
+
+```python
+from republic.formats import ChatFormat
+from republic.providers import OpenAICompatible
+
+
+class AcmeChat(ChatFormat):
+    def reasoning_fields(self, effort, *, include_reasoning):
+        return {"thinking": {"type": "disabled" if effort == "none" else "enabled"}} if effort else {}
+
+
+class Acme(OpenAICompatible):
+    name = "acme"
+    DEFAULT_API_BASE = "https://api.acme.example/v1"
+    CHAT_FORMAT = AcmeChat()
+
+
+republic.register_provider(Acme)
+```
+
+Every chat format has `reasoning_fields()`. `ChatFormat` also has `max_tokens_fields()`, `reasoning_text()`, `content_text()` for answer text in content parts, and `assistant_fields()` for fields added to assistant messages sent back, such as `reasoning_content`.
+
 ## API format support
 
-Republic selects the first format of the requested model kind in the provider's `SUPPORTED_API_FORMATS`. An explicit `api_format=` takes precedence for formats of that kind. Built-in providers default to Responses, Messages, or Gemini as shown in the [provider directory](../providers/index.md); GitHub Copilot defaults to `chat`.
+Republic selects the first format of the requested model kind in the provider's `SUPPORTED_API_FORMATS`. An explicit `api_format=` takes precedence for formats of that kind. Each built-in provider's default is the first chat format in the [provider directory](../providers/index.md).
 
 Use `api_format=` to select a supported format explicitly:
 

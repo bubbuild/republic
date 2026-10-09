@@ -9,7 +9,7 @@ These options apply to `get_provider()` and the model factories, including `get_
 | `api_key` | Service key; otherwise read `<PREFIX>_API_KEY` |
 | `api_base` | Service base URL; otherwise read `<PREFIX>_API_BASE`, then use the provider default. Trailing slashes are removed. |
 | `auth` | `httpx2.Auth` object; takes precedence over API-key auth |
-| `env_prefix` | Environment namespace; defaults to `REPUBLIC_` plus the uppercase registered provider name |
+| `env_prefix` | Environment namespace; defaults to `REPUBLIC_` plus the uppercase registered provider name, with hyphens replaced by underscores |
 | `api_format` | Preferred supported format for its model kind; other model kinds retain their defaults |
 | `headers` | Headers sent on every request, overriding the format's default headers |
 | `extra_body` | Extra chat request fields, merged with each call's `extra_body` |
@@ -44,7 +44,7 @@ model = get_model("openai:gpt-6-sol", env_prefix="MY_APP_OPENAI")
 
 This reads `MY_APP_OPENAI_API_KEY` and `MY_APP_OPENAI_API_BASE`. It replaces the prefix; it does not add another fallback namespace.
 
-The default prefix preserves punctuation in a registered name. For `github-copilot`, it is `REPUBLIC_GITHUB-COPILOT`. Use `env_prefix="REPUBLIC_GITHUB_COPILOT"` if you want shell-friendly names with underscores.
+The default prefix replaces hyphens in a registered name with underscores. For `github-copilot`, it is `REPUBLIC_GITHUB_COPILOT`; for `azure-openai`, it is `REPUBLIC_AZURE_OPENAI`.
 
 Republic reads these provider values at construction. Changing them later affects newly created providers, not existing ones. Republic does not load `.env` files or write provider values to the process environment. Load application configuration before creating a provider if you use a dotenv loader.
 
