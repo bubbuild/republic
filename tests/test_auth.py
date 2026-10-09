@@ -22,12 +22,14 @@ async def test_authlib_auth_works_with_existing_provider(service: FakeService) -
     assert service.requests[0].headers["authorization"] == "Bearer oauth-token"
 
 
-@pytest.mark.parametrize("provider", ["codex", "github-copilot"])
+@pytest.mark.parametrize("provider", ["codex", "github-copilot", "grok"])
 @pytest.mark.parametrize("source", ["auth", "api_key", "environment", "http_client"])
 async def test_explicit_credentials_override_local_login(
     provider: str, source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service: FakeService
 ) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setenv("GROK_HOME", str(tmp_path))
+    monkeypatch.delenv("GROK_AUTH_PATH", raising=False)
     monkeypatch.delenv("TEST_PROVIDER_API_KEY", raising=False)
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: pytest.fail("must not read the GitHub login"))
     client = service.client()

@@ -18,7 +18,7 @@ async with model.stream("Tell me a story") as stream:
             print(event.chunk, end="")
 ```
 
-Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, and `github-copilot`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first format listed in `SUPPORTED_API_FORMATS` is used unless `api_format=` names another; the built-in providers list `responses`, then `messages`, then `chat`, except Copilot, which defaults to `chat`. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own.
+Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, and `grok`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first format listed in `SUPPORTED_API_FORMATS` is used unless `api_format=` names another; the built-in providers list `responses`, then `messages`, then `chat`, except Copilot, which defaults to `chat`. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own.
 
 Tools are schemas only. Execute the calls yourself and send the results back, keeping the assistant message so reasoning state survives the round trip:
 
@@ -116,6 +116,8 @@ Codex accepts `device_auth=True` for device authorization. Both CLI methods acce
 For custom Codex credentials, pass `auth=CodexAuth.from_file(path)` or `auth=CodexAuth(token, account_id=...)` from `republic.providers`; persist `auth.token` yourself when supplying tokens.
 
 For existing Plugin credentials, pass `auth=CopilotAuth(github_token)`; the caller owns their storage and renewal. Reuse the auth object to exchange, cache and renew Copilot inference tokens. Requests follow `endpoints.api`; `headers=` overrides Plugin headers. GitHub CLI credentials use the direct path above.
+
+`grok:model` supports Chat and Responses using the official Grok CLI's xAI OAuth login by default. Use `await GrokAuth.login()` (optionally `device_auth=True`) or `GrokAuth.from_file(path)` from `republic.providers`. The default file is `$GROK_HOME/auth.json` or `~/.grok/auth.json`; `GROK_AUTH_PATH` overrides it. Expiring tokens are refreshed through Authlib and saved under the CLI's file lock. For caller-managed credentials, use `GrokAuth(token)` and persist `auth.token`; explicit `api_key=` and `auth=` take precedence.
 
 OpenRouter supports `await OpenRouterAuth.login(on_authorize=authorize)` from `republic.providers`. Your async `authorize(url)` callback displays the URL and returns the code the user copies from OpenRouter. Pass the result as `auth=`; save `auth.api_key` and restore it with `OpenRouterAuth(saved_key)`. This [PKCE flow](https://openrouter.ai/docs/guides/overview/auth/oauth) issues an ordinary API key; existing keys also work with `api_key=`.
 

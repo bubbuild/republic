@@ -5,6 +5,7 @@ from .base import Provider
 from .codex import Codex, CodexAuth
 from .github import CopilotAuth, GitHubCLIAuth, GitHubCopilot
 from .google import Google
+from .grok import Grok, GrokAuth
 from .openai import OpenAI, OpenAICompatible
 from .openrouter import OpenRouter, OpenRouterAuth
 from .typesafe import TypeSafe
@@ -17,6 +18,8 @@ __all__ = [
     "GitHubCLIAuth",
     "GitHubCopilot",
     "Google",
+    "Grok",
+    "GrokAuth",
     "OpenAI",
     "OpenAICompatible",
     "OpenRouter",
