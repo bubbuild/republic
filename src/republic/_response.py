@@ -112,3 +112,14 @@ class EmbeddingResponse:
     def vector(self) -> list[float]:
         """The vector of the first input."""
         return self.vectors[0]
+
+
+@dataclass(frozen=True)
+class ModelInfo:
+    """A model listed by a provider."""
+
+    id: str
+    """The name to pass to ``get_model()`` and the other model getters."""
+    display_name: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+    """The entry as the service returned it, with fields such as context length or pricing."""

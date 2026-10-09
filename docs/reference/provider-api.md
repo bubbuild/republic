@@ -143,6 +143,18 @@ Total tokens are input plus output tokens. Reasoning tokens are included in outp
 
 The registered names are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, `grok`, `azure-openai`, `ollama`, `deepseek`, `moonshot`, `zai`, `together`, `mistral`, `minimax`, and `magpie`. `republic.all_providers()` returns every registered name, including custom providers, sorted. See [supported providers](../providers/index.md) for model kinds, formats, and authentication paths.
 
+### Listing models
+
+```python
+provider = republic.get_provider("openai")
+for model in await provider.list_models():
+    print(model.id, model.display_name)
+```
+
+`list_models()` returns `republic.ModelInfo` values for every page of the service's model list. Pass `model.id` to `get_model()` or another model getter; `model.raw` keeps the service's entry, such as context length or pricing. Codex has no model list and raises `UnsupportedFeatureError`.
+
+A custom provider sets `MODELS_PATH` relative to `api_base`, or `None` when the service has no list. Override `_parse_models()` for another response shape and `_models_params()` for pagination.
+
 ### Custom providers
 
 Subclass a provider and register a unique name. Set the endpoint and formats to match the service:

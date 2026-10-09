@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import httpx2
 
-from republic._errors import APIStatusError, UnsupportedApiFormatError
+from republic._errors import APIStatusError, UnsupportedApiFormatError, UnsupportedFeatureError
+from republic._response import ModelInfo
 from republic.auth import Auth, HeaderAuth
 from republic.formats import _API_FORMATS, ApiFormatName
 from republic.formats._base import ApiFormat, ChatApiFormat, DecisionApiFormat, EmbeddingApiFormat, HttpRequest
@@ -37,6 +38,8 @@ class Provider:
     DEFAULT_API_BASE: ClassVar[str]
     SUPPORTED_API_FORMATS: ClassVar[Sequence[ApiFormatName]]
     """The API formats this provider speaks, in order of preference within each kind of model."""
+    MODELS_PATH: ClassVar[str | None] = "/models"
+    """Where the model list is served, relative to ``api_base``; ``None`` when the service has none."""
 
     def __init__(
         self,
@@ -88,6 +91,44 @@ class Provider:
         from republic._models import DecisionModel
 
         return DecisionModel(self, name, self.select_api_format(DecisionApiFormat, name))
+
+    async def list_models(self) -> list[ModelInfo]:
+        """List the models the service offers to these credentials, following every page."""
+        if self.MODELS_PATH is None:
+            raise UnsupportedFeatureError(f"Provider {self.name!r} cannot list models")
+        api_format = _API_FORMATS[self.api_format or self.SUPPORTED_API_FORMATS[0]]
+        headers = {**api_format.headers, **self.headers}
+        auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
+        models: list[ModelInfo] = []
+        params = self._models_params(None)
+        async with self._client() as client:
+            while params is not None:
+                response = await client.get(
+                    f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
+                )
+                if response.is_error:
+                    raise APIStatusError(response.status_code, response.text)
+                data = response.json()
+                models.extend(self._parse_models(data))
+                params = self._models_params(data)
+        return models
+
+    def _models_params(self, previous: Any) -> dict[str, str] | None:
+        """Query parameters for the next page of models, or ``None`` when ``previous`` was the last.
+
+        ``previous`` is ``None`` before the first page. Override for paginated lists.
+        """
+        return {} if previous is None else None
+
+    def _parse_models(self, data: Any) -> list[ModelInfo]:
+        """Read one page of models. Accepts the common ``data`` and ``models`` list shapes."""
+        items = data if isinstance(data, list) else data.get("data") or data.get("models") or []
+        models = []
+        for item in items:
+            model_id = item.get("id") or item.get("name")
+            display_name = item.get("display_name") or item.get("displayName") or item.get("name")
+            models.append(ModelInfo(model_id, None if display_name == model_id else display_name, item))
+        return models
 
     def _api_key_auth(self, api_key: str) -> Auth:
         """Authenticate requests with the API key. Override for other header schemes."""

@@ -41,7 +41,15 @@ from republic._registry import (
     get_provider,
     register_provider,
 )
-from republic._response import BuiltinToolCall, Citation, EmbeddingResponse, FinishReason, Response, TokenUsage
+from republic._response import (
+    BuiltinToolCall,
+    Citation,
+    EmbeddingResponse,
+    FinishReason,
+    ModelInfo,
+    Response,
+    TokenUsage,
+)
 
 __all__ = [
     "APIResponseError",
@@ -57,6 +65,7 @@ __all__ = [
     "FinishReason",
     "Image",
     "Message",
+    "ModelInfo",
     "ProviderData",
     "ProviderNotFoundError",
     "Reasoning",
