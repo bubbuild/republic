@@ -32,6 +32,7 @@ class MiniMax(OpenAICompatible):
     DEFAULT_API_BASE = "https://api.minimax.io"
     SUPPORTED_API_FORMATS = ("messages", "chat")
     CHAT_FORMAT = MiniMaxChat()
+    MODELS_PATH = "/v1/models"
 
     async def _send(
         self, client: httpx2.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool

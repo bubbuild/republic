@@ -97,6 +97,13 @@ async def test_image_generation():
             f.write(image.data)
 
 
+async def test_list_models():
+    for provider_name in ["google", "deepseek", "magpie"]:
+        provider = republic.get_provider(provider_name)
+        models = await provider.list_models()
+        print(f"{provider_name.capitalize()} provider has {len(models)} models")
+
+
 async def run_all():
     for member in globals():
         if member.startswith("test_") and callable(globals()[member]):

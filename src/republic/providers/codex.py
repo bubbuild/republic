@@ -151,6 +151,7 @@ class Codex(Provider):
     name = "codex"
     DEFAULT_API_BASE = "https://chatgpt.com/backend-api/codex"
     SUPPORTED_API_FORMATS = ("responses",)
+    MODELS_PATH = None
 
     def __init__(self, **options: Unpack[ProviderOptions]) -> None:
         super().__init__(**options)
