@@ -1,59 +1,49 @@
 # Republic
 
-A Python library for AI providers, with chat, streaming, tool calls, and structured output.
+One Python interface for chat, streaming, tool calls, and structured output across AI providers. Republic stops at providers; agent loops, tool execution, and gateways stay in your code.
 
-## Installation
+## Quickstart
 
 Republic requires Python 3.11 or later.
 
 ```sh
 python -m pip install "git+https://github.com/bubbuild/republic.git@dev"
+export REPUBLIC_OPENAI_API_KEY="your-api-key"
 ```
-
-## Get started
-
-Set `REPUBLIC_OPENAI_API_KEY` to your API key, then run:
 
 ```python
 import asyncio
 
 import republic
+from republic.events import TextDelta
 
 
 async def main():
     model = republic.get_model("openai:gpt-6-sol")
+
     response = await model.chat("Explain a tool call in one sentence.")
     print(response.text)
+
+    async with model.stream("Explain how an agent uses a tool result.") as stream:
+        async for event in stream:
+            if isinstance(event, TextDelta):
+                print(event.chunk, end="", flush=True)
 
 
 asyncio.run(main())
 ```
 
-Choose a model available to your account. A model name has the form `provider:model`; `get_model()` creates the provider and selects its default chat API format.
+A model is named `provider:model`. Switch services by changing the name, such as `anthropic:MODEL_ID`, `google:MODEL_ID`, or `deepseek:MODEL_ID`; each reads its key from `REPUBLIC_<PROVIDER>_API_KEY`. See the [provider directory](docs/providers/index.md) for every supported service.
 
-## Choose a provider
+## Documentation
 
-With a Google API key in `REPUBLIC_GOOGLE_API_KEY`, replace the model construction line above:
-
-```python
-model = republic.get_model("google:gemini-flash-latest")
-```
-
-The same `chat()` call returns `response.text`. The [provider directory](docs/providers/index.md) lists supported services, model kinds, and formats. Start with [API-key setup](docs/providers/index.md#use-an-api-key) or [account login](docs/providers/index.md#use-an-account-login), depending on the credentials you have.
-
-## Use Republic
-
-The [quickstart](docs/quickstart.md) covers a complete request and a streaming response. [Build a minimal agent](docs/guides/minimal-agent.md) with a tool function and a loop that returns results to the model. [Tool use](docs/guides/tools.md) explains the messages in each round trip.
-
-Providers accept `api_key=` or an `auth=` object. The [authentication guide](docs/guides/authentication.md) covers API keys, CLI logins, OAuth authorization, and credential storage and renewal, including [OpenRouter PKCE login](docs/providers/openrouter.md#authorize-with-oauth-pkce). See [configuration](docs/reference/configuration.md) for precedence, custom endpoints, and HTTP clients.
-
-[Structured output](docs/guides/structured-output.md) returns values validated against your Python type. Republic also supports images and video as inputs, provider-run tools, embeddings, and decision models. Availability depends on the selected provider, model, and API format.
-
-The [provider API specification](docs/reference/provider-api.md) covers model construction, messages, formats, history, and non-chat models.
+- [Quickstart](docs/quickstart.md): a first request and a streaming response.
+- [Providers](docs/providers/index.md): services, formats, and credentials.
+- [Authentication](docs/guides/authentication.md): API keys, CLI logins, and OAuth.
+- Guides: [tool use](docs/guides/tools.md), [a minimal agent](docs/guides/minimal-agent.md), and [structured output](docs/guides/structured-output.md).
+- Reference: [configuration](docs/reference/configuration.md) and the [provider API](docs/reference/provider-api.md), including media input, embeddings, decision models, history, and custom providers.
 
 ## Development
-
-From a repository checkout:
 
 ```sh
 uv sync
