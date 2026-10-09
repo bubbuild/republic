@@ -1,0 +1,50 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "id": "msg_01SKkVkB84yWcweNDwx31xBd",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'll add and multiply the numbers 2 and 3 for you."
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01StBeRxDEwsqcc3arbDgpS9",
+      "name": "add",
+      "input": {
+        "a": 2,
+        "b": 3
+      },
+      "caller": {
+        "type": "direct"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01AC6WQhj2iRkdYHgTAGMpVQ",
+      "name": "multiply",
+      "input": {
+        "a": 2,
+        "b": 3
+      },
+      "caller": {
+        "type": "direct"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 507,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "output_tokens": 137,
+    "service_tier": "standard",
+    "inference_geo": "not_available"
+  }
+}

@@ -1,0 +1,1 @@
+tests/test_provider_golden/cases/**/*.sse -text whitespace=-blank-at-eof,cr-at-eol

@@ -12,6 +12,7 @@ repos:
         exclude: ^.devcontainer/devcontainer.json
         args: [--autofix, --no-sort-keys]
       - id: end-of-file-fixer
+        exclude: ^tests/test_provider_golden/cases/.*\.sse$
       - id: trailing-whitespace
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
