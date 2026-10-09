@@ -22,11 +22,14 @@ from republic._content import (
     video,
 )
 from republic._errors import (
+    APIConnectionError,
     APIResponseError,
     APIStatusError,
+    APITimeoutError,
     AuthenticationError,
     ProviderNotFoundError,
     RepublicError,
+    StreamIncompleteError,
     StreamNotFinishedError,
     UnsupportedApiFormatError,
     UnsupportedFeatureError,
@@ -52,8 +55,10 @@ from republic._response import (
 )
 
 __all__ = [
+    "APIConnectionError",
     "APIResponseError",
     "APIStatusError",
+    "APITimeoutError",
     "AuthenticationError",
     "BuiltinToolCall",
     "ChatModel",
@@ -73,6 +78,7 @@ __all__ = [
     "RepublicError",
     "Response",
     "Stream",
+    "StreamIncompleteError",
     "StreamNotFinishedError",
     "Text",
     "TokenUsage",

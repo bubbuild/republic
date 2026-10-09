@@ -78,6 +78,10 @@ class Response(Generic[OutputT]):
     id: str | None = None
     model: str | None = None
     """The model version that served the request, as reported by the provider."""
+    request_id: str | None = None
+    """HTTP request ID for diagnostics, separate from ``id``."""
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    """HTTP response headers with lowercase names."""
 
     @property
     def text(self) -> str:
@@ -107,6 +111,8 @@ class EmbeddingResponse:
     """One vector per input, in input order."""
     token_usage: TokenUsage = field(default_factory=TokenUsage)
     model: str | None = None
+    request_id: str | None = None
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     @property
     def vector(self) -> list[float]:

@@ -46,7 +46,7 @@ async def test_codex_login_returns_file_auth(
     process.wait.return_value = 0
     monkeypatch.setattr(asyncio, "create_subprocess_exec", run)
     auth = await CodexAuth.login(executable="/tools/codex", device_auth=device_auth)
-    service.reply_events([{"type": "response.output_text.delta", "delta": "hello"}])
+    service.reply_events([{"type": "response.output_text.delta", "delta": "hello"}, "[DONE]"])
     response = await republic.get_model("codex:test", auth=auth, http_client=service.client()).chat("Hi")
 
     assert response.text == "hello"

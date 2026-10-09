@@ -64,6 +64,9 @@ class ProviderOptions(TypedDict, total=False):
     env_prefix: str
     http_client: httpx2.AsyncClient
     timeout: httpx2.Timeout | float
+    max_retries: int
+    retry_delay: float
+    max_retry_delay: float
 
 
 def register_provider(provider_class: type[P], name: str | None = None) -> type[P]:

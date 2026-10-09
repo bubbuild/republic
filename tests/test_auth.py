@@ -43,7 +43,7 @@ async def test_explicit_credentials_override_local_login(
         monkeypatch.setenv("TEST_PROVIDER_API_KEY", "provided-token")
     else:
         client.auth = auth
-    service.reply_events([{"type": "response.output_text.delta", "delta": "hello"}])
+    service.reply_events([{"type": "response.output_text.delta", "delta": "hello"}, "[DONE]"])
     model = republic.get_model(f"{provider}:test", **options)
 
     async with model.stream("Hi") as stream:

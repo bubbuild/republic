@@ -15,6 +15,9 @@ These options apply to `get_provider()` and the model factories, including `get_
 | `extra_body` | Extra chat request fields, merged with each call's `extra_body` |
 | `http_client` | Caller-owned `httpx2.AsyncClient` |
 | `timeout` | Timeout for clients Republic creates; default is 600 seconds, with 10 seconds for connection establishment |
+| `max_retries` | Additional attempts after a retryable failure; default is 2, and 0 disables retries |
+| `retry_delay` | Initial exponential backoff in seconds; default is 0.5, with jitter |
+| `max_retry_delay` | Maximum wait between attempts, including `Retry-After`; default is 60 seconds |
 
 `api_key`, `api_base`, and `env_prefix` treat `None` and an empty string as absent. An empty string does not disable environment lookup.
 
@@ -94,3 +97,35 @@ This client is used for inference requests and Copilot Plugin token exchange. Co
 Provider-level `extra_body` applies to every chat request. Each call's `extra_body` merges over it recursively for mappings; other values replace the earlier value. The resulting fields merge after the API format builds the request and can override generated fields.
 
 Use named options such as `max_tokens` when the format can express them. Use `extra_body` for fields specific to the selected service. An option the format cannot express raises `UnsupportedFeatureError`; a format that can encode an option does not guarantee every model accepts it.
+
+## Retries
+
+Republic retries HTTP 408, 409, 429 and 5xx responses, timeouts, network errors and remote protocol errors. Other HTTP errors, invalid response payloads and local authentication errors are not retried. The policy applies to chat, embeddings, decisions, and each page of model listing, including when you supply an HTTP client.
+
+```python
+model = republic.get_model(
+    "openai:gpt-6-sol",
+    max_retries=3,
+    retry_delay=0.5,
+    max_retry_delay=30,
+)
+```
+
+Retries wait with exponential backoff and jitter. A valid `retry-after-ms` or `Retry-After` header takes precedence; `Retry-After` accepts seconds or an HTTP date. All waits are capped by `max_retry_delay`. The failed response is closed before waiting. `max_retries=2` means at most three attempts; configure timeouts separately because each attempt has its own timeout.
+
+For a stream, only the initial request can be retried. Once a successful HTTP response is opened, Republic never replays it, even if reading fails before the first event. Transport failures raise `APIConnectionError` or its `APITimeoutError` subclass, with the original exception as `__cause__`. Cancellation propagates without a retry.
+
+A timeout can occur after the service accepted a request. Retrying can therefore produce another generation or repeat a provider-run tool operation; set `max_retries=0` when your application requires a single attempt.
+
+## Response diagnostics
+
+Chat, embedding and decision responses expose `request_id` and `headers`. Header names are lowercase. The request ID comes from `x-request-id`, `request-id` or `x-goog-request-id`, when present, and is separate from the generated response's `id`.
+
+```python
+response = await model.chat("Hello")
+print(response.request_id)
+```
+
+A stream exposes `stream.request_id` and `stream.headers` as soon as its context is entered, before the final response is available. These values belong to that call, so concurrent requests do not overwrite one another's metadata.
+
+`APIStatusError` preserves `status_code`, `body`, `headers` and `request_id` from the final failed attempt. `APIResponseError` and `StreamIncompleteError` preserve response headers and request IDs too. Connection and timeout errors retain headers when a response was already opened; connection failures before a response have no request ID.

@@ -93,6 +93,8 @@ class DecisionResponse:
     answers: Mapping[str, Answer]
     token_usage: TokenUsage = field(default_factory=TokenUsage)
     model: str | None = None
+    request_id: str | None = None
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     def __getattr__(self, name: str) -> Answer:
         if name.startswith("_"):

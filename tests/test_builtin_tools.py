@@ -91,6 +91,7 @@ class TestResponses:
                 "annotation": {"type": "url_citation", "url": "https://weather.example"},
             },
             {"type": "response.output_item.done", "item": {"type": "web_search_call", "id": "ws_1", "action": {}}},
+            {"type": "response.completed", "response": {"status": "completed", "output": []}},
         ])
 
         async with make_model(service, "openai:gpt-6-sol").stream("Hi", tools=[WebSearch()]) as stream:
@@ -201,6 +202,7 @@ class TestMessages:
             },
             {"type": "content_block_stop", "index": 2},
             {"type": "message_delta", "delta": {"stop_reason": "pause_turn"}, "usage": {"output_tokens": 5}},
+            {"type": "message_stop"},
         ])
 
         async with make_model(service, "anthropic:claude-opus-5-5").stream("Hi", tools=[WebSearch()]) as stream:

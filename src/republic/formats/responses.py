@@ -132,7 +132,15 @@ class _ResponsesStreamParser(StreamParser):
         self._streamed_calls: set[str] = set()
 
     def feed(self, event: str, data: str) -> Iterable[Delta]:
+        if data == "[DONE]":
+            self.completed = True
+            return
         payload = json.loads(data)
+        if payload.get("type") in {"response.completed", "response.incomplete"}:
+            self.completed = True
+        yield from self._feed_payload(payload)
+
+    def _feed_payload(self, payload: Mapping[str, Any]) -> Iterable[Delta]:
         match payload.get("type"):
             case "response.output_text.delta":
                 yield TextDelta(payload["delta"])
