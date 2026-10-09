@@ -16,7 +16,7 @@ import republic
 model = republic.get_model("openai:MODEL_ID", api_key=os.environ["MY_APP_API_KEY"])
 ```
 
-API-key setup is available for [OpenAI](../providers/openai.md), [Anthropic](../providers/anthropic.md), [Google Gemini](../providers/google.md), [OpenRouter](../providers/openrouter.md), and [TypeSafe](../providers/typesafe.md).
+API-key setup is available for [OpenAI](../providers/openai.md), [Anthropic](../providers/anthropic.md), [Google Gemini](../providers/google.md), [OpenRouter](../providers/openrouter.md), [Grok](../providers/grok.md#use-an-api-key), and [TypeSafe](../providers/typesafe.md).
 
 ## Reuse a CLI login
 
@@ -24,6 +24,7 @@ API-key setup is available for [OpenAI](../providers/openai.md), [Anthropic](../
 | --- | --- | --- |
 | [Codex ChatGPT login](../providers/codex.md) | `codex` | Codex credential file |
 | [GitHub CLI login](../providers/github-copilot.md) | `github-copilot` | `gh auth token` |
+| [Grok CLI login](../providers/grok.md) | `grok` | Grok credential file |
 
 For example, with an existing Codex file login:
 
@@ -42,6 +43,7 @@ Call `.login()` explicitly when you need a new authorization, then pass the retu
 | Service | Login helper | Authorization interface |
 | --- | --- | --- |
 | [Codex](../providers/codex.md#log-in-explicitly) | `CodexAuth.login()` | Codex CLI; optional device authorization |
+| [Grok](../providers/grok.md#log-in-explicitly) | `GrokAuth.login()` | Grok CLI; optional device authorization |
 | [GitHub CLI](../providers/github-copilot.md#log-in-with-github-cli) | `GitHubCLIAuth.login()` | GitHub CLI |
 | [Copilot Plugin](../providers/github-copilot.md#authorize-the-copilot-plugin) | `CopilotAuth.login()` | GitHub device authorization; optional display callback |
 | [OpenRouter](../providers/openrouter.md#authorize-with-oauth-pkce) | `OpenRouterAuth.login(on_authorize=...)` | Caller displays the authorization URL and returns the copied code |
@@ -58,6 +60,8 @@ Reuse auth objects across requests. Storage and renewal depend on how you obtain
 | OpenRouter PKCE login | Your application saves `auth.api_key` | Returns an API key; requests do not refresh it |
 | Codex file login | CLI credential file; Republic saves refreshed tokens there | Republic refreshes tokens when a refresh token is available |
 | `CodexAuth(token, account_id=...)` | Your application saves the updated `auth.token` | Republic refreshes tokens when a refresh token is available |
+| Grok file login | CLI credential file; Republic saves refreshed tokens there under the CLI lock | Republic refreshes expiring tokens using the refresh token |
+| `GrokAuth(token)` | Your application saves the updated `auth.token` | Republic refreshes expiring tokens using the refresh token |
 | GitHub CLI login | GitHub CLI | Republic reads `gh auth token` for each request |
 | Copilot Plugin login | Your application saves `auth.github_token` | Republic renews the exchanged inference token; your application manages the original GitHub credential |
 

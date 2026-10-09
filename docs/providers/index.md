@@ -4,13 +4,13 @@ Choose a service, then use an API key or an account login supported by that serv
 
 ## Use an API key
 
-Start with [OpenAI](openai.md), [Anthropic](anthropic.md), [Google Gemini](google.md), [OpenRouter](openrouter.md), or [TypeSafe](typesafe.md). Each page shows the environment variable and a complete request.
+Start with [OpenAI](openai.md), [Anthropic](anthropic.md), [Google Gemini](google.md), [OpenRouter](openrouter.md), [Grok](grok.md#use-an-api-key), or [TypeSafe](typesafe.md). Each page shows the environment variable and a complete request.
 
 ## Use an account login
 
-Reuse a [Codex ChatGPT login](codex.md) or [GitHub CLI login for Copilot](github-copilot.md). These pages also show how to start a new authorization explicitly, including [Copilot Plugin device authorization](github-copilot.md#authorize-the-copilot-plugin). [OpenRouter PKCE authorization](openrouter.md#authorize-with-oauth-pkce) returns an API key for the same OpenRouter provider.
+Reuse a [Codex ChatGPT login](codex.md), [GitHub CLI login for Copilot](github-copilot.md), or [Grok CLI login](grok.md). New authorization is also available through [Copilot Plugin device login](github-copilot.md#authorize-the-copilot-plugin) and [OpenRouter PKCE](openrouter.md#authorize-with-oauth-pkce).
 
-See [authentication](../guides/authentication.md) for credential storage and renewal responsibilities.
+See [authentication](../guides/authentication.md) for credential storage and renewal.
 
 ## Provider support
 
@@ -25,6 +25,7 @@ The first chat format in each row is the default. Formats describe the available
 | [TypeSafe](typesafe.md) | `typesafe` | Decisions | — | `REPUBLIC_TYPESAFE_API_KEY` |
 | [Codex](codex.md) | `codex` | Chat | `responses` | Codex file login |
 | [GitHub Copilot](github-copilot.md) | `github-copilot` | Chat | `chat`, `responses`, `messages` | GitHub CLI login |
+| [Grok](grok.md) | `grok` | Chat | `responses`, `chat` | Grok file login |
 
 ## Select a model and format
 

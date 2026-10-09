@@ -1,6 +1,6 @@
 # Return tool results to a model
 
-A tool round trip has three parts: declare a schema, execute the calls in the response, then send the results with the original assistant message. Republic carries the messages. Your application runs the function.
+A tool round trip has three parts: declare a schema, execute the calls in the response, then send the results with the original assistant message.
 
 The [minimal agent tutorial](minimal-agent.md) defines a `read_file` tool and an `execute()` function in `agent.py`. Save that script first. This example imports them and performs one round, so you can see exactly which messages are sent:
 

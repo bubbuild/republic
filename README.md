@@ -1,6 +1,6 @@
 # Republic
 
-A Python library for AI providers. Call a model from your existing application without adopting an agent runtime. Republic handles provider requests, authentication, and response parsing. Your code controls the conversation and executes its tools.
+A Python library for AI providers, with chat, streaming, tool calls, and structured output.
 
 ## Installation
 
@@ -31,7 +31,7 @@ asyncio.run(main())
 
 Choose a model available to your account. A model name has the form `provider:model`; `get_model()` creates the provider and selects its default chat API format.
 
-## Change the provider, keep the calling code
+## Choose a provider
 
 With a Google API key in `REPUBLIC_GOOGLE_API_KEY`, replace the model construction line above:
 
@@ -45,9 +45,9 @@ The same `chat()` call returns `response.text`. The [provider directory](docs/pr
 
 The [quickstart](docs/quickstart.md) covers a complete request and a streaming response. [Build a minimal agent](docs/guides/minimal-agent.md) with a tool function and a loop that returns results to the model. [Tool use](docs/guides/tools.md) explains the messages in each round trip.
 
-Providers accept `api_key=` or an `auth=` object. The [authentication guide](docs/guides/authentication.md) covers API keys, CLI logins, OAuth authorization, and credential storage and renewal, including [OpenRouter PKCE login](docs/providers/openrouter.md#authorize-with-oauth-pkce). See [configuration](docs/reference/configuration.md) for precedence, custom endpoints, and HTTP client ownership.
+Providers accept `api_key=` or an `auth=` object. The [authentication guide](docs/guides/authentication.md) covers API keys, CLI logins, OAuth authorization, and credential storage and renewal, including [OpenRouter PKCE login](docs/providers/openrouter.md#authorize-with-oauth-pkce). See [configuration](docs/reference/configuration.md) for precedence, custom endpoints, and HTTP clients.
 
-[Structured output](docs/guides/structured-output.md) returns values validated against your Python type. Republic also supports images and video as inputs, provider-run tools, embeddings, and decision models. Availability depends on the selected provider, model, and API format. [Why Republic stops at providers](docs/philosophy.md) explains how the library supports this without taking over the application.
+[Structured output](docs/guides/structured-output.md) returns values validated against your Python type. Republic also supports images and video as inputs, provider-run tools, embeddings, and decision models. Availability depends on the selected provider, model, and API format.
 
 The [provider API specification](docs/reference/provider-api.md) covers model construction, messages, formats, history, and non-chat models.
 

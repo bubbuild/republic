@@ -1,6 +1,6 @@
 # Build a minimal agent
 
-Build an agent that reads a project's README and package metadata, then answers a question about them. It needs a model, one tool, and a loop that returns tool results. The loop belongs to your application.
+This example reads a project's README and package metadata, then answers a question using tool results.
 
 Use the [quickstart installation and API key](../quickstart.md). Save the following as `agent.py` in a Python project containing `README.md` and `pyproject.toml`. The model you select must support function tools.
 
@@ -73,9 +73,9 @@ The model can ask for one file, both files, or another read after seeing the fir
 
 `model.chat()` returns an assistant message. If it contains tool calls, `execute()` reads the requested files and produces a result for every call. The next request contains the complete assistant message followed by those results. The model can now use what the tool returned.
 
-Keeping `response.message` matters: it includes call IDs and any provider state needed to continue the turn. Executing a tool and discarding its output would leave the model unable to use the file contents. See [tool round trips](tools.md) for the individual messages.
+Preserve `response.message`, including call IDs and provider state, before adding tool results. See [tool round trips](tools.md) for the individual messages.
 
-The loop stops when the response has no tool calls. This example also limits itself to eight model calls. Both decisions are visible application code, as are the two permitted filenames. Run it in a project whose README and package metadata you intend to send to the provider.
+The loop stops when there are no tool calls and raises after eight model calls. It permits only `README.md` and `pyproject.toml`. Run it from the project you want the model to read.
 
 ## Change the model without changing the loop
 
@@ -86,5 +86,3 @@ model = republic.get_model("codex:gpt-6-luna")
 ```
 
 The tool function and loop stay the same. Other services and credential paths are listed in the [provider directory](../providers/index.md). Choose a model that supports the tool requests used here.
-
-This example needs no agent base class or tool-execution framework. To change its behavior, edit the prompt, the available tools, or the loop. [Why Republic stops at providers](../philosophy.md) explains that design boundary.

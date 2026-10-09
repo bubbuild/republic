@@ -53,4 +53,4 @@ For application-managed credentials, use `CodexAuth(token, account_id=...)`. Reu
 
 Use `chat()` for a complete response or `stream()` for events. Responses is the only supported format; `max_tokens` is unsupported. Model access depends on your ChatGPT account.
 
-For OpenAI API-key access, use the [OpenAI provider](openai.md). See [configuration](../reference/configuration.md) for credential precedence and HTTP client ownership.
+For OpenAI API-key access, use the [OpenAI provider](openai.md). See [configuration](../reference/configuration.md) for credential precedence and HTTP clients.

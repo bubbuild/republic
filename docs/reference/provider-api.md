@@ -1,9 +1,5 @@
 # Provider API specification
 
-## Goal
-
-Republic is a general-purpose AI provider library that supplies a common interface to AI services. Providers handle service endpoints, credentials, and API format selection. Applications own gateways, agent loops, and tool execution.
-
 ## API overview
 
 Examples containing `await` run inside an async function. Choose models available to your account; capabilities depend on the provider, model, and API format.
@@ -55,7 +51,7 @@ Here, `api_base`, `api_key`, and `MyAuth` are supplied by the application. A top
 
 ### Tool calls
 
-`tool1` and `tool2` below are `republic.Tool` schemas. Republic returns tool calls; the application executes them.
+`tool1` and `tool2` below are `republic.Tool` schemas.
 
 ```python
 response = await model.chat("Hello, how are you?", tools=[tool1, tool2])
@@ -145,7 +141,7 @@ Total tokens are input plus output tokens. Reasoning tokens are included in outp
 
 ### Built-in providers
 
-The registered names are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, and `github-copilot`. See [supported providers](../providers/index.md) for model kinds, formats, and authentication paths.
+The registered names are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, `github-copilot`, and `grok`. See [supported providers](../providers/index.md) for model kinds, formats, and authentication paths.
 
 ### Custom providers
 

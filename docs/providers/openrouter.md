@@ -53,7 +53,7 @@ async def main():
 asyncio.run(main())
 ```
 
-The flow uses PKCE with S256 to bind the code exchange to the login request. A desktop or web application can supply its own callback instead of terminal input. The callback owns the authorization UI and cancellation; Republic does not run a browser or callback server.
+The flow uses PKCE with S256 to bind the code exchange to the login request. A desktop or web application can supply its own callback instead of terminal input. Your callback handles the authorization UI and cancellation.
 
 ### Store credentials
 

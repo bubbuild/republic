@@ -37,7 +37,7 @@ from republic.providers import GitHubCLIAuth
 auth = await GitHubCLIAuth.login()
 ```
 
-Pass the result as `auth=` to `get_model()`. The GitHub CLI owns storage. `hostname=` and `executable=` select the GitHub host and executable.
+Pass the result as `auth=` to `get_model()`. `hostname=` and `executable=` select the GitHub host and executable.
 
 ### Use Copilot Plugin credentials
 
@@ -57,9 +57,7 @@ The helper displays a verification URL and code. Supply an async `on_authorize(u
 
 ### Store and refresh credentials
 
-The GitHub CLI owns storage for CLI logins. For Plugin authorization, save `auth.github_token` in your credential store and restore it with `CopilotAuth(saved_token)`.
-
-Republic renews the exchanged inference token. Your application owns the original Plugin credential's storage and renewal. GitHub CLI credentials use the direct path above, not this exchange.
+The GitHub CLI stores CLI credentials. For Plugin authorization, save `auth.github_token` and restore it with `CopilotAuth(saved_token)`. Republic renews the exchanged inference token; renew the original GitHub credential when needed.
 
 ## Model support
 
