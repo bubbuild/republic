@@ -28,6 +28,14 @@ clean-build: ## Clean build artifacts
 	@echo "🚀 Removing build artifacts"
 	@uv run python -c "import shutil; import os; shutil.rmtree('dist') if os.path.exists('dist') else None"
 
+.PHONY: docs-test
+docs-test: ## Build the documentation with strict checks
+	@uv run --frozen --group docs mkdocs build --strict
+
+.PHONY: docs
+docs: ## Serve the documentation locally
+	@uv run --frozen --group docs mkdocs serve
+
 .PHONY: help
 help:
 	@uv run python -c "import re; \

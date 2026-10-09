@@ -13,7 +13,7 @@ on:
         default: ''
   push:
     branches:
-      - dev
+      - main
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -56,6 +56,16 @@ jobs:
       - name: Check typing
         run: uv run ty check
 
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-python-env
+      - name: Build documentation
+        run: uv run --frozen --group docs mkdocs build --strict
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -72,7 +82,7 @@ jobs:
 
   landing-feedback:
     name: Landing review
-    needs: [quality, tests-and-type-check, build]
+    needs: [quality, tests-and-type-check, build, check-docs]
     if: >-
       always() && !cancelled() && vars.LANDING_MODEL != '' &&
       ((github.event_name == 'pull_request' && !github.event.pull_request.draft &&
@@ -111,7 +121,7 @@ jobs:
           head: ${{ github.event.pull_request.head.sha || inputs.head || '' }}
           checked-revision: ${{ github.sha }}
           instruction: >-
-            Native checks: quality=${{ needs.quality.result }}, tests-and-type-check=${{ needs.tests-and-type-check.result }}, build=${{ needs.build.result }}.
+            Native checks: quality=${{ needs.quality.result }}, tests-and-type-check=${{ needs.tests-and-type-check.result }}, build=${{ needs.build.result }}, check-docs=${{ needs.check-docs.result }}.
             Ignore the Landing review job when assessing native check completion.
             Review affected user-visible behavior against repository guidance. Reuse these check results and relevant review history; investigate unresolved questions and publish useful findings or a brief clean verdict.
       - name: Report unsuccessful feedback

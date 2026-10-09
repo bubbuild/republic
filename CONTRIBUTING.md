@@ -124,3 +124,9 @@ Before you submit a pull request, check that it meets these guidelines:
 
 2. If the pull request adds functionality, the docs should be updated.
    Put your new functionality into a function with a docstring, and add the feature to the list in `README.md`.
+
+## Documentation and releases
+
+Run `make docs-test` to check the site or `make docs` to preview it locally.
+
+Pull requests target `main`. Documentation deploys to https://getrepublic.org on pushes to `main`; the Docs workflow also supports manual dispatch. Publishing a GitHub release builds its tagged revision and uploads it to PyPI using the repository's `PYPI_TOKEN` secret. Package versions come from Git tags.

@@ -4,10 +4,10 @@ Make a model call, read its response, and display text as it arrives from a seco
 
 ## Install Republic
 
-In a virtual environment, install Republic from its repository:
+In a virtual environment, install Republic:
 
 ```sh
-python -m pip install "git+https://github.com/bubbuild/republic.git@dev"
+python -m pip install republic
 ```
 
 ## Supply your key
