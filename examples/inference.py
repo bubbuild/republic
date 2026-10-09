@@ -1,3 +1,5 @@
+import sys
+
 import pydantic
 
 import republic
@@ -84,7 +86,35 @@ async def test_structured_output():
     )
 
 
+async def test_image_generation():
+    model = republic.get_model("google:gemini-3.1-flash-image-preview")
+    response = await model.chat("Generate an image of a futuristic city skyline at sunset.")
+    print(response.text)
+    for i, image in enumerate(response.image_parts):
+        if image.data is None:
+            raise ValueError(f"Image data for image_{i}.png is None")
+        with open(f"image_{i}.png", "wb") as f:
+            f.write(image.data)
+
+
+async def run_all():
+    for member in globals():
+        if member.startswith("test_") and callable(globals()[member]):
+            await globals()[member]()
+
+
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(test_structured_output())
+    if len(sys.argv) < 2:
+        sys.exit("Please provide a test case to run, or 'all' to run all tests")
+
+    case = sys.argv[1]
+    if case == "all":
+        asyncio.run(run_all())
+    else:
+        test_name = f"test_{case}"
+        if test_name in globals():
+            asyncio.run(globals()[test_name]())
+        else:
+            raise ValueError(f"No test found for case '{case}'")
