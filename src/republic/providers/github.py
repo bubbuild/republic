@@ -192,7 +192,6 @@ class GitHubCopilot(Provider):
     SUPPORTED_API_FORMATS = ("chat", "responses", "messages")
 
     def __init__(self, **options: Unpack[ProviderOptions]) -> None:
-        options.setdefault("api_format", "chat")
         super().__init__(**options)
         if self.auth is None and (self._http_client is None or self._http_client.auth is None):
             self.auth = GitHubCLIAuth()

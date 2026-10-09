@@ -18,7 +18,7 @@ async with model.stream("Tell me a story") as stream:
             print(event.chunk, end="")
 ```
 
-Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, and `github-copilot`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first supported format in that order is used unless `api_format=` names another. Copilot defaults to `chat`; select another format according to the model's supported endpoints. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own.
+Built-in providers are `openai`, `anthropic`, `google`, `openrouter`, `typesafe`, `codex`, and `github-copilot`. Each provider lists the API formats it speaks in `SUPPORTED_API_FORMATS`. Chat models use `responses`, `messages`, `gemini`, or `chat`; embedding models use `embeddings` or `embed_content`; decision models use `system_one`. Within each kind, the first format listed in `SUPPORTED_API_FORMATS` is used unless `api_format=` names another; the built-in providers list `responses`, then `messages`, then `chat`, except Copilot, which defaults to `chat`. Subclass a provider and call `republic.register_provider(MyProvider, "custom")` to add your own.
 
 Tools are schemas only. Execute the calls yourself and send the results back, keeping the assistant message so reasoning state survives the round trip:
 

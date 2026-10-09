@@ -35,6 +35,7 @@ class Provider:
     name: ClassVar[str]
     DEFAULT_API_BASE: ClassVar[str]
     SUPPORTED_API_FORMATS: ClassVar[Sequence[ApiFormatName]]
+    """The API formats this provider speaks, in order of preference within each kind of model."""
 
     def __init__(
         self,
@@ -94,12 +95,12 @@ class Provider:
     def select_api_format(self, format_kind: type[_FormatT], model: str) -> _FormatT:
         """Pick the API format used by ``model`` for one kind of model.
 
-        The requested ``api_format`` wins, then the first supported format of
-        the kind in preference order. Override to return a format subclass
-        whose hooks match this service, or to vary the format by model.
+        The requested ``api_format`` wins, then the first format of the kind in
+        ``SUPPORTED_API_FORMATS``. Override to return a format subclass whose
+        hooks match this service, or to vary the format by model.
         """
         candidates = [self.api_format] if self.api_format is not None else []
-        candidates.extend(name for name in _API_FORMATS if name in self.SUPPORTED_API_FORMATS)
+        candidates.extend(self.SUPPORTED_API_FORMATS)
         for name in candidates:
             if isinstance(api_format := _API_FORMATS[name], format_kind):
                 return api_format

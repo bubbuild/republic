@@ -49,7 +49,7 @@ _API_FORMATS: dict[str, ApiFormat] = {
         SystemOneFormat(),
     )
 }
-"""The built-in format instances. Within each kind, earlier formats are preferred."""
+"""The built-in format instances, looked up by name."""
 
 __all__ = [
     "ApiFormat",

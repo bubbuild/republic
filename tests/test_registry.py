@@ -81,6 +81,13 @@ class TestCredentials:
 
 
 class TestApiFormat:
+    def test_provider_order_sets_the_preference(self) -> None:
+        class ChatFirst(republic.providers.OpenAI):
+            SUPPORTED_API_FORMATS = ("chat", "responses", "embeddings")
+
+        assert ChatFirst().get_model("gpt-6-sol").api_format.name == "chat"
+        assert ChatFirst(api_format="responses").get_model("gpt-6-sol").api_format.name == "responses"
+
     def test_missing_kind_is_rejected_when_getting_the_model(self) -> None:
         provider = republic.get_provider("anthropic")
 
