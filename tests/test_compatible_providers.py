@@ -57,7 +57,10 @@ class TestDeepSeek:
         assert response.text == "hi"
 
     async def test_messages_use_the_anthropic_endpoint(self, service: FakeService) -> None:
-        service.reply_json({"content": [{"type": "text", "text": "hi"}], "usage": {"input_tokens": 1, "output_tokens": 1}})
+        service.reply_json({
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        })
         model = republic.get_model(
             "deepseek:deepseek-v4-pro", api_key="key", api_format="messages", http_client=service.client()
         )
@@ -80,9 +83,14 @@ class TestDeepSeek:
 
 class TestMiniMax:
     async def test_defaults_to_the_anthropic_endpoint(self, service: FakeService) -> None:
-        service.reply_json({"content": [{"type": "text", "text": "hi"}], "usage": {"input_tokens": 1, "output_tokens": 1}})
+        service.reply_json({
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        })
 
-        response = await republic.get_model("minimax:MiniMax-M3", api_key="key", http_client=service.client()).chat("Hi")
+        response = await republic.get_model("minimax:MiniMax-M3", api_key="key", http_client=service.client()).chat(
+            "Hi"
+        )
 
         assert service.requests[0].url == "https://api.minimax.io/anthropic/v1/messages"
         assert service.requests[0].headers["authorization"] == "Bearer key"
@@ -90,9 +98,13 @@ class TestMiniMax:
 
     async def test_chat_splits_reasoning(self, service: FakeService) -> None:
         service.reply_json({
-            "choices": [{"message": {"content": "hi", "reasoning_details": [{"type": "reasoning.text", "text": "Hm."}]}}]
+            "choices": [
+                {"message": {"content": "hi", "reasoning_details": [{"type": "reasoning.text", "text": "Hm."}]}}
+            ]
         })
-        model = republic.get_model("minimax:MiniMax-M2.7", api_key="key", api_format="chat", http_client=service.client())
+        model = republic.get_model(
+            "minimax:MiniMax-M2.7", api_key="key", api_format="chat", http_client=service.client()
+        )
 
         response = await model.chat("Hi", max_tokens=9)
 
@@ -111,7 +123,9 @@ async def test_ollama_needs_no_api_key(monkeypatch: pytest.MonkeyPatch, service:
     assert "authorization" not in service.requests[0].headers
 
 
-@pytest.mark.parametrize(("spec", "path"), [("ollama:embeddinggemma", "/v1/embeddings"), ("together:m", "/v1/embeddings")])
+@pytest.mark.parametrize(
+    ("spec", "path"), [("ollama:embeddinggemma", "/v1/embeddings"), ("together:m", "/v1/embeddings")]
+)
 async def test_embeddings_use_the_openai_format(service: FakeService, spec: str, path: str) -> None:
     service.reply_json(EMBEDDING_REPLY)
 
@@ -159,7 +173,11 @@ async def test_openai_compatible_does_not_send_reasoning_back(service: FakeServi
         api_key="key", api_base="https://compat.example/v1", http_client=service.client()
     )
 
-    await provider.get_model("m").chat(["Hi", republic.Message("assistant", (republic.Reasoning("Greet back."), republic.Text("Hello"))), "Bye"])
+    await provider.get_model("m").chat([
+        "Hi",
+        republic.Message("assistant", (republic.Reasoning("Greet back."), republic.Text("Hello"))),
+        "Bye",
+    ])
 
     assert service.body()["messages"][1] == {"role": "assistant", "content": "Hello"}
 
