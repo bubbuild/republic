@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncGenerator, AsyncIterator, Generator, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import httpx2
 
 from republic._errors import APIStatusError, UnsupportedApiFormatError
+from republic.auth import Auth, HeaderAuth
 from republic.formats import _API_FORMATS, ApiFormatName
 from republic.formats._base import ApiFormat, ChatApiFormat, DecisionApiFormat, EmbeddingApiFormat, HttpRequest
 from republic.formats._sse import ServerSentEvent, iter_events
@@ -21,18 +22,6 @@ if TYPE_CHECKING:
 DEFAULT_TIMEOUT = httpx2.Timeout(600, connect=10)
 
 _FormatT = TypeVar("_FormatT", bound=ApiFormat)
-
-
-class HeaderAuth(httpx2.Auth):
-    """Send a fixed header, such as an API key, with every request."""
-
-    def __init__(self, name: str, value: str) -> None:
-        self._name = name
-        self._value = value
-
-    def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
-        request.headers[self._name] = self._value
-        yield request
 
 
 class Provider:
@@ -52,7 +41,7 @@ class Provider:
         *,
         api_key: str | None = None,
         api_base: str | None = None,
-        auth: httpx2.Auth | None = None,
+        auth: Auth | None = None,
         api_format: ApiFormatName | None = None,
         headers: Mapping[str, str] | None = None,
         extra_body: Mapping[str, Any] | None = None,
@@ -98,7 +87,7 @@ class Provider:
 
         return DecisionModel(self, name, self.select_api_format(DecisionApiFormat, name))
 
-    def _api_key_auth(self, api_key: str) -> httpx2.Auth:
+    def _api_key_auth(self, api_key: str) -> Auth:
         """Authenticate requests with the API key. Override for other header schemes."""
         return HeaderAuth("Authorization", f"Bearer {api_key}")
 
