@@ -110,6 +110,16 @@ async def test_tool_results_can_hold_multiple_parts(service: FakeService) -> Non
     }
 
 
+async def test_tool_results_reject_remote_media(service: FakeService) -> None:
+    call = republic.ToolCall("call_1", "screenshot", "{}")
+    result = republic.tool(call, "Captured", republic.Image("image/png", url="https://example.com/shot.png"))
+
+    with pytest.raises(republic.errors.UnsupportedFeatureError, match="inline media"):
+        await make_model(service).chat(["Look", result])
+
+    assert service.requests == []
+
+
 async def test_blocked_prompt_raises(service: FakeService) -> None:
     service.reply_json({"promptFeedback": {"blockReason": "SAFETY"}})
 

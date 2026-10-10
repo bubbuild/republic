@@ -280,8 +280,14 @@ def _function_response(message: Message) -> dict[str, Any]:
     }
     if call_id := call.metadata.get(_CALL_ID):
         response["id"] = call_id
-    if media := [_part(part) for part in message.parts if isinstance(part, Image | Audio | Video)]:
-        response["parts"] = media
+    media = [part for part in message.parts if isinstance(part, Image | Audio | Video)]
+    if any(part.url is not None for part in media):
+        # FunctionResponsePart accepts inlineData only, not fileData.
+        raise UnsupportedFeatureError(
+            f"The {GeminiFormat.name!r} API format accepts only inline media in a tool result"
+        )
+    if media:
+        response["parts"] = [_part(part) for part in media]
     return {"functionResponse": response}
 
 
