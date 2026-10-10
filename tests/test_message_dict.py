@@ -5,7 +5,7 @@ import json
 import pytest
 
 import republic
-from republic import Image, Message, ProviderData, Reasoning, Text, ToolCall, Video
+from republic import Audio, Image, Message, ProviderData, Reasoning, Text, ToolCall, Video
 
 
 def test_single_text_message_uses_plain_content() -> None:
@@ -25,6 +25,7 @@ def test_multiple_parts_use_typed_content_list() -> None:
             Text("look"),
             Text("again"),
             Image("image/png", data=b"\x89PNG"),
+            Audio("audio/wav", url="https://example.com/a.wav"),
             Video("video/mp4", url="https://example.com/a.mp4"),
             ProviderData("responses", {"type": "reasoning", "id": "rs_1"}),
         ),
@@ -37,6 +38,7 @@ def test_multiple_parts_use_typed_content_list() -> None:
         {"type": "text", "text": "look"},
         {"type": "text", "text": "again"},
         {"type": "image", "media_type": "image/png", "data": "iVBORw=="},
+        {"type": "audio", "media_type": "audio/wav", "url": "https://example.com/a.wav"},
         {"type": "video", "media_type": "video/mp4", "url": "https://example.com/a.mp4"},
         {"type": "provider_data", "api_format": "responses", "payload": {"type": "reasoning", "id": "rs_1"}},
     ]
@@ -99,4 +101,4 @@ def test_tool_message_with_multiple_parts() -> None:
 
 def test_from_dict_rejects_unknown_part_type() -> None:
     with pytest.raises(ValueError, match="Unknown message part type"):
-        Message.from_dict({"role": "user", "content": [{"type": "audio"}]})
+        Message.from_dict({"role": "user", "content": [{"type": "hologram"}]})

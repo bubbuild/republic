@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
@@ -73,6 +74,13 @@ class Image(_Media):
 
 
 @dataclass(frozen=True)
+class Audio(_Media):
+    """Audio input, represented by MIME type and inline bytes or a remote URL."""
+
+    kind: ClassVar[str] = "audio"
+
+
+@dataclass(frozen=True)
 class Video(_Media):
     kind: ClassVar[str] = "video"
 
@@ -89,7 +97,7 @@ class ProviderData:
     payload: Mapping[str, Any]
 
 
-Part = Text | Reasoning | Image | Video | ProviderData
+Part = Text | Reasoning | Image | Audio | Video | ProviderData
 
 _MediaT = TypeVar("_MediaT", bound=_Media)
 
@@ -189,7 +197,7 @@ def _part_to_dict(part: Part) -> dict[str, Any]:
             return {"type": "text", "text": text}
         case Reasoning(text):
             return {"type": "reasoning", "text": text}
-        case Image() | Video():
+        case Image() | Audio() | Video():
             data: dict[str, Any] = {"type": part.kind, "media_type": part.media_type}
             if part.url is not None:
                 data["url"] = part.url
@@ -206,8 +214,8 @@ def _part_from_dict(data: Mapping[str, Any]) -> Part:
             return Text(data["text"])
         case "reasoning":
             return Reasoning(data["text"])
-        case "image" | "video" as kind:
-            media_class = Image if kind == "image" else Video
+        case "image" | "audio" | "video" as kind:
+            media_class = {"image": Image, "audio": Audio, "video": Video}[kind]
             inline = data.get("data")
             return media_class(
                 data["media_type"],
@@ -231,7 +239,7 @@ def _tool_call_from_dict(data: Mapping[str, Any]) -> ToolCall:
     return ToolCall(data["id"], data["name"], data["arguments"], metadata=dict(data.get("metadata", {})))
 
 
-UserContent = str | Image | Video
+UserContent = str | Image | Audio | Video
 
 
 def _to_part(content: UserContent) -> Part:
@@ -244,7 +252,7 @@ def system(text: str) -> Message:
 
 
 def user(*content: UserContent) -> Message:
-    """Build a user message from text, images, and videos."""
+    """Build a user message from text, images, audio, and videos."""
     return Message("user", tuple(_to_part(item) for item in content))
 
 
@@ -256,7 +264,7 @@ def assistant(*content: UserContent, tool_calls: Iterable[ToolCall] = ()) -> Mes
 def tool(call: ToolCall, *content: UserContent, is_error: bool = False) -> Message:
     """Build a tool message holding the output of executing ``call``.
 
-    The output may mix text, images, and videos. A call that does not appear
+    The output may mix text, images, audio, and videos. A call that does not appear
     earlier in the conversation is announced automatically before its result.
     """
     return Message("tool", tuple(_to_part(item) for item in content), tool_call=call, is_error=is_error)
@@ -265,6 +273,11 @@ def tool(call: ToolCall, *content: UserContent, is_error: bool = False) -> Messa
 def image(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Image:
     """Load an image from a path, a URL, a data URL, or raw bytes."""
     return _load_media(Image, source, media_type)
+
+
+def audio(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Audio:
+    """Load audio from a path, a URL, a data URL, or raw bytes."""
+    return _load_media(Audio, source, media_type)
 
 
 def video(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Video:
@@ -296,7 +309,8 @@ def media_from_data_url(media_class: type[_MediaT], url: str) -> _MediaT:
 
 
 def _guess_media_type(media_class: type[_Media], name: str) -> str:
-    guessed, _ = mimetypes.guess_type(name)
+    path = urlsplit(name).path if name.startswith(_REMOTE_PREFIXES) else name
+    guessed, _ = mimetypes.guess_type(path)
     if guessed is None:
         raise ValueError(f"Cannot guess the media type of {name!r}; pass media_type explicitly")
     return guessed
