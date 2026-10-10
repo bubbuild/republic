@@ -33,15 +33,15 @@ async def main():
 asyncio.run(main())
 ```
 
-A model is named `provider:model`. Switch services by changing the name, such as `anthropic:MODEL_ID`, `google:MODEL_ID`, or `deepseek:MODEL_ID`; each reads its key from `REPUBLIC_<PROVIDER>_API_KEY`. See the [provider directory](docs/providers/index.md) for every supported service.
+A model is named `provider:model`. Switch services by changing the name, such as `anthropic:MODEL_ID`, `google:MODEL_ID`, or `deepseek:MODEL_ID`; each reads its key from `REPUBLIC_<PROVIDER>_API_KEY`. See the [provider directory](https://getrepublic.org/providers/) for every supported service.
 
 ## Documentation
 
-- [Quickstart](docs/quickstart.md): a first request and a streaming response.
-- [Providers](docs/providers/index.md): services, formats, and credentials.
-- [Authentication](docs/guides/authentication.md): API keys, CLI logins, and OAuth.
-- Guides: [tool use](docs/guides/tools.md), [a minimal agent](docs/guides/minimal-agent.md), and [structured output](docs/guides/structured-output.md).
-- Reference: [configuration](docs/reference/configuration.md) and the [provider API](docs/reference/provider-api.md), including media input, embeddings, decision models, history, and custom providers.
+- [Quickstart](https://getrepublic.org/quickstart/): a first request and a streaming response.
+- [Providers](https://getrepublic.org/providers/): services, formats, and credentials.
+- [Authentication](https://getrepublic.org/guides/authentication/): API keys, CLI logins, and OAuth.
+- Guides: [tool use](https://getrepublic.org/guides/tools/), [a minimal agent](https://getrepublic.org/guides/minimal-agent/), and [structured output](https://getrepublic.org/guides/structured-output/).
+- Reference: [configuration](https://getrepublic.org/reference/configuration/) and the [provider API](https://getrepublic.org/reference/provider-api/), including media input, embeddings, decision models, history, and custom providers.
 
 ## Development
 
