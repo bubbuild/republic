@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any, Self
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, ClassVar, Self
 
 import httpx2
 from authlib.common.security import generate_token
@@ -67,6 +67,18 @@ class OpenRouterAuth(HeaderAuth):
 
 class OpenRouterChatFormat(ChatFormat):
     """OpenRouter's chat completions, which take reasoning options as one ``reasoning`` object."""
+
+    AUDIO_FORMATS: ClassVar[Mapping[str, str]] = {
+        **ChatFormat.AUDIO_FORMATS,
+        "audio/aiff": "aiff",
+        "audio/x-aiff": "aiff",
+        "audio/aac": "aac",
+        "audio/ogg": "ogg",
+        "audio/flac": "flac",
+        "audio/x-flac": "flac",
+        "audio/mp4": "m4a",
+        "audio/x-m4a": "m4a",
+    }
 
     def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
         reasoning: dict[str, Any] = {}

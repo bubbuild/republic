@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, ClassVar
 
-from republic._content import Image, Message, Text, Tool, Video, media_from_data_url
+from republic._content import Audio, Image, Message, Text, Tool, Video, media_from_data_url
 from republic._options import ReasoningEffort
 from republic._response import Citation, FinishReason
 from republic.errors import APIResponseError
@@ -25,6 +25,7 @@ from ._base import (
     approximate_location,
     deep_merge,
     strict_schema,
+    unsupported_media,
     unsupported_tool,
 )
 
@@ -39,6 +40,7 @@ _FINISH_REASONS: dict[str, FinishReason] = {
 
 class ChatFormat(ChatApiFormat):
     name = "chat"
+    AUDIO_FORMATS: ClassVar[Mapping[str, str]] = {"audio/wav": "wav", "audio/x-wav": "wav", "audio/mpeg": "mp3"}
 
     def chat_request(self, request: ChatRequest, *, stream: bool) -> HttpRequest:
         body: dict[str, Any] = {
@@ -136,6 +138,15 @@ class ChatFormat(ChatApiFormat):
         """Answer text in a message or delta; override for servers that return content parts."""
         return message.get("content")
 
+    def audio_content(self, audio: Audio) -> dict[str, Any]:
+        """Encode inline audio; provider dialects can extend ``AUDIO_FORMATS``."""
+        if audio.data is None:
+            raise unsupported_media(self.name, "remote audio")
+        audio_format = self.AUDIO_FORMATS.get(audio.media_type)
+        if audio_format is None:
+            raise unsupported_media(self.name, audio.media_type)
+        return {"type": "input_audio", "input_audio": {"data": audio.base64_data, "format": audio_format}}
+
     def assistant_fields(self, message: Message) -> dict[str, Any]:
         """Fields added to an assistant message sent back, such as reasoning some servers require."""
         return {}
@@ -180,7 +191,7 @@ def _message_entries(api_format: ChatFormat, message: Message) -> list[dict[str,
         case "system":
             return [{"role": "system", "content": message.text}]
         case "user":
-            return [{"role": "user", "content": _user_content(message)}]
+            return [{"role": "user", "content": _user_content(api_format, message)}]
         case "assistant":
             entry: dict[str, Any] = {"role": "assistant", "content": message.text or None}
             if message.tool_calls:
@@ -197,7 +208,7 @@ def _message_entries(api_format: ChatFormat, message: Message) -> list[dict[str,
             ]
 
 
-def _user_content(message: Message) -> str | list[dict[str, Any]]:
+def _user_content(api_format: ChatFormat, message: Message) -> str | list[dict[str, Any]]:
     if all(isinstance(part, Text) for part in message.parts):
         return message.text
     content: list[dict[str, Any]] = []
@@ -207,6 +218,8 @@ def _user_content(message: Message) -> str | list[dict[str, Any]]:
                 content.append({"type": "text", "text": text})
             case Image():
                 content.append({"type": "image_url", "image_url": {"url": part.data_url}})
+            case Audio():
+                content.append(api_format.audio_content(part))
             case Video():
                 content.append({"type": "video_url", "video_url": {"url": part.data_url}})
     return content
