@@ -1,0 +1,66 @@
+[project]
+site_name = "Republic"
+site_url = "https://getrepublic.org/"
+site_description = "A Python library for AI providers."
+site_author = "Bub Build"
+repo_url = "https://github.com/bubbuild/republic"
+repo_name = "bubbuild/republic"
+edit_uri = "edit/main/docs/"
+copyright = "Copyright (c) 2026 Bub Build contributors."
+
+nav = [
+  { "Home" = "index.md" },
+  { "Quickstart" = "quickstart.md" },
+  { "Providers" = [
+    { "Overview" = "providers/index.md" },
+    { "OpenAI" = "providers/openai.md" },
+    { "Anthropic" = "providers/anthropic.md" },
+    { "Google Gemini" = "providers/google.md" },
+    { "OpenRouter" = "providers/openrouter.md" },
+    { "Azure OpenAI" = "providers/azure-openai.md" },
+    { "DeepSeek" = "providers/deepseek.md" },
+    { "MiniMax" = "providers/minimax.md" },
+    { "Mistral" = "providers/mistral.md" },
+    { "Moonshot" = "providers/moonshot.md" },
+    { "Together AI" = "providers/together.md" },
+    { "Z.ai" = "providers/zai.md" },
+    { "Magpie" = "providers/magpie.md" },
+    { "Ollama" = "providers/ollama.md" },
+    { "TypeSafe" = "providers/typesafe.md" },
+    { "Codex" = "providers/codex.md" },
+    { "GitHub Copilot" = "providers/github-copilot.md" },
+    { "Grok" = "providers/grok.md" },
+  ] },
+  { "Guides" = [
+    { "Authentication" = "guides/authentication.md" },
+    { "Tool use" = "guides/tools.md" },
+    { "Minimal agent" = "guides/minimal-agent.md" },
+    { "Structured output" = "guides/structured-output.md" },
+  ] },
+  { "Reference" = [
+    { "Configuration" = "reference/configuration.md" },
+    { "Provider API" = "reference/provider-api.md" },
+  ] },
+]
+
+[project.theme]
+features = [
+  "content.action.edit",
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.sections",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"

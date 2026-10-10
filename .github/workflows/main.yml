@@ -64,7 +64,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-python-env
       - name: Build documentation
-        run: uv run --frozen --group docs mkdocs build --strict
+        run: uv run --frozen --group docs zensical build --clean --strict
 
   build:
     runs-on: ubuntu-latest
