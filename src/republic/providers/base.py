@@ -108,8 +108,7 @@ class Provider:
         self._owns_http_client = http_client is None
         self._client_loop: asyncio.AbstractEventLoop | None = None
         self._closed = False
-        self._open_models: list[ChatModel | EmbeddingModel | DecisionModel] = []
-        self._provider_contexts = 0
+        self._open_contexts: list[Provider | ChatModel | EmbeddingModel | DecisionModel] = []
 
     @property
     def is_closed(self) -> bool:
@@ -117,20 +116,13 @@ class Provider:
         return self._closed
 
     async def __aenter__(self) -> Self:
-        self._ensure_open()
-        self._check_client_loop()
-        self._provider_contexts += 1
+        self._open_context(self)
         return self
 
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
-        self._check_client_loop()
-        if self._provider_contexts == 0:
-            return
-        self._provider_contexts -= 1
-        if self._provider_contexts == 0 and not self._open_models:
-            await self.close()
+        await self._close_context(self)
 
     async def close(self) -> None:
         """Close the provider and its internally created client; leave supplied clients open.
@@ -142,23 +134,22 @@ class Provider:
             return
         self._check_client_loop()
         self._closed = True
-        self._open_models.clear()
-        self._provider_contexts = 0
+        self._open_contexts.clear()
         if self._owns_http_client and self._http_client is not None:
             await self._http_client.aclose()
 
-    def _open_model(self, model: ChatModel | EmbeddingModel | DecisionModel) -> None:
+    def _open_context(self, context: Provider | ChatModel | EmbeddingModel | DecisionModel) -> None:
         self._ensure_open()
         self._check_client_loop()
-        # Record each entry so nested contexts for the same model stay open.
-        self._open_models.append(model)
+        # Record each entry so nested contexts for the same object stay open.
+        self._open_contexts.append(context)
 
-    async def _close_model(self, model: ChatModel | EmbeddingModel | DecisionModel) -> None:
+    async def _close_context(self, context: Provider | ChatModel | EmbeddingModel | DecisionModel) -> None:
         self._check_client_loop()
-        if model not in self._open_models:
+        if context not in self._open_contexts:
             return
-        self._open_models.remove(model)
-        if not self._open_models and self._provider_contexts == 0:
+        self._open_contexts.remove(context)
+        if not self._open_contexts:
             await self.close()
 
     def _ensure_open(self) -> None:

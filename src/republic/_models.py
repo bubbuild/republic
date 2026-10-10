@@ -46,13 +46,13 @@ class ChatModel:
         self.history = history
 
     async def __aenter__(self) -> Self:
-        self.provider._open_model(self)
+        self.provider._open_context(self)
         return self
 
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
-        await self.provider._close_model(self)
+        await self.provider._close_context(self)
 
     @overload
     async def chat(
@@ -221,13 +221,13 @@ class EmbeddingModel:
         self.api_format = api_format
 
     async def __aenter__(self) -> Self:
-        self.provider._open_model(self)
+        self.provider._open_context(self)
         return self
 
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
-        await self.provider._close_model(self)
+        await self.provider._close_context(self)
 
     async def embed(self, text: str, *, dimensions: int | None = None) -> EmbeddingResponse:
         """Embed one text; the vector is ``response.vector``."""
@@ -257,13 +257,13 @@ class DecisionModel:
         self.api_format = api_format
 
     async def __aenter__(self) -> Self:
-        self.provider._open_model(self)
+        self.provider._open_context(self)
         return self
 
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
-        await self.provider._close_model(self)
+        await self.provider._close_context(self)
 
     async def decide(self, state: JSONValue, *, questions: Mapping[str, Question]) -> DecisionResponse:
         """Answer every question about ``state``. Answers come back under the same ids."""
