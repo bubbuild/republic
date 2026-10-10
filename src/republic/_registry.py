@@ -39,6 +39,7 @@ _PROVIDERS: dict[str, type[Provider]] = {
     "openai": OpenAI,
     "anthropic": Anthropic,
     "google": Google,
+    "gemini": Google,
     "grok": Grok,
     "openrouter": OpenRouter,
     "typesafe": TypeSafe,
