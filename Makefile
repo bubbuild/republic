@@ -30,11 +30,11 @@ clean-build: ## Clean build artifacts
 
 .PHONY: docs-test
 docs-test: ## Build the documentation with strict checks
-	@uv run --frozen --group docs mkdocs build --strict
+	@uv run --frozen --group docs zensical build --clean --strict
 
 .PHONY: docs
 docs: ## Serve the documentation locally
-	@uv run --frozen --group docs mkdocs serve
+	@uv run --frozen --group docs zensical serve
 
 .PHONY: help
 help:

@@ -25,7 +25,7 @@ jobs:
       - uses: ./.github/actions/setup-python-env
       - uses: actions/configure-pages@v5
       - name: Build documentation
-        run: uv run --frozen --group docs mkdocs build --strict
+        run: uv run --frozen --group docs zensical build --clean --strict
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
