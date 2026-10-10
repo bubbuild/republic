@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from republic._content import Image, Message, ProviderData, Text, Tool, ToolResult, Video, _Media
+from republic._content import Image, Message, ProviderData, Text, Tool, Video, _Media
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.errors import APIResponseError, UnsupportedFeatureError
@@ -25,6 +25,7 @@ from ._base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    answered_call,
     deep_merge,
     merge_same_role,
     provider_payloads,
@@ -252,7 +253,7 @@ def _function_calling_config(tool_choice: ToolChoice) -> dict[str, Any]:
 
 def _content(message: Message) -> dict[str, Any]:
     if message.role == "tool":
-        return {"role": "user", "parts": [_function_response(result) for result in message.tool_results]}
+        return {"role": "user", "parts": [_function_response(message)]}
     parts: list[Mapping[str, Any]] = provider_payloads(message, GeminiFormat.name)
     parts.extend(_part(part) for part in message.parts if isinstance(part, Text | Image | Video))
     for call in message.tool_calls:
@@ -266,13 +267,17 @@ def _content(message: Message) -> dict[str, Any]:
     return {"role": "model" if message.role == "assistant" else "user", "parts": parts}
 
 
-def _function_response(result: ToolResult) -> dict[str, Any]:
+def _function_response(message: Message) -> dict[str, Any]:
+    """Text goes into the response object; images and videos become multimodal response parts."""
+    call = answered_call(message)
     response: dict[str, Any] = {
-        "name": result.call.name,
-        "response": {"error" if result.is_error else "output": result.output},
+        "name": call.name,
+        "response": {"error" if message.is_error else "output": message.text},
     }
-    if call_id := result.call.metadata.get(_CALL_ID):
+    if call_id := call.metadata.get(_CALL_ID):
         response["id"] = call_id
+    if media := [_part(part) for part in message.parts if isinstance(part, Image | Video)]:
+        response["parts"] = media
     return {"functionResponse": response}
 
 

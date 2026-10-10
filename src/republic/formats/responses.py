@@ -23,6 +23,7 @@ from ._base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    answered_call,
     approximate_location,
     deep_merge,
     provider_payloads,
@@ -121,10 +122,12 @@ class ResponsesFormat(ChatApiFormat):
                 )
                 return items
             case "tool":
-                return [
-                    {"type": "function_call_output", "call_id": result.call.id, "output": result.output}
-                    for result in message.tool_results
-                ]
+                output = (
+                    message.text
+                    if all(isinstance(part, Text) for part in message.parts)
+                    else [_user_part(part) for part in message.parts]
+                )
+                return [{"type": "function_call_output", "call_id": answered_call(message).id, "output": output}]
 
 
 class _ResponsesStreamParser(StreamParser):

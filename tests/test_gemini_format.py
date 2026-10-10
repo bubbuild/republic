@@ -70,7 +70,7 @@ async def test_function_calls_keep_signatures_and_omit_generated_ids(service: Fa
 
     first = await model.chat("Weather?", tools=[republic.Tool("get_weather")])
     call = first.tool_calls[0]
-    await model.chat(["Weather?", republic.assistant(tool_results=[republic.tool_result(call, "sunny")])])
+    await model.chat(["Weather?", republic.tool(call, "sunny")])
 
     assert service.body(0)["tools"] == [
         {
@@ -87,6 +87,27 @@ async def test_function_calls_keep_signatures_and_omit_generated_ids(service: Fa
         },
         {"role": "user", "parts": [{"functionResponse": {"name": "get_weather", "response": {"output": "sunny"}}}]},
     ]
+
+
+async def test_tool_results_can_hold_multiple_parts(service: FakeService) -> None:
+    service.reply_json({"candidates": [{"content": {"parts": [{"text": "A cat."}]}}]})
+    call = republic.ToolCall("call_1", "screenshot", "{}")
+    result = republic.tool(call, "Captured", republic.Image("image/png", data=b"png"), is_error=True)
+
+    await make_model(service).chat(["Look", result])
+
+    assert service.body()["contents"][-1] == {
+        "role": "user",
+        "parts": [
+            {
+                "functionResponse": {
+                    "name": "screenshot",
+                    "response": {"error": "Captured"},
+                    "parts": [{"inlineData": {"mimeType": "image/png", "data": PNG}}],
+                }
+            }
+        ],
+    }
 
 
 async def test_blocked_prompt_raises(service: FakeService) -> None:

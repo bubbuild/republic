@@ -22,6 +22,7 @@ from ._base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    answered_call,
     approximate_location,
     deep_merge,
     strict_schema,
@@ -180,7 +181,7 @@ def _message_entries(api_format: ChatFormat, message: Message) -> list[dict[str,
         case "system":
             return [{"role": "system", "content": message.text}]
         case "user":
-            return [{"role": "user", "content": _user_content(message)}]
+            return [{"role": "user", "content": _content(message)}]
         case "assistant":
             entry: dict[str, Any] = {"role": "assistant", "content": message.text or None}
             if message.tool_calls:
@@ -191,13 +192,10 @@ def _message_entries(api_format: ChatFormat, message: Message) -> list[dict[str,
             entry.update(api_format.assistant_fields(message))
             return [entry]
         case "tool":
-            return [
-                {"role": "tool", "tool_call_id": result.call.id, "content": result.output}
-                for result in message.tool_results
-            ]
+            return [{"role": "tool", "tool_call_id": answered_call(message).id, "content": _content(message)}]
 
 
-def _user_content(message: Message) -> str | list[dict[str, Any]]:
+def _content(message: Message) -> str | list[dict[str, Any]]:
     if all(isinstance(part, Text) for part in message.parts):
         return message.text
     content: list[dict[str, Any]] = []

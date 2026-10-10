@@ -112,8 +112,8 @@ async def test_responses_keeps_parallel_calls_with_changing_item_ids(service: Fa
     assert ready == [calls[1], calls[0]]
     assert stream.response.finish_reason == "tool_calls"
 
-    results = [republic.tool_result(call, output) for call, output in zip(calls, ["5", "6"], strict=True)]
-    response = await model.chat(["Calculate", stream.response.message, republic.assistant(tool_results=results)])
+    results = [republic.tool(call, output) for call, output in zip(calls, ["5", "6"], strict=True)]
+    response = await model.chat(["Calculate", stream.response.message, *results])
 
     assert response.text == "done"
     assert service.body()["input"][1:] == [
