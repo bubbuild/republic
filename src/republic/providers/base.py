@@ -109,6 +109,7 @@ class Provider:
         self._client_loop: asyncio.AbstractEventLoop | None = None
         self._closed = False
         self._open_models: list[ChatModel | EmbeddingModel | DecisionModel] = []
+        self._provider_contexts = 0
 
     @property
     def is_closed(self) -> bool:
@@ -118,12 +119,18 @@ class Provider:
     async def __aenter__(self) -> Self:
         self._ensure_open()
         self._check_client_loop()
+        self._provider_contexts += 1
         return self
 
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
-        await self.close()
+        self._check_client_loop()
+        if self._provider_contexts == 0:
+            return
+        self._provider_contexts -= 1
+        if self._provider_contexts == 0 and not self._open_models:
+            await self.close()
 
     async def close(self) -> None:
         """Close the provider and its internally created client; leave supplied clients open.
@@ -136,6 +143,7 @@ class Provider:
         self._check_client_loop()
         self._closed = True
         self._open_models.clear()
+        self._provider_contexts = 0
         if self._owns_http_client and self._http_client is not None:
             await self._http_client.aclose()
 
@@ -150,7 +158,7 @@ class Provider:
         if model not in self._open_models:
             return
         self._open_models.remove(model)
-        if not self._open_models:
+        if not self._open_models and self._provider_contexts == 0:
             await self.close()
 
     def _ensure_open(self) -> None:

@@ -68,7 +68,7 @@ finally:
     await provider.close()
 ```
 
-Providers also support async context management, which closes them on exit, including when the body raises an exception or is cancelled:
+Providers also support async context management. Context entries are released on exit, including when the body raises an exception or is cancelled:
 
 ```python
 async with republic.get_provider("openai") as provider:
@@ -78,7 +78,7 @@ async with republic.get_provider("openai") as provider:
     await second.chat("Hello")
 ```
 
-Chat, embedding, and decision models support the same pattern. The Provider tracks entered model contexts and closes only when the last one exits:
+Chat, embedding, and decision models support the same pattern. The Provider tracks entered Provider and model contexts and closes only when all of them have exited:
 
 ```python
 async with republic.get_model("openai:gpt-6-sol") as model:
@@ -97,7 +97,17 @@ async with provider.get_model("gpt-6-sol") as first:
 # The last model context has exited, so the Provider is now closed.
 ```
 
-Explicit `await provider.close()` and exiting a Provider context close it regardless of any open model contexts.
+A Provider context keeps the client open while model contexts enter and exit, so sequential model contexts can share it:
+
+```python
+async with republic.get_provider("openai") as provider:
+    for name in ["gpt-6-sol", "gpt-6-luna"]:
+        async with provider.get_model(name) as model:
+            response = await model.chat("Hello")
+    # The Provider context still keeps the client open here.
+```
+
+Nested Provider contexts follow the same rule: exiting an inner context does not close the client while another Provider or model context is active. Explicit `await provider.close()` closes it immediately, regardless of open contexts.
 
 `provider.close()` is idempotent; `provider.is_closed` reports whether it has been closed. Once closed, all models sharing that Provider reject further requests, and the Provider cannot be reopened. Finish outstanding requests and exit stream contexts before closing it. Exiting a stream context closes only that response and keeps the HTTP client available for subsequent requests.
 

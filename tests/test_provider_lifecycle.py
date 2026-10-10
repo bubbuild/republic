@@ -102,6 +102,87 @@ async def test_nested_contexts_for_same_model_keep_provider_open(
     assert clients[0].is_closed
 
 
+async def test_provider_context_keeps_other_model_client_open_after_model_exit(
+    other_model: republic.EmbeddingModel | republic.DecisionModel,
+    clients: list[httpx2.AsyncClient],
+    service: FakeService,
+) -> None:
+    async with other_model.provider as provider:
+        async with other_model:
+            await _call_other_model(other_model, service)
+        assert not provider.is_closed
+        assert not clients[0].is_closed
+        await _call_other_model(other_model, service)
+    assert provider.is_closed
+    assert clients[0].is_closed
+
+
+async def test_provider_context_allows_sequential_chat_model_contexts(
+    clients: list[httpx2.AsyncClient], service: FakeService
+) -> None:
+    async with republic.get_provider("openai") as provider:
+        for name in ["first", "second"]:
+            service.reply_json({"output": []})
+            async with provider.get_model(name) as model:
+                await model.chat("Hi")
+            assert not provider.is_closed
+            assert not clients[0].is_closed
+        service.reply_json({"data": [{"id": "first"}]})
+        assert (await provider.list_models())[0].id == "first"
+        assert len(clients) == 1
+    assert provider.is_closed
+    assert clients[0].is_closed
+
+
+@pytest.mark.parametrize("failure", [ValueError, asyncio.CancelledError])
+async def test_nested_provider_context_failure_keeps_outer_context_open(
+    failure: type[BaseException], clients: list[httpx2.AsyncClient], service: FakeService
+) -> None:
+    async with republic.get_provider("openai") as provider:
+        model = provider.get_model("test")
+        with pytest.raises(failure):
+            async with provider:
+                service.reply_json({"output": []})
+                await model.chat("Hi")
+                raise failure
+        assert not provider.is_closed
+        assert not clients[0].is_closed
+        service.reply_json({"output": []})
+        await model.chat("Still open")
+    assert provider.is_closed
+    assert clients[0].is_closed
+
+
+async def test_provider_context_exit_keeps_outer_model_context_open(
+    clients: list[httpx2.AsyncClient], service: FakeService
+) -> None:
+    async with republic.get_model("openai:test") as model:
+        async with model.provider as provider:
+            service.reply_json({"output": []})
+            await model.chat("Hi")
+        assert not provider.is_closed
+        assert not clients[0].is_closed
+        service.reply_json({"output": []})
+        await model.chat("Still open")
+    assert provider.is_closed
+    assert clients[0].is_closed
+
+
+async def test_explicit_close_overrides_nested_provider_and_model_contexts(
+    clients: list[httpx2.AsyncClient], service: FakeService
+) -> None:
+    async with republic.get_provider("openai") as provider, provider, provider.get_model("test") as model:
+        service.reply_json({"output": []})
+        await model.chat("Hi")
+        await provider.close()
+        assert provider.is_closed
+        assert clients[0].is_closed
+        with pytest.raises(RuntimeError, match="Provider is closed"):
+            await model.chat("Again")
+    await provider.close()
+    assert provider.is_closed
+
+
 @pytest.mark.parametrize("failure", [ValueError, asyncio.CancelledError])
 async def test_other_model_failure_keeps_sibling_context_open(
     other_model: republic.EmbeddingModel | republic.DecisionModel,
