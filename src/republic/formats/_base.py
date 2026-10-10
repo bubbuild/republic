@@ -387,7 +387,8 @@ def normalize(messages: Iterable[Message]) -> list[Message]:
             else:
                 normalized.insert(start, Message("assistant", tool_calls=(message.tool_call,)))
         normalized.append(message)
-    return normalized
+    # An assistant turn with no parts and no calls has nothing to send, and providers reject it.
+    return [message for message in normalized if message.role != "assistant" or message.parts or message.tool_calls]
 
 
 def answered_call(message: Message) -> ToolCall:

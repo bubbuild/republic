@@ -246,6 +246,30 @@ async def test_refusal_stop_reason(service: FakeService) -> None:
     assert response.output is None
 
 
+async def test_empty_refusal_turn_is_not_sent_back(service: FakeService) -> None:
+    refusal = {
+        "content": [],
+        "stop_reason": "refusal",
+        "stop_details": {"type": "refusal", "explanation": "Declined."},
+        "usage": {"input_tokens": 1},
+    }
+    service.reply_json(refusal)
+    service.reply_json(refusal)
+    model = republic.get_model(
+        "anthropic:claude-opus-5-5",
+        api_key="key",
+        http_client=service.client(),
+        history=republic.history.InMemoryHistory(),
+    )
+
+    await model.chat("hello")
+    await model.chat("and now?")
+
+    assert service.body()["messages"] == [
+        {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": "and now?"}]}
+    ]
+
+
 async def test_strict_tool_is_flagged(service: FakeService) -> None:
     service.reply_json({"content": [], "usage": {"input_tokens": 1}})
 

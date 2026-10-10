@@ -132,6 +132,18 @@ class TestContent:
             *results,
         ]
 
+    def test_empty_assistant_turns_are_dropped(self) -> None:
+        from republic.formats._base import normalize
+
+        call = republic.ToolCall("call_1", "lookup", "{}")
+        result = republic.tool(call, "done")
+
+        assert normalize([republic.user("hi"), republic.Message("assistant"), republic.user("again")]) == [
+            republic.user("hi"),
+            republic.user("again"),
+        ]
+        assert normalize([republic.Message("assistant"), result]) == [republic.assistant(tool_calls=[call]), result]
+
     def test_tool_call_belongs_only_to_tool_messages(self) -> None:
         call = republic.ToolCall("call_1", "lookup", "{}")
 
