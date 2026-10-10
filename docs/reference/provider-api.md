@@ -53,6 +53,68 @@ model = provider.get_model("gpt-6-sol")
 
 Here, `api_base`, `api_key`, and `MyAuth` are supplied by the application. A top-level constructor accepts `provider:model`; a provider instance accepts only the model name. See [configuration](configuration.md) for options and credential precedence, and [authentication](../guides/authentication.md) for API keys and account logins.
 
+### HTTP client lifecycle
+
+A Provider lazily creates one HTTP client and reuses it for requests, streams, model listing, and every model created by that Provider. Separate calls to the top-level model factories create separate Providers.
+
+For applications that manage a long-lived Provider, call `await provider.close()` at shutdown:
+
+```python
+provider = republic.get_provider("openai")
+model = provider.get_model("gpt-6-sol")
+try:
+    response = await model.chat("Hello")
+finally:
+    await provider.close()
+```
+
+Providers also support async context management. Context entries are released on exit, including when the body raises an exception or is cancelled:
+
+```python
+async with republic.get_provider("openai") as provider:
+    first = provider.get_model("gpt-6-sol")
+    second = provider.get_model("gpt-6-luna")
+    await first.chat("Hello")
+    await second.chat("Hello")
+```
+
+Chat, embedding, and decision models support the same pattern. The Provider tracks entered Provider and model contexts and closes only when all of them have exited:
+
+```python
+async with republic.get_model("openai:gpt-6-sol") as model:
+    response = await model.chat("Hello")
+```
+
+Use the same pattern with `get_embedding_model()` and `get_decision_model()`, or enter an existing model with `async with model:`. Entering a Provider or model does not create the HTTP client before its first request. Creating a model without entering its context does not register it as open. Nested contexts for the same model remain open until all its entries have exited.
+
+```python
+provider = republic.get_provider("openai")
+async with provider.get_model("gpt-6-sol") as first:
+    async with provider.get_embedding_model("text-embedding-3-small") as embeddings:
+        vector = await embeddings.embed("Hello")
+    # The Provider remains open while first's context is active.
+    response = await first.chat("Hello")
+# The last model context has exited, so the Provider is now closed.
+```
+
+A Provider context keeps the client open while model contexts enter and exit, so sequential model contexts can share it:
+
+```python
+async with republic.get_provider("openai") as provider:
+    for name in ["gpt-6-sol", "gpt-6-luna"]:
+        async with provider.get_model(name) as model:
+            response = await model.chat("Hello")
+    # The Provider context still keeps the client open here.
+```
+
+Nested Provider contexts follow the same rule: exiting an inner context does not close the client while another Provider or model context is active. Explicit `await provider.close()` closes it immediately, regardless of open contexts.
+
+`provider.close()` is idempotent; `provider.is_closed` reports whether it has been closed. Once closed, all models sharing that Provider reject further requests, and the Provider cannot be reopened. Finish outstanding requests and exit stream contexts before closing it. Exiting a stream context closes only that response and keeps the HTTP client available for subsequent requests.
+
+An internally created client must be used and closed on the event loop that first used it. Constructing the Provider outside an event loop is supported; reusing an active Provider across multiple `asyncio.run()` calls raises `RuntimeError`.
+
+An external client passed through `http_client=` remains caller-owned: closing the Provider leaves that client open. See [HTTP client configuration](configuration.md#http-clients) for transport settings.
+
 ### Tool calls
 
 `tool1` and `tool2` below are `republic.Tool` schemas.
