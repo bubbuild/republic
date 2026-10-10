@@ -79,7 +79,7 @@ class TestHistory:
         await history.write([
             republic.user("first"),
             republic.assistant(tool_calls=[call]),
-            republic.assistant(tool_results=[republic.tool_result(call, "done")]),
+            republic.tool(call, "done"),
             republic.user("second"),
         ])
 
@@ -104,15 +104,50 @@ class TestContent:
         with pytest.raises(ValueError, match="media_type"):
             republic.video(b"mp4")
 
-    def test_assistant_tool_results_announce_calls_once(self) -> None:
+    def test_tool_results_announce_calls_once(self) -> None:
         from republic.formats._base import normalize
 
         call = republic.ToolCall("call_1", "lookup", "{}")
-        result = republic.tool_result(call, "done")
+        result = republic.tool(call, "done")
 
-        messages = normalize([republic.assistant(tool_calls=[call]), republic.assistant(tool_results=[result])])
-
-        assert messages == [
-            republic.Message("assistant", tool_calls=(call,)),
-            republic.Message("tool", tool_results=(result,)),
+        assert normalize([republic.assistant(tool_calls=[call]), result]) == [
+            republic.assistant(tool_calls=[call]),
+            result,
         ]
+
+    def test_unannounced_calls_join_the_assistant_turn_before_their_results(self) -> None:
+        from republic.formats._base import normalize
+
+        first = republic.ToolCall("call_1", "lookup", "{}")
+        second = republic.ToolCall("call_2", "lookup", "{}")
+        results = [republic.tool(first, "one"), republic.tool(second, "two")]
+
+        assert normalize([republic.user("hi"), *results]) == [
+            republic.user("hi"),
+            republic.assistant(tool_calls=[first, second]),
+            *results,
+        ]
+        assert normalize([republic.assistant("Checking."), *results]) == [
+            republic.assistant("Checking.", tool_calls=[first, second]),
+            *results,
+        ]
+
+    def test_empty_assistant_turns_are_dropped(self) -> None:
+        from republic.formats._base import normalize
+
+        call = republic.ToolCall("call_1", "lookup", "{}")
+        result = republic.tool(call, "done")
+
+        assert normalize([republic.user("hi"), republic.Message("assistant"), republic.user("again")]) == [
+            republic.user("hi"),
+            republic.user("again"),
+        ]
+        assert normalize([republic.Message("assistant"), result]) == [republic.assistant(tool_calls=[call]), result]
+
+    def test_tool_call_belongs_only_to_tool_messages(self) -> None:
+        call = republic.ToolCall("call_1", "lookup", "{}")
+
+        with pytest.raises(ValueError, match="tool_call"):
+            republic.Message("tool")
+        with pytest.raises(ValueError, match="tool_call"):
+            republic.Message("assistant", tool_call=call)

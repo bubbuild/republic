@@ -181,13 +181,13 @@ Provider dialects may extend a format. For example, OpenRouter's Chat Completion
 
 Unsupported audio combinations raise `errors.UnsupportedFeatureError` before sending a request. Republic does not transcode audio or fetch remote references to make them inline.
 
-After executing tool calls from a response, return the results with the full assistant message. Here, `results` contains `republic.tool_result(call, output)` values created by the application:
+After executing tool calls from a response, return the results with the full assistant message. Here, `results` contains `republic.tool(call, output)` messages created by the application:
 
 ```python
 answer = await model.chat([
     "Hello, how are you?",
     response.message,
-    republic.assistant(tool_results=results),
+    *results,
 ])
 print(answer.text)
 ```

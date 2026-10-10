@@ -154,8 +154,8 @@ async def test_reasoning_content_is_sent_back(service: FakeService, provider: st
     model = republic.get_model(f"{provider}:model", api_key="key", api_format="chat", http_client=service.client())
 
     first = await model.chat("Weather?", tools=[WEATHER], reasoning_effort="high")
-    results = [republic.tool_result(call, "sunny") for call in first.tool_calls]
-    await model.chat(["Weather?", first.message, republic.assistant(tool_results=results)], tools=[WEATHER])
+    results = [republic.tool(call, "sunny") for call in first.tool_calls]
+    await model.chat(["Weather?", first.message, *results], tools=[WEATHER])
 
     assert service.body(0)["reasoning_effort"] == "high"
     assert first.reasoning == "Need the weather."

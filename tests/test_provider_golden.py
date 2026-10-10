@@ -282,7 +282,7 @@ async def test_fantasy_weather_tool(service: FakeService, api_format: str, strea
 
     second, _ = await respond(
         model,
-        [*prompt, first.message, republic.assistant(tool_results=[republic.tool_result(call, "40 C")])],
+        [*prompt, first.message, republic.tool(call, "40 C")],
         streaming=streaming,
         max_tokens=4000,
         tools=[WEATHER],
@@ -327,9 +327,7 @@ async def test_fantasy_parallel_tools(service: FakeService, api_format: str, str
         [
             *prompt,
             first.message,
-            republic.assistant(
-                tool_results=[republic.tool_result(call, outputs[call.name]) for call in first.tool_calls]
-            ),
+            *(republic.tool(call, outputs[call.name]) for call in first.tool_calls),
         ],
         streaming=streaming,
         max_tokens=4000,
@@ -494,7 +492,7 @@ async def test_goose_distinct_gemini_signatures_round_trip(service: FakeService)
     assert shell.metadata["gemini_thought_signature"] == "thought_sig_abc"
     prompt.extend([
         first.message,
-        republic.assistant(tool_results=[republic.tool_result(call, "output") for call in first.tool_calls]),
+        *(republic.tool(call, "output") for call in first.tool_calls),
     ])
 
     second, _ = await respond(model, prompt)
@@ -505,7 +503,7 @@ async def test_goose_distinct_gemini_signatures_round_trip(service: FakeService)
     assert echo.args == {}
     assert echo.id not in {call.id for call in first.tool_calls}
     assert echo.metadata["gemini_thought_signature"] == "sig_456"
-    prompt.extend([second.message, republic.assistant(tool_results=[republic.tool_result(echo, "output")])])
+    prompt.extend([second.message, republic.tool(echo, "output")])
 
     final, _ = await respond(model, prompt)
 

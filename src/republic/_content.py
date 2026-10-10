@@ -129,18 +129,18 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
-class ToolResult:
-    call: ToolCall
-    output: str
-    is_error: bool = False
-
-
-@dataclass(frozen=True)
 class Message:
     role: Role
     parts: tuple[Part, ...] = ()
     tool_calls: tuple[ToolCall, ...] = ()
-    tool_results: tuple[ToolResult, ...] = ()
+    tool_call: ToolCall | None = None
+    """The call a ``tool`` message answers; its parts hold the output."""
+    is_error: bool = False
+    """Whether a ``tool`` message reports a failed call."""
+
+    def __post_init__(self) -> None:
+        if (self.role == "tool") != (self.tool_call is not None):
+            raise ValueError("tool_call is required for tool messages and only allowed on them")
 
     @property
     def text(self) -> str:
@@ -149,6 +149,94 @@ class Message:
     @property
     def reasoning(self) -> str:
         return "".join(part.text for part in self.parts if isinstance(part, Reasoning))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the message to a JSON-compatible dict.
+
+        A message holding a single text part stores it as a plain ``content`` string;
+        any other parts are stored as a list of typed items.
+        """
+        data: dict[str, Any] = {"role": self.role}
+        match self.parts:
+            case ():
+                pass
+            case (Text(text),):
+                data["content"] = text
+            case parts:
+                data["content"] = [_part_to_dict(part) for part in parts]
+        if self.tool_calls:
+            data["tool_calls"] = [_tool_call_to_dict(call) for call in self.tool_calls]
+        if self.tool_call is not None:
+            data["tool_call"] = _tool_call_to_dict(self.tool_call)
+        if self.is_error:
+            data["is_error"] = True
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Message:
+        """Build a message from a dict produced by :meth:`to_dict`."""
+        content = data.get("content")
+        if content is None:
+            parts: tuple[Part, ...] = ()
+        elif isinstance(content, str):
+            parts = (Text(content),)
+        else:
+            parts = tuple(_part_from_dict(item) for item in content)
+        return cls(
+            data["role"],
+            parts,
+            tool_calls=tuple(_tool_call_from_dict(call) for call in data.get("tool_calls", ())),
+            tool_call=None if (call := data.get("tool_call")) is None else _tool_call_from_dict(call),
+            is_error=data.get("is_error", False),
+        )
+
+
+def _part_to_dict(part: Part) -> dict[str, Any]:
+    match part:
+        case Text(text):
+            return {"type": "text", "text": text}
+        case Reasoning(text):
+            return {"type": "reasoning", "text": text}
+        case Image() | Audio() | Video():
+            data: dict[str, Any] = {"type": part.kind, "media_type": part.media_type}
+            if part.url is not None:
+                data["url"] = part.url
+            if part.data is not None:
+                data["data"] = part.base64_data
+            return data
+        case ProviderData(api_format, payload):
+            return {"type": "provider_data", "api_format": api_format, "payload": dict(payload)}
+
+
+def _part_from_dict(data: Mapping[str, Any]) -> Part:
+    match data["type"]:
+        case "text":
+            return Text(data["text"])
+        case "reasoning":
+            return Reasoning(data["text"])
+        case "image" | "audio" | "video" as kind:
+            media_class = {"image": Image, "audio": Audio, "video": Video}[kind]
+            inline = data.get("data")
+            return media_class(
+                data["media_type"],
+                data=None if inline is None else base64.b64decode(inline, validate=True),
+                url=data.get("url"),
+            )
+        case "provider_data":
+            return ProviderData(data["api_format"], data["payload"])
+        case other:
+            raise ValueError(f"Unknown message part type: {other!r}")
+
+
+def _tool_call_to_dict(call: ToolCall) -> dict[str, Any]:
+    data: dict[str, Any] = {"id": call.id, "name": call.name, "arguments": call.arguments}
+    if call.metadata:
+        data["metadata"] = dict(call.metadata)
+    return data
+
+
+def _tool_call_from_dict(data: Mapping[str, Any]) -> ToolCall:
+    return ToolCall(data["id"], data["name"], data["arguments"], metadata=dict(data.get("metadata", {})))
 
 
 UserContent = str | Image | Audio | Video
@@ -168,28 +256,18 @@ def user(*content: UserContent) -> Message:
     return Message("user", tuple(_to_part(item) for item in content))
 
 
-def assistant(
-    *content: UserContent,
-    tool_calls: Iterable[ToolCall] = (),
-    tool_results: Iterable[ToolResult] = (),
-) -> Message:
-    """Build an assistant turn, optionally carrying tool calls and their results.
+def assistant(*content: UserContent, tool_calls: Iterable[ToolCall] = ()) -> Message:
+    """Build an assistant turn, optionally carrying tool calls."""
+    return Message("assistant", tuple(_to_part(item) for item in content), tool_calls=tuple(tool_calls))
 
-    A tool result already holds its call, so ``assistant(tool_results=[...])`` is
-    enough to continue after executing the calls from a response. Calls that
-    already appear earlier in the conversation are not sent twice.
+
+def tool(call: ToolCall, *content: UserContent, is_error: bool = False) -> Message:
+    """Build a tool message holding the output of executing ``call``.
+
+    The output may mix text, images, audio, and videos. A call that does not appear
+    earlier in the conversation is announced automatically before its result.
     """
-    return Message(
-        "assistant",
-        tuple(_to_part(item) for item in content),
-        tool_calls=tuple(tool_calls),
-        tool_results=tuple(tool_results),
-    )
-
-
-def tool_result(call: ToolCall, output: str, *, is_error: bool = False) -> ToolResult:
-    """Pair a tool call with the output produced by executing it."""
-    return ToolResult(call, output, is_error=is_error)
+    return Message("tool", tuple(_to_part(item) for item in content), tool_call=call, is_error=is_error)
 
 
 def image(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Image:

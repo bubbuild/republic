@@ -69,7 +69,7 @@ async def test_tool_results_follow_calls_with_thinking_preserved(service: FakeSe
     await model.chat([
         "Weather?",
         first.message,
-        republic.assistant(tool_results=[republic.tool_result(first.tool_calls[0], "sunny")]),
+        republic.tool(first.tool_calls[0], "sunny"),
         "Thanks!",
     ])
 
@@ -90,6 +90,29 @@ async def test_tool_results_follow_calls_with_thinking_preserved(service: FakeSe
             ],
         },
     ]
+
+
+async def test_tool_results_can_hold_multiple_parts(service: FakeService) -> None:
+    service.reply_json({"content": [{"type": "text", "text": "A cat."}], "usage": {"input_tokens": 1}})
+    call = republic.ToolCall("toolu_1", "screenshot", "{}")
+    result = republic.tool(call, "Captured", republic.Image("image/png", data=b"png"), is_error=True)
+
+    await make_model(service).chat(["Look", result])
+
+    assert service.body()["messages"][-1] == {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": "toolu_1",
+                "content": [
+                    {"type": "text", "text": "Captured"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "cG5n"}},
+                ],
+                "is_error": True,
+            }
+        ],
+    }
 
 
 async def test_structured_output_closes_object_schemas(service: FakeService) -> None:
@@ -221,6 +244,30 @@ async def test_refusal_stop_reason(service: FakeService) -> None:
     assert response.finish_reason == "refusal"
     assert response.refusal == "Declined."
     assert response.output is None
+
+
+async def test_empty_refusal_turn_is_not_sent_back(service: FakeService) -> None:
+    refusal = {
+        "content": [],
+        "stop_reason": "refusal",
+        "stop_details": {"type": "refusal", "explanation": "Declined."},
+        "usage": {"input_tokens": 1},
+    }
+    service.reply_json(refusal)
+    service.reply_json(refusal)
+    model = republic.get_model(
+        "anthropic:claude-opus-5-5",
+        api_key="key",
+        http_client=service.client(),
+        history=republic.history.InMemoryHistory(),
+    )
+
+    await model.chat("hello")
+    await model.chat("and now?")
+
+    assert service.body()["messages"] == [
+        {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": "and now?"}]}
+    ]
 
 
 async def test_strict_tool_is_flagged(service: FakeService) -> None:

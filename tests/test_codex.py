@@ -92,8 +92,8 @@ async def test_codex_keeps_reasoning_and_tool_round_trip(service: FakeService) -
     model = republic.get_model("codex:test", api_key="test-key", http_client=service.client())
 
     first = await model.chat("weather?")
-    result = republic.tool_result(first.tool_calls[0], "sunny")
-    second = await model.chat(["weather?", first.message, republic.assistant(tool_results=[result])])
+    result = republic.tool(first.tool_calls[0], "sunny")
+    second = await model.chat(["weather?", first.message, result])
 
     assert first.tool_calls[0].args == {"city": "Paris"}
     assert second.text == "sunny"

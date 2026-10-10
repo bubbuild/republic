@@ -365,25 +365,37 @@ def _subtract(current: TokenUsage, previous: TokenUsage) -> TokenUsage:
 
 
 def normalize(messages: Iterable[Message]) -> list[Message]:
-    """Split tool results into ``tool`` messages that follow their calls.
+    """Announce every answered tool call before its result.
 
-    An assistant message carrying tool results also announces their calls,
-    unless an earlier assistant message already did.
+    A tool message whose call does not appear earlier in the conversation adds
+    the call to the assistant message right before its run of tool messages,
+    creating that assistant message when needed.
     """
     normalized: list[Message] = []
     announced: set[str] = set()
     for message in messages:
-        if message.role != "assistant":
-            normalized.append(message)
-            continue
-        result_calls = [result.call for result in message.tool_results]
-        calls = [call for call in (*message.tool_calls, *result_calls) if call.id not in announced]
-        announced.update(call.id for call in calls)
-        if message.parts or calls:
-            normalized.append(Message("assistant", message.parts, tool_calls=tuple(dict.fromkeys(calls))))
-        if message.tool_results:
-            normalized.append(Message("tool", tool_results=message.tool_results))
-    return normalized
+        if message.role == "assistant":
+            announced.update(call.id for call in message.tool_calls)
+        elif message.tool_call is not None and message.tool_call.id not in announced:
+            announced.add(message.tool_call.id)
+            start = len(normalized)
+            while start and normalized[start - 1].role == "tool":
+                start -= 1
+            if start and normalized[start - 1].role == "assistant":
+                previous = normalized[start - 1]
+                normalized[start - 1] = replace(previous, tool_calls=(*previous.tool_calls, message.tool_call))
+            else:
+                normalized.insert(start, Message("assistant", tool_calls=(message.tool_call,)))
+        normalized.append(message)
+    # An assistant turn with no parts and no calls has nothing to send, and providers reject it.
+    return [message for message in normalized if message.role != "assistant" or message.parts or message.tool_calls]
+
+
+def answered_call(message: Message) -> ToolCall:
+    """The tool call that a ``tool`` message answers."""
+    if message.tool_call is None:
+        raise ValueError(f"A {message.role} message does not answer a tool call")
+    return message.tool_call
 
 
 def merge_same_role(entries: list[dict[str, Any]], *, content_key: str) -> list[dict[str, Any]]:

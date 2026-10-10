@@ -86,7 +86,7 @@ async def test_tool_calls_round_trip_through_tool_results(service: FakeService) 
 
     first = await model.chat("Weather in Paris?", tools=[WEATHER])
     call = first.tool_calls[0]
-    await model.chat(["Weather in Paris?", republic.assistant(tool_results=[republic.tool_result(call, "sunny")])])
+    await model.chat(["Weather in Paris?", republic.tool(call, "sunny")])
 
     assert service.body(0)["tools"] == [
         {
@@ -109,6 +109,22 @@ async def test_tool_calls_round_trip_through_tool_results(service: FakeService) 
         },
         {"role": "tool", "tool_call_id": "call_1", "content": "sunny"},
     ]
+
+
+async def test_tool_results_can_hold_multiple_parts(service: FakeService) -> None:
+    service.reply_json({"choices": [{"message": {"content": "A cat."}}]})
+    call = republic.ToolCall("call_1", "screenshot", "{}")
+
+    await make_model(service).chat(["Look", republic.tool(call, "Captured", republic.Image("image/png", data=b"png"))])
+
+    assert service.body()["messages"][-1] == {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": [
+            {"type": "text", "text": "Captured"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,cG5n"}},
+        ],
+    }
 
 
 async def test_structured_output_is_requested_and_parsed(service: FakeService) -> None:

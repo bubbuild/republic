@@ -22,6 +22,7 @@ from ._base import (
     StreamParser,
     ToolCallFragment,
     UsageReport,
+    answered_call,
     approximate_location,
     deep_merge,
     merge_same_role,
@@ -120,18 +121,18 @@ class MessagesFormat(ChatApiFormat):
 
     def _entry(self, message: Message) -> dict[str, Any]:
         if message.role == "tool":
-            return {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": result.call.id,
-                        "content": result.output,
-                        "is_error": result.is_error,
-                    }
-                    for result in message.tool_results
-                ],
+            content = (
+                message.text
+                if all(isinstance(part, Text) for part in message.parts)
+                else [_user_block(part) for part in message.parts]
+            )
+            result = {
+                "type": "tool_result",
+                "tool_use_id": answered_call(message).id,
+                "content": content,
+                "is_error": message.is_error,
             }
+            return {"role": "user", "content": [result]}
         if message.role == "user":
             return {"role": "user", "content": [_user_block(part) for part in message.parts]}
         content: list[Mapping[str, Any]] = provider_payloads(message, self.name)

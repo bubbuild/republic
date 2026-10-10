@@ -53,7 +53,7 @@ async def test_reasoning_items_are_sent_back_with_tool_results(service: FakeServ
     model = make_model(service, history=republic.history.InMemoryHistory())
 
     first = await model.chat("Weather in Paris?")
-    await model.chat(republic.assistant(tool_results=[republic.tool_result(first.tool_calls[0], "sunny")]))
+    await model.chat(republic.tool(first.tool_calls[0], "sunny"))
 
     assert service.body()["input"] == [
         {"role": "user", "content": [{"type": "input_text", "text": "Weather in Paris?"}]},
@@ -61,6 +61,22 @@ async def test_reasoning_items_are_sent_back_with_tool_results(service: FakeServ
         FUNCTION_CALL,
         {"type": "function_call_output", "call_id": "call_1", "output": "sunny"},
     ]
+
+
+async def test_tool_results_can_hold_multiple_parts(service: FakeService) -> None:
+    service.reply_json({"output": []})
+    call = republic.ToolCall("call_1", "screenshot", "{}")
+
+    await make_model(service).chat(["Look", republic.tool(call, "Captured", republic.Image("image/png", data=b"png"))])
+
+    assert service.body()["input"][-1] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": [
+            {"type": "input_text", "text": "Captured"},
+            {"type": "input_image", "image_url": "data:image/png;base64,cG5n"},
+        ],
+    }
 
 
 async def test_reasoning_summaries_are_exposed(service: FakeService) -> None:

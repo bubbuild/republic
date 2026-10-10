@@ -21,7 +21,7 @@ async def main():
         return
 
     results = [execute(call) for call in response.tool_calls]
-    answer = await model.chat([task, response.message, republic.assistant(tool_results=results)])
+    answer = await model.chat([task, response.message, *results])
     print(answer.refusal or answer.text)
 
 
@@ -32,7 +32,7 @@ Run this script from the same project directory as `agent.py`. `tool_choice=read
 
 `call.args` decodes the model's JSON arguments. The executor checks the tool name and permitted filenames before reading anything. A JSON decoding error propagates to the application; a schema alone does not validate the arguments locally.
 
-`tool_result()` keeps the original call with its output, including the ID needed to associate the result with that call. `response.message` also preserves reasoning blocks, signed calls, and other provider data needed for the next turn. Replacing it with `response.text` loses that state.
+`republic.tool(call, ...)` builds a `tool` message that keeps the original call with its output, including the ID needed to associate the result with that call. The output may mix text, images, audio, and videos, such as `republic.tool(call, "Captured", republic.image("shot.png"))`; pass `is_error=True` to report a failed call. Media support in tool results depends on the provider and API format: the Gemini format accepts only inline media there, and OpenAI's own Chat Completions service accepts only text in tool messages, although some compatible gateways accept images. `response.message` also preserves reasoning blocks, signed calls, and other provider data needed for the next turn. Replacing it with `response.text` loses that state.
 
 The second request completes this round without offering more tools. To allow another round, supply the schemas again and repeat the sequence, as the minimal agent does. With an attached history object, the first assistant message is already recorded; send only the new results instead of appending the same conversation twice.
 

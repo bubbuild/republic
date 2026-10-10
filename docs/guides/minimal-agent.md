@@ -25,15 +25,15 @@ read_file = republic.Tool(
 )
 
 
-def execute(call: republic.ToolCall) -> republic.ToolResult:
+def execute(call: republic.ToolCall) -> republic.Message:
     args = call.args
     if call.name != "read_file" or not isinstance(args, dict) or args.get("path") not in FILES:
-        return republic.tool_result(call, "Unknown tool or file", is_error=True)
+        return republic.tool(call, "Unknown tool or file", is_error=True)
     try:
         content = Path(args["path"]).read_text(encoding="utf-8")
     except (OSError, UnicodeError):
-        return republic.tool_result(call, "Cannot read that project file", is_error=True)
-    return republic.tool_result(call, content)
+        return republic.tool(call, "Cannot read that project file", is_error=True)
+    return republic.tool(call, content)
 
 
 async def agent(model: republic.ChatModel, task: str) -> str:
@@ -47,7 +47,7 @@ async def agent(model: republic.ChatModel, task: str) -> str:
         if not response.tool_calls:
             return response.refusal or response.text
         results = [execute(call) for call in response.tool_calls]
-        messages.append(republic.assistant(tool_results=results))
+        messages.extend(results)
     raise RuntimeError("The agent reached its limit of 8 model calls")
 
 
