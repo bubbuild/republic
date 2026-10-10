@@ -66,9 +66,9 @@ Transport settings belong to the HTTP client. Setting `httpx2.AsyncClient(trust_
 
 ## HTTP clients
 
-Without `http_client=`, Republic creates and closes a client for each call. Reusing a model alone does not share a connection pool across calls.
+Without `http_client=`, a Provider lazily creates one client on its first request. Models created by the same Provider and model listing share its connection pool. Separate calls to the top-level model factories create separate Providers.
 
-Supply a client to share connections and control its lifetime. Configure timeouts on that client; the provider's `timeout=` option only configures clients Republic creates.
+Supply a client to share connections across Providers and control its lifetime yourself. Configure timeouts on that client; the Provider's `timeout=` option only configures clients Republic creates.
 
 ```python
 import asyncio
@@ -87,8 +87,6 @@ async def main():
 
 asyncio.run(main())
 ```
-
-Republic leaves a supplied client open. In the example, leaving the application's `async with` block closes it. Exiting a model stream closes that response while leaving the supplied client available for later requests.
 
 This client is used for inference requests and Copilot Plugin token exchange. Codex and Grok token refresh, Copilot device login, and OpenRouter authorization-code exchange create their own auth clients; an injected inference client's transport options do not configure those clients. CLI login methods use the selected CLI's network configuration.
 

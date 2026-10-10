@@ -11,7 +11,8 @@ from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar
 
 import httpx2
 
@@ -104,6 +105,61 @@ class Provider:
         self.retry_delay = retry_delay
         self.max_retry_delay = max_retry_delay
         self._http_client = http_client
+        self._owns_http_client = http_client is None
+        self._client_loop: asyncio.AbstractEventLoop | None = None
+        self._closed = False
+        self._open_models: list[ChatModel | EmbeddingModel | DecisionModel] = []
+
+    @property
+    def is_closed(self) -> bool:
+        """Whether this provider has been closed, independently of an external client."""
+        return self._closed
+
+    async def __aenter__(self) -> Self:
+        self._ensure_open()
+        self._check_client_loop()
+        return self
+
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
+    ) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Close the provider and its internally created client; leave supplied clients open.
+
+        Finish requests and exit stream contexts before closing. Close an owned
+        client on the event loop that first used it. Repeated closes are harmless.
+        """
+        if self._closed:
+            return
+        self._check_client_loop()
+        self._closed = True
+        self._open_models.clear()
+        if self._owns_http_client and self._http_client is not None:
+            await self._http_client.aclose()
+
+    def _open_model(self, model: ChatModel | EmbeddingModel | DecisionModel) -> None:
+        self._ensure_open()
+        self._check_client_loop()
+        # Record each entry so nested contexts for the same model stay open.
+        self._open_models.append(model)
+
+    async def _close_model(self, model: ChatModel | EmbeddingModel | DecisionModel) -> None:
+        self._check_client_loop()
+        if model not in self._open_models:
+            return
+        self._open_models.remove(model)
+        if not self._open_models:
+            await self.close()
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("Provider is closed")
+
+    def _check_client_loop(self) -> None:
+        if self._client_loop is not None and self._client_loop is not asyncio.get_running_loop():
+            raise RuntimeError("Use and close the provider on the event loop that created its HTTP client")
 
     def get_model(self, name: str, *, history: HistoryProtocol | None = None) -> ChatModel:
         from republic._models import ChatModel
@@ -129,18 +185,18 @@ class Provider:
         auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
         models: list[ModelInfo] = []
         params = self._models_params(None)
-        async with self._client() as client:
-            while params is not None:
-                response = await self._retry(
-                    lambda params=params: client.get(
-                        f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
-                    )
+        client = self._client()
+        while params is not None:
+            response = await self._retry(
+                lambda params=params: client.get(
+                    f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
                 )
-                if response.is_error:
-                    raise APIStatusError(response.status_code, response.text, headers=response.headers)
-                data = response.json()
-                models.extend(self._parse_models(data))
-                params = self._models_params(data)
+            )
+            if response.is_error:
+                raise APIStatusError(response.status_code, response.text, headers=response.headers)
+            data = response.json()
+            models.extend(self._parse_models(data))
+            params = self._models_params(data)
         return models
 
     def _models_params(self, previous: Any) -> dict[str, str] | None:
@@ -179,26 +235,26 @@ class Provider:
         raise UnsupportedApiFormatError(f"Provider {self.name!r} supports no {format_kind.kind} API format")
 
     async def _post(self, api_format: ApiFormat, request: HttpRequest) -> httpx2.Response:
-        async with self._client() as client:
-            response = await self._retry(lambda: self._send(client, api_format, request, stream=False))
-            if response.is_error:
-                raise APIStatusError(response.status_code, response.text, headers=response.headers)
-            return response
+        client = self._client()
+        response = await self._retry(lambda: self._send(client, api_format, request, stream=False))
+        if response.is_error:
+            raise APIStatusError(response.status_code, response.text, headers=response.headers)
+        return response
 
     @asynccontextmanager
     async def _stream(self, api_format: ApiFormat, request: HttpRequest) -> AsyncGenerator[HttpStream]:
-        async with self._client() as client:
-            response = await self._retry(lambda: self._send(client, api_format, request, stream=True))
-            try:
-                if response.is_error:
-                    await response.aread()
-                    raise APIStatusError(response.status_code, response.text, headers=response.headers)
-                end_marker = "[DONE]" if api_format.name in {"chat", "responses"} else None
-                yield HttpStream(_response_events(response, end_marker), dict(response.headers))
-            except httpx2.RequestError as exc:
-                raise _connection_error(exc, headers=response.headers) from exc
-            finally:
-                await response.aclose()
+        client = self._client()
+        response = await self._retry(lambda: self._send(client, api_format, request, stream=True))
+        try:
+            if response.is_error:
+                await response.aread()
+                raise APIStatusError(response.status_code, response.text, headers=response.headers)
+            end_marker = "[DONE]" if api_format.name in {"chat", "responses"} else None
+            yield HttpStream(_response_events(response, end_marker), dict(response.headers))
+        except httpx2.RequestError as exc:
+            raise _connection_error(exc, headers=response.headers) from exc
+        finally:
+            await response.aclose()
 
     async def _retry(self, send: Callable[[], Awaitable[httpx2.Response]]) -> httpx2.Response:
         """Retry only the request, never replay a successful streaming response."""
@@ -225,14 +281,15 @@ class Provider:
             await asyncio.sleep(min(delay, self.max_retry_delay))
         raise AssertionError("Unreachable retry state")
 
-    @asynccontextmanager
-    async def _client(self) -> AsyncGenerator[httpx2.AsyncClient]:
-        if self._http_client is not None:
-            yield self._http_client
-            return
-        # A client per call keeps providers usable across event loops.
-        async with httpx2.AsyncClient(timeout=self.timeout) as client:
-            yield client
+    def _client(self) -> httpx2.AsyncClient:
+        self._ensure_open()
+        self._check_client_loop()
+        if self._http_client is None:
+            # No await between checking and creating: concurrent tasks on this
+            # event loop share the same client, including their first request.
+            self._http_client = httpx2.AsyncClient(timeout=self.timeout)
+            self._client_loop = asyncio.get_running_loop()
+        return self._http_client
 
     async def _send(
         self, client: httpx2.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool
