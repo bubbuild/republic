@@ -31,6 +31,10 @@ from ._base import (
     unsupported_tool,
 )
 
+# The standard library reports the legacy aliases for `.wav` and `.aiff` files, and Google
+# accepts only the canonical names they stand for.
+_CANONICAL_MIME_TYPES = {"audio/x-wav": "audio/wav", "audio/x-aiff": "audio/aiff"}
+
 # Gemini only sends call ids for some models. Keep the original so a generated
 # placeholder id is never sent back.
 _CALL_ID = "gemini_call_id"
@@ -279,6 +283,7 @@ def _function_response(result: ToolResult) -> dict[str, Any]:
 def _part(part: Text | _Media) -> dict[str, Any]:
     if isinstance(part, Text):
         return {"text": part.text}
+    media_type = _CANONICAL_MIME_TYPES.get(part.media_type, part.media_type)
     if part.url is not None:
-        return {"fileData": {"mimeType": part.media_type, "fileUri": part.url}}
-    return {"inlineData": {"mimeType": part.media_type, "data": part.base64_data}}
+        return {"fileData": {"mimeType": media_type, "fileUri": part.url}}
+    return {"inlineData": {"mimeType": media_type, "data": part.base64_data}}

@@ -52,7 +52,40 @@ async def test_gemini_encodes_audio(service: FakeService, source: bytes | str) -
     assert response.text == "heard"
 
 
-@pytest.mark.parametrize("mime,wire_format", [("audio/wav", "wav"), ("audio/mpeg", "mp3")])
+@pytest.mark.parametrize(
+    "suffix,alias,canonical", [("wav", "audio/x-wav", "audio/wav"), ("aiff", "audio/x-aiff", "audio/aiff")]
+)
+@pytest.mark.parametrize("source_kind", ["path", "url", "data-url"])
+async def test_gemini_encodes_wav_and_aiff_with_the_canonical_mime_type(
+    service: FakeService,
+    tmp_path: Path,
+    source_kind: str,
+    suffix: str,
+    alias: str,
+    canonical: str,
+) -> None:
+    """Google accepts only the canonical names, not the aliases the standard library infers for these suffixes."""
+    path = tmp_path / f"voice.{suffix}"
+    path.write_bytes(b"voice")
+    sources = {
+        "path": path,
+        "url": f"https://media.example.test/voice.{suffix}",
+        "data-url": f"data:{alias};base64,dm9pY2U=",
+    }
+    service.reply_json({"candidates": [{"content": {"parts": [{"text": "heard"}]}, "finishReason": "STOP"}]})
+    response = await republic.get_model("google:test", http_client=service.client()).chat(
+        republic.user("Listen", republic.audio(sources[source_kind]))
+    )
+    expected = (
+        {"fileData": {"mimeType": canonical, "fileUri": sources["url"]}}
+        if source_kind == "url"
+        else {"inlineData": {"mimeType": canonical, "data": "dm9pY2U="}}
+    )
+    assert service.body()["contents"][0]["parts"] == [{"text": "Listen"}, expected]
+    assert response.text == "heard"
+
+
+@pytest.mark.parametrize("mime,wire_format", [("audio/wav", "wav"), ("audio/x-wav", "wav"), ("audio/mpeg", "mp3")])
 async def test_chat_encodes_audio(service: FakeService, mime: str, wire_format: str) -> None:
     service.reply_json({"choices": [{"message": {"content": "heard"}}]})
     model = republic.get_model("openai:test", api_format="chat", http_client=service.client())
