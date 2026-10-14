@@ -276,3 +276,85 @@ async def test_strict_tool_is_flagged(service: FakeService) -> None:
     await make_model(service).chat("Hi", tools=[republic.Tool("lookup", strict=True)])
 
     assert service.body()["tools"][0]["strict"] is True
+
+
+SEARCH_USE = {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "rust"}}
+SEARCH_RESULT = {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": []}
+GROUP_TOOL_USE = {"type": "tool_use", "id": "toolu_1", "name": "group_search", "input": {"query": "rust"}}
+# DeepSeek interleaves a function tool use with a built-in search and rejects the
+# follow-up turn unless the blocks come back in this order.
+INTERLEAVED = [THINKING, {"type": "text", "text": "Searching."}, SEARCH_USE, GROUP_TOOL_USE, SEARCH_RESULT]
+
+
+async def _send_back(model: republic.ChatModel, message: republic.Message) -> None:
+    call = message.tool_calls[0]
+    await model.chat(["Rust?", message, republic.tool(call, "liked")])
+
+
+async def test_interleaved_blocks_keep_their_order(service: FakeService) -> None:
+    service.reply_json({"content": INTERLEAVED, "stop_reason": "tool_use", "usage": {}})
+    service.reply_json({"content": [], "usage": {}})
+    model = make_model(service)
+
+    response = await model.chat("Rust?")
+    await _send_back(model, response.message)
+
+    assert response.text == "Searching."
+    assert response.tool_calls == [republic.ToolCall("toolu_1", "group_search", '{"query": "rust"}')]
+    assert service.body()["messages"][1] == {"role": "assistant", "content": INTERLEAVED}
+
+
+async def test_streamed_interleaved_blocks_keep_their_order(service: FakeService) -> None:
+    def block(index: int, content_block: dict[str, object], *deltas: dict[str, object]) -> list[dict[str, object]]:
+        return [
+            {"type": "content_block_start", "index": index, "content_block": content_block},
+            *({"type": "content_block_delta", "index": index, "delta": delta} for delta in deltas),
+            {"type": "content_block_stop", "index": index},
+        ]
+
+    service.reply_events([
+        {"type": "message_start", "message": {"id": "msg_1", "usage": {"input_tokens": 1, "output_tokens": 1}}},
+        *block(
+            0,
+            {"type": "thinking", "thinking": ""},
+            {"type": "thinking_delta", "thinking": THINKING["thinking"]},
+            {"type": "signature_delta", "signature": THINKING["signature"]},
+        ),
+        *block(1, {"type": "text", "text": ""}, {"type": "text_delta", "text": "Searching."}),
+        *block(2, SEARCH_USE),
+        *block(3, {**GROUP_TOOL_USE, "input": {}}, {"type": "input_json_delta", "partial_json": '{"query": "rust"}'}),
+        *block(4, SEARCH_RESULT),
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 2}},
+        {"type": "message_stop"},
+    ])
+    service.reply_json({"content": [], "usage": {}})
+    model = make_model(service)
+
+    async with model.stream("Rust?") as stream:
+        async for _ in stream:
+            pass
+    await _send_back(model, stream.response.message)
+
+    assert service.body()["messages"][1] == {"role": "assistant", "content": INTERLEAVED}
+
+
+async def test_changed_message_falls_back_to_blocks_first(service: FakeService) -> None:
+    service.reply_json({"content": INTERLEAVED, "stop_reason": "tool_use", "usage": {}})
+    service.reply_json({"content": [], "usage": {}})
+    model = make_model(service)
+
+    message = (await model.chat("Rust?")).message
+    edited = republic.Message(
+        "assistant",
+        tuple(republic.Text("Edited.") if isinstance(part, republic.Text) else part for part in message.parts),
+        tool_calls=message.tool_calls,
+    )
+    await _send_back(model, edited)
+
+    assert service.body()["messages"][1]["content"] == [
+        THINKING,
+        SEARCH_USE,
+        SEARCH_RESULT,
+        {"type": "text", "text": "Edited."},
+        GROUP_TOOL_USE,
+    ]

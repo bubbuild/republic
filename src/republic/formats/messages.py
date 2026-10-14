@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
-from republic._content import Audio, Image, Message, ProviderData, Text, Tool, Video
+from republic._content import Audio, Image, Message, ProviderData, Text, Tool, ToolCall, Video
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.errors import APIResponseError
@@ -84,12 +84,15 @@ class MessagesFormat(ChatApiFormat):
 
     def parse_chat(self, data: Mapping[str, Any]) -> Iterable[Delta]:
         builtin_calls = _BuiltinCalls()
+        order = _BlockOrder()
         for block in data["content"]:
             match block["type"]:
                 case "text":
+                    order.text(block["text"])
                     yield TextDelta(block["text"])
                     yield from _citation_deltas(block.get("citations") or ())
                 case "tool_use":
+                    order.tool_use(block["id"])
                     yield ToolCallFragment(
                         block["id"],
                         id=block["id"],
@@ -98,6 +101,7 @@ class MessagesFormat(ChatApiFormat):
                         done=True,
                     )
                 case _:
+                    yield from order.flush()
                     yield from _round_trip_deltas(block, builtin_calls)
         yield from _stop_deltas(data)
         yield ResponseInfo(id=data.get("id"), model=data.get("model"))
@@ -135,13 +139,7 @@ class MessagesFormat(ChatApiFormat):
             return {"role": "user", "content": [result]}
         if message.role == "user":
             return {"role": "user", "content": [_user_block(part) for part in message.parts]}
-        content: list[Mapping[str, Any]] = provider_payloads(message, self.name)
-        if message.text:
-            content.append({"type": "text", "text": message.text})
-        content.extend(
-            {"type": "tool_use", "id": call.id, "name": call.name, "input": call.args} for call in message.tool_calls
-        )
-        return {"role": "assistant", "content": content}
+        return {"role": "assistant", "content": _assistant_content(provider_payloads(message, self.name), message)}
 
 
 class _MessagesStreamParser(StreamParser):
@@ -150,6 +148,8 @@ class _MessagesStreamParser(StreamParser):
         self._block_inputs: dict[int, list[str]] = {}
         self._tool_indexes: set[int] = set()
         self._builtin_calls = _BuiltinCalls()
+        self._order = _BlockOrder()
+        self._texts: dict[int, dict[str, Any]] = {}
 
     def feed(self, event: str, data: str) -> Iterable[Delta]:
         payload = json.loads(data)
@@ -175,9 +175,11 @@ class _MessagesStreamParser(StreamParser):
     def _start(self, index: int, block: Mapping[str, Any]) -> Iterable[Delta]:
         match block["type"]:
             case "text":
+                self._texts[index] = self._order.text(block["text"])
                 if block["text"]:
                     yield TextDelta(block["text"])
             case "tool_use":
+                self._order.tool_use(block["id"])
                 self._tool_indexes.add(index)
                 yield ToolCallFragment(index, id=block["id"], name=block["name"])
             case _:
@@ -186,6 +188,8 @@ class _MessagesStreamParser(StreamParser):
     def _delta(self, index: int, delta: Mapping[str, Any]) -> Iterable[Delta]:
         match delta["type"]:
             case "text_delta":
+                if (marker := self._texts.get(index)) is not None:
+                    marker["text"] += delta["text"]
                 yield TextDelta(delta["text"])
             case "citations_delta":
                 yield from _citation_deltas([delta["citation"]])
@@ -209,8 +213,71 @@ class _MessagesStreamParser(StreamParser):
             return
         if (fragments := self._block_inputs.pop(index, None)) is not None:
             block["input"] = json.loads("".join(fragments) or "{}")
+        yield from self._order.flush()
         # Streamed thinking was already yielded as reasoning deltas.
         yield from _round_trip_deltas(block, self._builtin_calls, include_reasoning=False)
+
+
+_ORDER_MARKERS = frozenset({"text", "tool_use"})
+
+
+class _BlockOrder:
+    """Records text and tool use blocks that come before a round-tripped block.
+
+    A message keeps its text and tool calls apart from provider data, while some
+    servers validate thinking against the original block order, for example when a
+    tool use precedes a built-in tool result. Those blocks are marked in place as
+    provider data so :func:`_assistant_content` can restore the order. Blocks after
+    the last round-tripped block need no marker.
+    """
+
+    def __init__(self) -> None:
+        self._pending: list[dict[str, Any]] = []
+
+    def text(self, text: str) -> dict[str, Any]:
+        marker = {"type": "text", "text": text}
+        self._pending.append(marker)
+        return marker
+
+    def tool_use(self, call_id: str) -> None:
+        self._pending.append({"type": "tool_use", "id": call_id})
+
+    def flush(self) -> Iterable[Delta]:
+        for marker in self._pending:
+            if marker["type"] != "text" or marker["text"]:
+                yield ProviderData(MessagesFormat.name, marker)
+        self._pending = []
+
+
+def _assistant_content(payloads: list[Mapping[str, Any]], message: Message) -> list[Mapping[str, Any]]:
+    """Assistant blocks in their original order, with text and tool uses placed by their markers.
+
+    A message whose text or tool calls no longer match its markers was changed after it
+    was received; its round-tripped blocks then come first, as for unmarked messages.
+    """
+    calls = {call.id: call for call in message.tool_calls}
+    marked_text = "".join(payload["text"] for payload in payloads if payload.get("type") == "text")
+    marked_calls = {payload["id"] for payload in payloads if payload.get("type") == "tool_use"}
+    if not message.text.startswith(marked_text) or not marked_calls <= calls.keys():
+        payloads = [payload for payload in payloads if payload.get("type") not in _ORDER_MARKERS]
+        marked_text, marked_calls = "", set()
+    content: list[Mapping[str, Any]] = []
+    for payload in payloads:
+        match payload.get("type"):
+            case "text":
+                content.append({"type": "text", "text": payload["text"]})
+            case "tool_use":
+                content.append(_tool_use_block(calls[payload["id"]]))
+            case _:
+                content.append(payload)
+    if rest := message.text[len(marked_text) :]:
+        content.append({"type": "text", "text": rest})
+    content.extend(_tool_use_block(call) for call in message.tool_calls if call.id not in marked_calls)
+    return content
+
+
+def _tool_use_block(call: ToolCall) -> dict[str, Any]:
+    return {"type": "tool_use", "id": call.id, "name": call.name, "input": call.args}
 
 
 class _BuiltinCalls:
