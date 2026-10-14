@@ -98,7 +98,7 @@ Use named options such as `max_tokens` when the format can express them. Use `ex
 
 ## Retries
 
-Republic retries HTTP 408, 409, 429 and 5xx responses, timeouts, network errors and remote protocol errors. Other HTTP errors, invalid response payloads and local authentication errors are not retried. The policy applies to chat, embeddings, decisions, and each page of model listing, including when you supply an HTTP client.
+Republic retries HTTP 408, 409, 429 and 5xx responses, timeouts, network errors and remote protocol errors. Other HTTP errors, invalid response payloads and local authentication errors are not retried. The policy applies to chat, embeddings, images, decisions, and each page of model listing, including when you supply an HTTP client.
 
 ```python
 model = republic.get_model(

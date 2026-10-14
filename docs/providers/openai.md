@@ -1,6 +1,6 @@
 # OpenAI API
 
-Use the `openai` provider to call OpenAI with an API key. It supports chat and embeddings. Chat requests default to Responses; Chat Completions is also available.
+Use the `openai` provider to call OpenAI with an API key. It supports chat, embeddings, and images. Chat requests default to Responses; Chat Completions is also available.
 
 ## Get started
 
@@ -36,5 +36,7 @@ model = republic.get_model("openai:MODEL_ID", api_format="chat")
 ```
 
 For an embedding model, use `get_embedding_model("openai:MODEL_ID")`, then await `embed(text)` or `embed_many(texts)` inside an async function. Choose a model that supports the selected operation.
+
+For an image model, use `get_image_model("openai:MODEL_ID")`, then await `generate(prompt)` or `edit(prompt, images, mask=None)`. They use the `images` format, which calls `/images/generations` and `/images/edits`. Edits send input images and the mask as `image_url` references, so local images and remote URLs both work. See [image models](../reference/provider-api.md#image-models).
 
 See [configuration](../reference/configuration.md) for endpoint overrides and request options.

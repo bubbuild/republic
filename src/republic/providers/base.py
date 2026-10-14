@@ -26,11 +26,18 @@ from republic.errors import (
     UnsupportedFeatureError,
 )
 from republic.formats import _API_FORMATS, ApiFormatName
-from republic.formats._base import ApiFormat, ChatApiFormat, DecisionApiFormat, EmbeddingApiFormat, HttpRequest
+from republic.formats._base import (
+    ApiFormat,
+    ChatApiFormat,
+    DecisionApiFormat,
+    EmbeddingApiFormat,
+    HttpRequest,
+    ImageApiFormat,
+)
 from republic.formats._sse import ServerSentEvent, iter_events
 
 if TYPE_CHECKING:
-    from republic._models import ChatModel, DecisionModel, EmbeddingModel
+    from republic._models import ChatModel, DecisionModel, EmbeddingModel, ImageModel
     from republic.history import HistoryProtocol
 
 DEFAULT_TIMEOUT = httpx2.Timeout(600, connect=10)
@@ -108,7 +115,7 @@ class Provider:
         self._owns_http_client = http_client is None
         self._client_loop: asyncio.AbstractEventLoop | None = None
         self._closed = False
-        self._open_contexts: list[Provider | ChatModel | EmbeddingModel | DecisionModel] = []
+        self._open_contexts: list[Provider | ChatModel | EmbeddingModel | ImageModel | DecisionModel] = []
 
     @property
     def is_closed(self) -> bool:
@@ -138,13 +145,13 @@ class Provider:
         if self._owns_http_client and self._http_client is not None:
             await self._http_client.aclose()
 
-    def _open_context(self, context: Provider | ChatModel | EmbeddingModel | DecisionModel) -> None:
+    def _open_context(self, context: Provider | ChatModel | EmbeddingModel | ImageModel | DecisionModel) -> None:
         self._ensure_open()
         self._check_client_loop()
         # Record each entry so nested contexts for the same object stay open.
         self._open_contexts.append(context)
 
-    async def _close_context(self, context: Provider | ChatModel | EmbeddingModel | DecisionModel) -> None:
+    async def _close_context(self, context: Provider | ChatModel | EmbeddingModel | ImageModel | DecisionModel) -> None:
         self._check_client_loop()
         if context not in self._open_contexts:
             return
@@ -169,6 +176,11 @@ class Provider:
         from republic._models import EmbeddingModel
 
         return EmbeddingModel(self, name, self.select_api_format(EmbeddingApiFormat, name))
+
+    def get_image_model(self, name: str) -> ImageModel:
+        from republic._models import ImageModel
+
+        return ImageModel(self, name, self.select_api_format(ImageApiFormat, name))
 
     def get_decision_model(self, name: str) -> DecisionModel:
         from republic._models import DecisionModel

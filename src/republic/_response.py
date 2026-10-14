@@ -121,6 +121,24 @@ class EmbeddingResponse:
 
 
 @dataclass(frozen=True)
+class ImageResponse:
+    """Images generated or edited by an image model."""
+
+    image_parts: list[Image]
+    """The images in the order the service returned them, as inline data or URLs."""
+    revised_prompts: list[str | None] = field(default_factory=list)
+    """The prompt each image was generated from, when the service rewrote it."""
+    token_usage: TokenUsage = field(default_factory=TokenUsage)
+    request_id: str | None = None
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+
+    @property
+    def images(self) -> list[PILImage]:
+        """The images decoded with Pillow (install ``republic[image]``)."""
+        return [part.to_pil() for part in self.image_parts]
+
+
+@dataclass(frozen=True)
 class ModelInfo:
     """A model listed by a provider."""
 

@@ -5,7 +5,7 @@ from typing import Any, TypedDict, TypeVar, Unpack
 
 import httpx2
 
-from republic._models import ChatModel, DecisionModel, EmbeddingModel
+from republic._models import ChatModel, DecisionModel, EmbeddingModel, ImageModel
 from republic.auth import Auth
 from republic.errors import ProviderNotFoundError
 from republic.formats import ApiFormatName
@@ -105,6 +105,12 @@ def get_embedding_model(spec: str, **options: Unpack[ProviderOptions]) -> Embedd
     """Create an embedding model from a ``"provider:model"`` spec."""
     provider_name, model_name = _split_spec(spec)
     return get_provider(provider_name, **options).get_embedding_model(model_name)
+
+
+def get_image_model(spec: str, **options: Unpack[ProviderOptions]) -> ImageModel:
+    """Create an image model from a ``"provider:model"`` spec."""
+    provider_name, model_name = _split_spec(spec)
+    return get_provider(provider_name, **options).get_image_model(model_name)
 
 
 def get_decision_model(spec: str, **options: Unpack[ProviderOptions]) -> DecisionModel:

@@ -10,7 +10,7 @@ from .base import Provider, _FormatT
 class OpenAI(Provider):
     name = "openai"
     DEFAULT_API_BASE = "https://api.openai.com/v1"
-    SUPPORTED_API_FORMATS = ("responses", "chat", "embeddings")
+    SUPPORTED_API_FORMATS = ("responses", "chat", "embeddings", "images")
 
 
 class OpenAICompatible(OpenAI):

@@ -11,7 +11,7 @@ from .base import Provider
 class Google(Provider):
     name = "google"
     DEFAULT_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
-    SUPPORTED_API_FORMATS = ("gemini", "embed_content")
+    SUPPORTED_API_FORMATS = ("gemini", "embed_content", "gemini_image")
 
     def _api_key_auth(self, api_key: str) -> Auth:
         return HeaderAuth("x-goog-api-key", api_key)

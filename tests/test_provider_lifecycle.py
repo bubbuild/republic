@@ -10,25 +10,40 @@ import republic
 from republic.providers import base
 from tests.conftest import FakeService
 
+OtherModel = republic.EmbeddingModel | republic.ImageModel | republic.DecisionModel
 
-@pytest.fixture(params=["embedding", "decision"])
-def other_model(request: pytest.FixtureRequest) -> republic.EmbeddingModel | republic.DecisionModel:
+
+@pytest.fixture(params=["embedding", "image", "decision"])
+def other_model(request: pytest.FixtureRequest) -> OtherModel:
     if request.param == "embedding":
         return republic.get_embedding_model("openai:test")
+    if request.param == "image":
+        return republic.get_image_model("openai:test")
     return republic.get_decision_model("typesafe:test", api_key="key")
 
 
-async def _call_other_model(model: republic.EmbeddingModel | republic.DecisionModel, service: FakeService) -> None:
+def _same_kind(provider: base.Provider, model: OtherModel, name: str) -> OtherModel:
+    if isinstance(model, republic.EmbeddingModel):
+        return provider.get_embedding_model(name)
+    if isinstance(model, republic.ImageModel):
+        return provider.get_image_model(name)
+    return provider.get_decision_model(name)
+
+
+async def _call_other_model(model: OtherModel, service: FakeService) -> None:
     if isinstance(model, republic.EmbeddingModel):
         service.reply_json({"data": [{"index": 0, "embedding": [0.1]}]})
         assert (await model.embed("Hi")).vector == [0.1]
+    elif isinstance(model, republic.ImageModel):
+        service.reply_json({"data": [{"b64_json": "cG5n"}]})
+        assert (await model.generate("Hi")).image_parts[0].data == b"png"
     else:
         service.reply_json({"answers": {}, "usage": {}})
         assert (await model.decide("Hi", questions={})).answers == {}
 
 
 async def test_other_model_context_reuses_client_and_closes_provider(
-    other_model: republic.EmbeddingModel | republic.DecisionModel,
+    other_model: OtherModel,
     clients: list[httpx2.AsyncClient],
     service: FakeService,
 ) -> None:
@@ -48,7 +63,7 @@ async def test_other_model_context_reuses_client_and_closes_provider(
 
 @pytest.mark.parametrize("failure", [ValueError, asyncio.CancelledError])
 async def test_other_model_context_closes_on_failure(
-    other_model: republic.EmbeddingModel | republic.DecisionModel,
+    other_model: OtherModel,
     failure: type[BaseException],
     clients: list[httpx2.AsyncClient],
     service: FakeService,
@@ -62,7 +77,7 @@ async def test_other_model_context_closes_on_failure(
 
 
 async def test_unused_other_model_context_does_not_create_client(
-    other_model: republic.EmbeddingModel | republic.DecisionModel, clients: list[httpx2.AsyncClient]
+    other_model: OtherModel, clients: list[httpx2.AsyncClient]
 ) -> None:
     async with other_model:
         assert clients == []
@@ -70,16 +85,10 @@ async def test_unused_other_model_context_does_not_create_client(
     assert clients == []
 
 
-async def test_other_model_context_leaves_external_client_open(
-    other_model: republic.EmbeddingModel | republic.DecisionModel, service: FakeService
-) -> None:
+async def test_other_model_context_leaves_external_client_open(other_model: OtherModel, service: FakeService) -> None:
     async with service.client() as client:
         provider = republic.get_provider(other_model.provider.name, api_key="key", http_client=client)
-        model = (
-            provider.get_embedding_model("test")
-            if isinstance(other_model, republic.EmbeddingModel)
-            else provider.get_decision_model("test")
-        )
+        model = _same_kind(provider, other_model, "test")
         async with model:
             await _call_other_model(model, service)
         assert provider.is_closed
@@ -88,7 +97,7 @@ async def test_other_model_context_leaves_external_client_open(
 
 
 async def test_nested_contexts_for_same_model_keep_provider_open(
-    other_model: republic.EmbeddingModel | republic.DecisionModel,
+    other_model: OtherModel,
     clients: list[httpx2.AsyncClient],
     service: FakeService,
 ) -> None:
@@ -103,7 +112,7 @@ async def test_nested_contexts_for_same_model_keep_provider_open(
 
 
 async def test_provider_context_keeps_other_model_client_open_after_model_exit(
-    other_model: republic.EmbeddingModel | republic.DecisionModel,
+    other_model: OtherModel,
     clients: list[httpx2.AsyncClient],
     service: FakeService,
 ) -> None:
@@ -185,17 +194,13 @@ async def test_explicit_close_overrides_nested_provider_and_model_contexts(
 
 @pytest.mark.parametrize("failure", [ValueError, asyncio.CancelledError])
 async def test_other_model_failure_keeps_sibling_context_open(
-    other_model: republic.EmbeddingModel | republic.DecisionModel,
+    other_model: OtherModel,
     failure: type[BaseException],
     clients: list[httpx2.AsyncClient],
     service: FakeService,
 ) -> None:
     provider = other_model.provider
-    sibling = (
-        provider.get_embedding_model("sibling")
-        if isinstance(other_model, republic.EmbeddingModel)
-        else provider.get_decision_model("sibling")
-    )
+    sibling = _same_kind(provider, other_model, "sibling")
     async with sibling:
         with pytest.raises(failure):
             async with other_model:

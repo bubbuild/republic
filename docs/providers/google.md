@@ -1,6 +1,6 @@
 # Google Gemini API
 
-Use the `google` provider to call the Gemini API with an API key. It supports chat through the Gemini format and embeddings through the Embed Content format.
+Use the `google` provider to call the Gemini API with an API key. It supports chat through the Gemini format, embeddings through the Embed Content format, and images through the Gemini Image format.
 
 ## Get started
 
@@ -28,5 +28,7 @@ Republic reads `REPUBLIC_GOOGLE_API_KEY` when the provider is created and sends 
 ## Model support
 
 Use `chat()` for a complete response or `stream()` for events. For an embedding model, use `get_embedding_model("google:MODEL_ID")`, then await `embed(text)` or `embed_many(texts)` inside an async function.
+
+For an image model, use `get_image_model("google:MODEL_ID")`, then await `generate(prompt)` or `edit(prompt, images)`. The `gemini_image` format calls `generateContent` and asks only for image output. Set `aspect_ratio=` (such as `"16:9"`) and `size=` (`"1K"`, `"2K"`, or `"4K"`) to shape the image. Masks and the OpenAI-only options `quality`, `background`, `output_format`, `output_compression`, and `moderation` raise `errors.UnsupportedFeatureError`. A reply without images, such as one stopped by a safety filter, raises `errors.APIResponseError`. See [image models](../reference/provider-api.md#image-models).
 
 Choose a model that supports the requested operation and inputs. See [configuration](../reference/configuration.md) for endpoint overrides and request options.

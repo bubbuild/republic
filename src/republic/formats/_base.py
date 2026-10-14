@@ -6,9 +6,9 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
 
-from republic._content import Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
-from republic._options import ChatOptions, ReasoningEffort
-from republic._response import EmbeddingResponse, FinishReason, Response, TokenUsage
+from republic._content import Image, Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
+from republic._options import ChatOptions, ImageOptions, ReasoningEffort
+from republic._response import EmbeddingResponse, FinishReason, ImageResponse, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
 from republic.errors import StreamIncompleteError, UnsupportedFeatureError
 from republic.events import (
@@ -254,6 +254,21 @@ class DecisionApiFormat(ApiFormat):
 
     @abstractmethod
     def parse_decision(self, data: Mapping[str, Any]) -> DecisionResponse: ...
+
+
+class ImageApiFormat(ApiFormat):
+    kind = "image"
+
+    @abstractmethod
+    def generation_request(self, model: str, prompt: str, options: ImageOptions) -> HttpRequest: ...
+
+    @abstractmethod
+    def edit_request(
+        self, model: str, prompt: str, images: Sequence[Image], *, mask: Image | None, options: ImageOptions
+    ) -> HttpRequest: ...
+
+    @abstractmethod
+    def parse_images(self, data: Mapping[str, Any]) -> ImageResponse: ...
 
 
 @dataclass

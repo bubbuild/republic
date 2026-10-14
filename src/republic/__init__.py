@@ -22,12 +22,13 @@ from republic._content import (
     user,
     video,
 )
-from republic._models import ChatModel, DecisionModel, EmbeddingModel, Stream
-from republic._options import ChatOptions, ReasoningEffort, ToolChoice
+from republic._models import ChatModel, DecisionModel, EmbeddingModel, ImageModel, Stream
+from republic._options import ChatOptions, ImageOptions, ReasoningEffort, ToolChoice
 from republic._registry import (
     all_providers,
     get_decision_model,
     get_embedding_model,
+    get_image_model,
     get_model,
     get_provider,
     register_provider,
@@ -37,6 +38,7 @@ from republic._response import (
     Citation,
     EmbeddingResponse,
     FinishReason,
+    ImageResponse,
     ModelInfo,
     Response,
     TokenUsage,
@@ -53,6 +55,9 @@ __all__ = [
     "EmbeddingResponse",
     "FinishReason",
     "Image",
+    "ImageModel",
+    "ImageOptions",
+    "ImageResponse",
     "Message",
     "ModelInfo",
     "ProviderData",
@@ -76,6 +81,7 @@ __all__ = [
     "formats",
     "get_decision_model",
     "get_embedding_model",
+    "get_image_model",
     "get_model",
     "get_provider",
     "history",

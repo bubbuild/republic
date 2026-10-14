@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any, Generic, Self, Unpack, overload
 
 import pydantic
 
-from republic._content import Input, Message, ToolCall, to_messages
-from republic._options import ChatOptions
-from republic._response import EmbeddingResponse, OutputT, Response, TokenUsage
+from republic._content import Image, Input, Message, ToolCall, to_messages
+from republic._options import ChatOptions, ImageOptions
+from republic._response import EmbeddingResponse, ImageResponse, OutputT, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
 from republic.errors import APIResponseError, StreamNotFinishedError, request_id
 from republic.events import Completed, Event
@@ -19,6 +19,8 @@ from republic.formats._base import (
     ChatRequest,
     DecisionApiFormat,
     EmbeddingApiFormat,
+    HttpRequest,
+    ImageApiFormat,
     OutputSchema,
     ResponseBuilder,
     deep_merge,
@@ -243,6 +245,56 @@ class EmbeddingModel:
         with _response_errors(response.headers):
             return replace(
                 self.api_format.parse_embedding(response.json()),
+                headers=dict(response.headers),
+                request_id=request_id(response.headers),
+            )
+
+
+class ImageModel:
+    """Generate and edit images."""
+
+    def __init__(self, provider: Provider, name: str, api_format: ImageApiFormat) -> None:
+        self.provider = provider
+        self.name = name
+        self.api_format = api_format
+
+    async def __aenter__(self) -> Self:
+        self.provider._open_context(self)
+        return self
+
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
+    ) -> None:
+        await self.provider._close_context(self)
+
+    async def generate(self, prompt: str, **options: Unpack[ImageOptions]) -> ImageResponse:
+        """Generate images from ``prompt``. See :class:`ImageOptions` for the options."""
+        return await self._send(self.api_format.generation_request(self.name, prompt, ImageOptions(**options)))
+
+    async def edit(
+        self,
+        prompt: str,
+        images: Image | Sequence[Image],
+        *,
+        mask: Image | None = None,
+        **options: Unpack[ImageOptions],
+    ) -> ImageResponse:
+        """Edit or combine ``images`` as ``prompt`` describes.
+
+        Build images with :func:`republic.image`. Transparent areas of ``mask``
+        mark where the first image is edited, on formats that support masks.
+        """
+        images = [images] if isinstance(images, Image) else list(images)
+        if not images:
+            raise ValueError("Pass at least one image to edit")
+        request = self.api_format.edit_request(self.name, prompt, images, mask=mask, options=ImageOptions(**options))
+        return await self._send(request)
+
+    async def _send(self, request: HttpRequest) -> ImageResponse:
+        response = await self.provider._post(self.api_format, request)
+        with _response_errors(response.headers):
+            return replace(
+                self.api_format.parse_images(response.json()),
                 headers=dict(response.headers),
                 request_id=request_id(response.headers),
             )

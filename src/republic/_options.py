@@ -37,3 +37,28 @@ class ChatOptions(TypedDict, total=False):
     include_reasoning: bool
     """Ask for readable reasoning (or its summary) where the provider hides it by default."""
     extra_body: Mapping[str, Any]
+
+
+class ImageOptions(TypedDict, total=False):
+    """Options for image generation and editing.
+
+    Values follow each service's vocabulary and are validated by the service.
+    API formats raise :class:`~republic.errors.UnsupportedFeatureError` for
+    options they cannot express. Use ``extra_body`` for anything else, such as
+    ``input_fidelity``; it is merged last.
+    """
+
+    n: int
+    """How many images to return."""
+    size: str
+    """Such as ``"1024x1024"`` or ``"auto"`` for OpenAI, or ``"1K"``, ``"2K"``, or ``"4K"`` for Gemini."""
+    aspect_ratio: str
+    """Such as ``"1:1"`` or ``"16:9"``; Gemini only."""
+    quality: str
+    """Such as ``"low"``, ``"medium"``, ``"high"``, or ``"auto"``."""
+    background: Literal["transparent", "opaque", "auto"]
+    output_format: Literal["png", "jpeg", "webp"]
+    output_compression: int
+    """Compression level from 0 to 100 for ``jpeg`` and ``webp`` output."""
+    moderation: Literal["low", "auto"]
+    extra_body: Mapping[str, Any]

@@ -78,14 +78,14 @@ async with republic.get_provider("openai") as provider:
     await second.chat("Hello")
 ```
 
-Chat, embedding, and decision models support the same pattern. The Provider tracks entered Provider and model contexts and closes only when all of them have exited:
+Chat, embedding, image, and decision models support the same pattern. The Provider tracks entered Provider and model contexts and closes only when all of them have exited:
 
 ```python
 async with republic.get_model("openai:gpt-6-sol") as model:
     response = await model.chat("Hello")
 ```
 
-Use the same pattern with `get_embedding_model()` and `get_decision_model()`, or enter an existing model with `async with model:`. Entering a Provider or model does not create the HTTP client before its first request. Creating a model without entering its context does not register it as open. Nested contexts for the same model remain open until all its entries have exited.
+Use the same pattern with `get_embedding_model()`, `get_image_model()`, and `get_decision_model()`, or enter an existing model with `async with model:`. Entering a Provider or model does not create the HTTP client before its first request. Creating a model without entering its context does not register it as open. Nested contexts for the same model remain open until all its entries have exited.
 
 ```python
 provider = republic.get_provider("openai")
@@ -307,7 +307,7 @@ provider = republic.get_provider("openai", api_format="chat")
 model = provider.get_model("gpt-6-sol")
 ```
 
-A format not supported by the provider, such as `messages` for OpenAI, raises `errors.UnsupportedApiFormatError`. A preferred chat format does not prevent selecting an embedding or decision format for another model kind.
+A format not supported by the provider, such as `messages` for OpenAI, raises `errors.UnsupportedApiFormatError`. A preferred chat format does not prevent selecting an embedding, image, or decision format for another model kind.
 
 ## Optional conversation history
 
@@ -343,6 +343,8 @@ With attached history, Republic reads earlier messages before each request and a
 
 ## Non-chat models
 
+### Embedding models
+
 Embedding models return vectors:
 
 ```python
@@ -352,6 +354,35 @@ print(response.vector)
 ```
 
 `embed_many(texts)` returns one vector per input in `response.vectors`. Replace `embedding-model` with an available embedding model.
+
+### Image models
+
+Image models generate and edit images:
+
+```python
+model = republic.get_image_model("openai:image-model")
+response = await model.generate("A watercolor fox in the snow", size="1024x1024", quality="high")
+response.images[0].save("fox.png")
+
+response = await model.edit(
+    "Give the fox a red scarf",
+    [republic.image("fox.png")],
+    mask=republic.image("mask.png"),
+)
+```
+
+`response.image_parts` holds one `republic.Image` per result, with inline data or a URL. `response.images` decodes them with Pillow (install `republic[image]`). `response.revised_prompts` holds any prompts the service rewrote, and `response.token_usage` reports usage when the service does. `edit()` accepts one image or a list. Transparent areas of `mask` mark where the first image changes, on formats that support masks.
+
+`republic.ImageOptions` lists the options: `n`, `size`, `aspect_ratio`, `quality`, `background`, `output_format`, `output_compression`, `moderation`, and `extra_body`. Values follow each service's vocabulary. A format raises `errors.UnsupportedFeatureError` for options it cannot express:
+
+| Format | Providers | Endpoint | Options |
+| --- | --- | --- | --- |
+| `images` | OpenAI, Azure OpenAI | `/images/generations`, `/images/edits` | All except `aspect_ratio` |
+| `gemini_image` | Google | `/models/MODEL:generateContent` | `n`, `size`, `aspect_ratio`, `extra_body`; no masks |
+
+Replace `image-model` with an available image model. Streaming partial images is not supported.
+
+### Decision models
 
 Decision models answer typed questions about state:
 

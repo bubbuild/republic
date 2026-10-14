@@ -38,6 +38,6 @@ Republic reads `REPUBLIC_TYPESAFE_API_KEY` when the provider is created. You can
 
 `decide()` returns answers under the question IDs you supplied. Questions can request a choice, a yes/no probability, or a score using `Choice`, `Noul`, or `Score` from `republic.decisions`.
 
-This provider supports decision models only. Use `get_decision_model()`; chat and embedding models are unavailable.
+This provider supports decision models only. Use `get_decision_model()`; chat, embedding, and image models are unavailable.
 
 See [configuration](../reference/configuration.md) for endpoint overrides and request options.

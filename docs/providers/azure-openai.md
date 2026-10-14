@@ -1,6 +1,6 @@
 # Azure OpenAI
 
-Use the `azure-openai` provider to call Azure OpenAI deployments through the v1 API. It supports chat and embeddings. Chat requests default to Responses; Chat Completions is also available.
+Use the `azure-openai` provider to call Azure OpenAI deployments through the v1 API. It supports chat, embeddings, and images. Chat requests default to Responses; Chat Completions is also available.
 
 ## Get started
 
@@ -35,6 +35,6 @@ from republic.providers import AzureOpenAI
 model = AzureOpenAI(resource="my-resource").get_model("DEPLOYMENT")
 ```
 
-Select `api_format="chat"` for deployments without Responses support. Use `get_embedding_model()` for embedding deployments.
+Select `api_format="chat"` for deployments without Responses support. Use `get_embedding_model()` for embedding deployments and `get_image_model()` for image deployments; image models use the same `images` format as [OpenAI](openai.md#model-support).
 
 See [configuration](../reference/configuration.md) for endpoint overrides and request options.

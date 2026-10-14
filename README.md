@@ -41,7 +41,7 @@ A model is named `provider:model`. Switch services by changing the name, such as
 - [Providers](https://getrepublic.org/providers/): services, formats, and credentials.
 - [Authentication](https://getrepublic.org/guides/authentication/): API keys, CLI logins, and OAuth.
 - Guides: [tool use](https://getrepublic.org/guides/tools/), [a minimal agent](https://getrepublic.org/guides/minimal-agent/), and [structured output](https://getrepublic.org/guides/structured-output/).
-- Reference: [configuration](https://getrepublic.org/reference/configuration/) and the [provider API](https://getrepublic.org/reference/provider-api/), including media input, embeddings, decision models, history, and custom providers.
+- Reference: [configuration](https://getrepublic.org/reference/configuration/) and the [provider API](https://getrepublic.org/reference/provider-api/), including media input, embeddings, image generation, decision models, history, and custom providers.
 
 ## Development
 

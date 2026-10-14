@@ -20,6 +20,7 @@ from ._base import (
     Delta,
     EmbeddingApiFormat,
     HttpRequest,
+    ImageApiFormat,
     OutputSchema,
     ResponseInfo,
     StreamParser,
@@ -31,11 +32,14 @@ from ._base import (
 from .chat import ChatFormat
 from .embeddings import EmbedContentFormat, EmbeddingsFormat
 from .gemini import GeminiFormat
+from .images import GeminiImageFormat, ImagesFormat
 from .messages import MessagesFormat
 from .responses import ResponsesFormat
 from .system_one import SystemOneFormat
 
-ApiFormatName = Literal["responses", "messages", "gemini", "chat", "embeddings", "embed_content", "system_one"]
+ApiFormatName = Literal[
+    "responses", "messages", "gemini", "chat", "embeddings", "embed_content", "images", "gemini_image", "system_one"
+]
 
 _API_FORMATS: dict[str, ApiFormat] = {
     api_format.name: api_format
@@ -46,6 +50,8 @@ _API_FORMATS: dict[str, ApiFormat] = {
         ChatFormat(),
         EmbeddingsFormat(),
         EmbedContentFormat(),
+        ImagesFormat(),
+        GeminiImageFormat(),
         SystemOneFormat(),
     )
 }
@@ -63,7 +69,10 @@ __all__ = [
     "EmbeddingApiFormat",
     "EmbeddingsFormat",
     "GeminiFormat",
+    "GeminiImageFormat",
     "HttpRequest",
+    "ImageApiFormat",
+    "ImagesFormat",
     "MessagesFormat",
     "OutputSchema",
     "ResponseInfo",
