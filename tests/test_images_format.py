@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import base64
+from email.message import Message
+from email.parser import BytesParser
+from email.policy import HTTP
 
+import httpx2
 import pytest
 
 import republic
@@ -11,6 +15,23 @@ from tests.conftest import FakeService
 PNG = republic.Image("image/png", data=b"png")
 MASK = republic.Image("image/png", data=b"mask")
 B64_PNG = base64.b64encode(b"png").decode()
+
+
+def _form_parts(request: httpx2.Request) -> list[Message]:
+    """Split a multipart request into its parts, in order."""
+    head = f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode()
+    message = BytesParser(policy=HTTP).parsebytes(head + request.content)
+    return list(message.iter_parts())
+
+
+def _azure_image_model(service: FakeService, *, retry_delay: float = 0.5) -> republic.ImageModel:
+    return republic.get_image_model(
+        "azure-openai:image-deployment",
+        api_key="key",
+        api_base="https://res.openai.azure.com/openai/v1",
+        http_client=service.client(),
+        retry_delay=retry_delay,
+    )
 
 
 class TestOpenAIImages:
@@ -101,6 +122,61 @@ class TestOpenAIImages:
         assert service.requests[0].url == "https://res.openai.azure.com/openai/v1/images/generations"
         assert service.requests[0].headers["api-key"] == "key"
         assert service.body()["model"] == "image-deployment"
+
+    async def test_azure_edits_use_multipart_form_data(self, service: FakeService) -> None:
+        service.reply_json({"data": [{"b64_json": B64_PNG}]})
+        jpeg = republic.Image("image/jpeg", data=b"jpeg")
+
+        await _azure_image_model(service).edit("Add a hat", [PNG, jpeg], mask=MASK, n=2, extra_body={"stream": False})
+
+        request = service.requests[0]
+        assert request.url == "https://res.openai.azure.com/openai/v1/images/edits"
+        assert request.headers["content-type"].startswith("multipart/form-data; boundary=")
+        parts = [
+            (part.get_param("name", header="content-disposition"), part.get_filename(), part)
+            for part in _form_parts(request)
+        ]
+        assert [(name, filename) for name, filename, _ in parts] == [
+            ("model", None),
+            ("prompt", None),
+            ("n", None),
+            ("stream", None),
+            ("image[]", "image-0.png"),
+            ("image[]", "image-1.jpg"),
+            ("mask", "mask.png"),
+        ]
+        assert [part.get_payload(decode=True) for _, _, part in parts] == [
+            b"image-deployment",
+            b"Add a hat",
+            b"2",
+            b"false",
+            b"png",
+            b"jpeg",
+            b"mask",
+        ]
+        assert [part.get_content_type() for _, filename, part in parts if filename] == [
+            "image/png",
+            "image/jpeg",
+            "image/png",
+        ]
+
+    async def test_azure_edits_need_inline_images(self) -> None:
+        model = republic.get_image_model(
+            "azure-openai:image-deployment", api_key="key", api_base="https://res.openai.azure.com/openai/v1"
+        )
+
+        with pytest.raises(errors.UnsupportedFeatureError, match="inline image data"):
+            await model.edit("Add a hat", republic.image("https://example.com/cat.png"))
+
+    async def test_azure_edit_retries_resend_the_form(self, service: FakeService) -> None:
+        service.reply_json({"error": "busy"}, status_code=503)
+        service.reply_json({"data": [{"b64_json": B64_PNG}]})
+
+        await _azure_image_model(service, retry_delay=0).edit("Add a hat", PNG)
+
+        assert len(service.requests) == 2
+        first, second = ([part.get_payload(decode=True) for part in _form_parts(r)] for r in service.requests)
+        assert first == second == [b"image-deployment", b"Add a hat", b"png"]
 
     async def test_preferred_chat_format_keeps_images(self, service: FakeService) -> None:
         service.reply_json({"data": [{"b64_json": B64_PNG}]})

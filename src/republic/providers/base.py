@@ -305,12 +305,15 @@ class Provider:
     async def _send(
         self, client: httpx2.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool
     ) -> httpx2.Response:
+        content: dict[str, Any] = (
+            {"data": request.body, "files": list(request.files)} if request.files else {"json": request.body}
+        )
         built = client.build_request(
             "POST",
             f"{self.api_base}{request.path}",
-            json=request.body,
             params=request.params,
             headers={**api_format.headers, **self.headers},
+            **content,
         )
         auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
         return await client.send(built, auth=auth, stream=stream)

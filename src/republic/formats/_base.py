@@ -136,7 +136,10 @@ class ChatRequest:
 class HttpRequest:
     path: str
     body: Mapping[str, Any]
+    """The JSON body, or the form fields of a multipart request when ``files`` is set."""
     params: Mapping[str, str] = field(default_factory=dict)
+    files: Sequence[tuple[str, tuple[str, bytes, str]]] = ()
+    """Multipart file parts as ``(field, (filename, data, media_type))``."""
 
 
 @dataclass(frozen=True)

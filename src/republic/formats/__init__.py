@@ -32,7 +32,7 @@ from ._base import (
 from .chat import ChatFormat
 from .embeddings import EmbedContentFormat, EmbeddingsFormat
 from .gemini import GeminiFormat
-from .images import GeminiImageFormat, ImagesFormat
+from .images import GeminiImageFormat, ImagesFormat, MultipartImagesFormat
 from .messages import MessagesFormat
 from .responses import ResponsesFormat
 from .system_one import SystemOneFormat
@@ -74,6 +74,7 @@ __all__ = [
     "ImageApiFormat",
     "ImagesFormat",
     "MessagesFormat",
+    "MultipartImagesFormat",
     "OutputSchema",
     "ResponseInfo",
     "ResponsesFormat",

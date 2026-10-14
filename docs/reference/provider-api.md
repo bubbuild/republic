@@ -380,6 +380,8 @@ response = await model.edit(
 | `images` | OpenAI, Azure OpenAI | `/images/generations`, `/images/edits` | All except `aspect_ratio` |
 | `gemini_image` | Google | `/models/MODEL:generateContent` | `n`, `size`, `aspect_ratio`, `extra_body`; no masks |
 
+OpenAI edits send images and the mask as `image_url` references in a JSON body, so remote URLs work. Azure OpenAI requires multipart edits and uses `formats.MultipartImagesFormat`, which uploads them as files; edit inputs need inline data there. A custom provider can return `MultipartImagesFormat()` from `select_api_format()` for gateways that accept only multipart edits.
+
 Replace `image-model` with an available image model. Streaming partial images is not supported.
 
 ### Decision models

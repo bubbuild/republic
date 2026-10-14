@@ -35,6 +35,6 @@ from republic.providers import AzureOpenAI
 model = AzureOpenAI(resource="my-resource").get_model("DEPLOYMENT")
 ```
 
-Select `api_format="chat"` for deployments without Responses support. Use `get_embedding_model()` for embedding deployments and `get_image_model()` for image deployments; image models use the same `images` format as [OpenAI](openai.md#model-support).
+Select `api_format="chat"` for deployments without Responses support. Use `get_embedding_model()` for embedding deployments and `get_image_model()` for image deployments. Image generation sends the same JSON body as [OpenAI](openai.md#model-support). Azure requires multipart form data for edits, so Republic uploads input images as `image[]` files and the mask as `mask`. Edit inputs therefore need inline data; a URL-only image raises `errors.UnsupportedFeatureError`. Load it with `republic.image(path)` or pass the bytes instead.
 
 See [configuration](../reference/configuration.md) for endpoint overrides and request options.

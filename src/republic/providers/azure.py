@@ -4,7 +4,9 @@ import os
 from typing import TYPE_CHECKING, Unpack
 
 from republic.auth import Auth, HeaderAuth
+from republic.formats import ImagesFormat, MultipartImagesFormat
 
+from .base import _FormatT
 from .openai import OpenAI
 
 if TYPE_CHECKING:
@@ -17,6 +19,7 @@ class AzureOpenAI(OpenAI):
     Give the resource name, read from ``{env_prefix}_RESOURCE`` when omitted,
     or a full ``api_base`` such as ``https://RESOURCE.openai.azure.com/openai/v1``.
     API keys use the ``api-key`` header; pass ``auth=`` for Microsoft Entra ID tokens.
+    Image edits are sent as multipart form data, which Azure requires.
     """
 
     name = "azure-openai"
@@ -36,6 +39,15 @@ class AzureOpenAI(OpenAI):
 
     def _api_key_auth(self, api_key: str) -> Auth:
         return HeaderAuth("api-key", api_key)
+
+    def select_api_format(self, format_kind: type[_FormatT], model: str) -> _FormatT:
+        api_format = super().select_api_format(format_kind, model)
+        if isinstance(api_format, ImagesFormat) and isinstance(_IMAGES_FORMAT, format_kind):
+            return _IMAGES_FORMAT
+        return api_format
+
+
+_IMAGES_FORMAT = MultipartImagesFormat()
 
 
 def _resource_api_base(resource: str) -> str:

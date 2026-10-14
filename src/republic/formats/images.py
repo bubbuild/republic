@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -63,6 +64,22 @@ class ImagesFormat(ImageApiFormat):
         _reject(self.name, options, "aspect_ratio")
         body.update({name: value for name, value in options.items() if name in self.OPTIONS})
         return deep_merge(body, options.get("extra_body", {}))
+
+
+class MultipartImagesFormat(ImagesFormat):
+    """The ``images`` format with edits sent as multipart form data, as Azure OpenAI requires.
+
+    Input images and the mask are uploaded as files, so they need inline data.
+    """
+
+    def edit_request(
+        self, model: str, prompt: str, images: Sequence[Image], *, mask: Image | None, options: ImageOptions
+    ) -> HttpRequest:
+        files = [("image[]", _file(f"image-{index}", image)) for index, image in enumerate(images)]
+        if mask is not None:
+            files.append(("mask", _file("mask", mask)))
+        fields = self._body({"model": model, "prompt": prompt}, options)
+        return HttpRequest("/images/edits", {name: _form_value(value) for name, value in fields.items()}, files=files)
 
 
 class GeminiImageFormat(ImageApiFormat):
@@ -128,6 +145,18 @@ class GeminiImageFormat(ImageApiFormat):
             "generationConfig": config,
         }
         return HttpRequest(f"/models/{model}:generateContent", deep_merge(body, options.get("extra_body", {})))
+
+
+def _file(stem: str, image: Image) -> tuple[str, bytes, str]:
+    if image.data is None:
+        raise UnsupportedFeatureError(f"Multipart image edits need inline image data, not a URL: {image.url}")
+    return f"{stem}{mimetypes.guess_extension(image.media_type) or ''}", image.data, image.media_type
+
+
+def _form_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return value if isinstance(value, str) else json.dumps(value)
 
 
 def _reject(api_format: str, options: ImageOptions, *unsupported: str) -> None:

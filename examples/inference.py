@@ -85,9 +85,8 @@ async def test_structured_output():
 
 
 async def test_image_generation():
-    async with republic.get_model("google:gemini-3.1-flash-image-preview") as model:
-        response = await model.chat("Generate an image of a futuristic city skyline at sunset.")
-        print(response.text)
+    async with republic.get_image_model("google:gemini-3.1-flash-image-preview") as model:
+        response = await model.generate("Generate an image of a futuristic city skyline at sunset.")
         for i, image in enumerate(response.image_parts):
             if image.data is None:
                 raise ValueError(f"Image data for image_{i}.png is None")
