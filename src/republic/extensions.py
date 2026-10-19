@@ -1,42 +1,61 @@
-"""Optional provider callbacks, grouped into one extension object."""
+"""Optional synchronous observers for public Republic calls."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from republic._response import EmbeddingResponse, ImageResponse, ModelInfo, Response
 from republic.decisions import DecisionResponse
 
-__all__ = ["Extension"]
+__all__ = ["Extension", "Observer", "Request", "ResponseValue"]
 
-_Response = Response[Any] | EmbeddingResponse | ImageResponse | DecisionResponse | list[ModelInfo]
+ResponseValue = Response[Any] | EmbeddingResponse | ImageResponse | DecisionResponse | list[ModelInfo]
 
 
 @dataclass(frozen=True)
+class Request:
+    """Read-only call metadata, without prompts or mutable request options.
+
+    ``operation`` is ``chat``, ``stream``, ``embed`` (including batches),
+    ``generate``, ``edit``, ``decide``, or ``list_models``.
+    """
+
+    provider: str
+    operation: str
+    model: str | None = None
+
+
+class Observer:
+    """A receiver for one call, returned by :meth:`Extension.on_start`.
+
+    Methods are synchronous and called in extension order. Their return values
+    are ignored and failures are logged without changing the call's outcome.
+    Borrowed responses must not be mutated.
+    """
+
+    def on_retry(self, error: Exception, attempt: int, delay: float) -> None:
+        """Observe a scheduled retry after response cleanup, before waiting.
+
+        ``attempt`` starts at one for each HTTP retry loop, including each
+        page of model listing. ``delay`` is the selected wait in seconds.
+        """
+
+    def on_finish(self, response: ResponseValue | None, error: BaseException | None) -> None:
+        """Observe one terminal outcome, with an available response and original error.
+
+        Both may be present if validation or history fails after a response
+        was prepared. Both are absent for an unfinished stream. Successful
+        streams notify before ``Completed``, independently of context exit.
+        """
+
+
 class Extension:
-    """Optional synchronous callbacks, called in extension order.
+    """Configure an observer factory and supply it through ``extensions=``."""
 
-    Pass instances through ``extensions=``. No registration or subclass is
-    needed. Observer failures are logged; retry-policy failures propagate.
-    """
+    def on_start(self, request: Request) -> Observer | None:
+        """Create a receiver when a call starts; streams start on context entry.
 
-    on_response: Callable[[_Response], None] | None = None
-    """Observe a completed public response, after parsing, validation and history.
-
-    For streams this runs at completion, before the ``Completed`` event;
-    closing an unfinished stream produces no response notification.
-    """
-    on_retry: Callable[[Exception, int, float], None] | None = None
-    """Observe a retry's error, failed attempt number (starting at 1), and wait.
-
-    Called after releasing the failed HTTP response and before waiting.
-    """
-    retry_delay: Callable[[Exception, int, float], float] | None = None
-    """Adjust an already planned retry's wait in seconds.
-
-    Receives the error, failed attempt number, and proposed wait. The result
-    must be finite and nonnegative, and is capped by ``max_retry_delay``.
-    This does not change which failures are retried or ``max_retries``.
-    """
+        Keep per-call state in the returned observer so this extension can be
+        reused across concurrent calls. Return ``None`` to skip a call.
+        """

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import logging
 import math
 import os
 import random
@@ -18,6 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar
 
 import httpx2
 
+from republic._extensions import _active, _observe
 from republic._response import ModelInfo
 from republic.auth import Auth, HeaderAuth
 from republic.errors import (
@@ -44,7 +43,6 @@ if TYPE_CHECKING:
     from republic.history import HistoryProtocol
 
 DEFAULT_TIMEOUT = httpx2.Timeout(600, connect=10)
-logger = logging.getLogger(__name__)
 
 _FormatT = TypeVar("_FormatT", bound=ApiFormat)
 
@@ -195,27 +193,28 @@ class Provider:
 
     async def list_models(self) -> list[ModelInfo]:
         """List the models the service offers to these credentials, following every page."""
-        if self.MODELS_PATH is None:
-            raise UnsupportedFeatureError(f"Provider {self.name!r} cannot list models")
-        api_format = _API_FORMATS[self.api_format or self.SUPPORTED_API_FORMATS[0]]
-        headers = {**api_format.headers, **self.headers}
-        auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
-        models: list[ModelInfo] = []
-        params = self._models_params(None)
-        client = self._client()
-        while params is not None:
-            response = await self._retry(
-                lambda params=params: client.get(
-                    f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
+        with _observe(self, "list_models") as observation:
+            if self.MODELS_PATH is None:
+                raise UnsupportedFeatureError(f"Provider {self.name!r} cannot list models")
+            api_format = _API_FORMATS[self.api_format or self.SUPPORTED_API_FORMATS[0]]
+            headers = {**api_format.headers, **self.headers}
+            auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
+            models: list[ModelInfo] = []
+            params = self._models_params(None)
+            client = self._client()
+            while params is not None:
+                response = await self._retry(
+                    lambda params=params: client.get(
+                        f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
+                    )
                 )
-            )
-            if response.is_error:
-                raise APIStatusError(response.status_code, response.text, headers=response.headers)
-            data = response.json()
-            models.extend(self._parse_models(data))
-            params = self._models_params(data)
-        self._notify_extensions("on_response", models)
-        return models
+                if response.is_error:
+                    raise APIStatusError(response.status_code, response.text, headers=response.headers)
+                data = response.json()
+                models.extend(self._parse_models(data))
+                params = self._models_params(data)
+            observation.response = models
+            return models
 
     def _models_params(self, previous: Any) -> dict[str, str] | None:
         """Query parameters for the next page of models, or ``None`` when ``previous`` was the last.
@@ -276,6 +275,7 @@ class Provider:
 
     async def _retry(self, send: Callable[[], Awaitable[httpx2.Response]]) -> httpx2.Response:
         """Retry only the request, never replay a successful streaming response."""
+        observation = _active(self)
         for attempt in range(self.max_retries + 1):
             headers: Mapping[str, str] = {}
             try:
@@ -299,36 +299,11 @@ class Provider:
             if delay is None:
                 delay = min(self.max_retry_delay, self.retry_delay * 2 ** min(attempt, 30))
                 delay *= random.uniform(0.75, 1)  # noqa: S311 - retry jitter, not cryptography
-            delay = self._extension_retry_delay(error, attempt + 1, min(delay, self.max_retry_delay))
-            self._notify_extensions("on_retry", error, attempt + 1, delay)
+            delay = min(delay, self.max_retry_delay)
+            if observation is not None:
+                observation.retry(error, attempt + 1, delay)
             await asyncio.sleep(delay)
         raise AssertionError("Unreachable retry state")
-
-    def _notify_extensions(self, method: str, *args: Any) -> None:
-        for extension in self.extensions:
-            callback = getattr(extension, method)
-            if callback is None:
-                continue
-            try:
-                result = callback(*args)
-                if inspect.isawaitable(result):
-                    if inspect.iscoroutine(result):
-                        result.close()
-                    logger.warning("Extension callback %s must be synchronous", method)
-            except (Exception, asyncio.CancelledError):
-                logger.warning("Extension callback %s failed", method, exc_info=True)
-
-    def _extension_retry_delay(self, error: Exception, attempt: int, delay: float) -> float:
-        for extension in self.extensions:
-            if extension.retry_delay is None:
-                continue
-            value = extension.retry_delay(error, attempt, delay)
-            if inspect.iscoroutine(value):
-                value.close()
-            if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value) or value < 0:
-                raise ValueError("An extension retry delay must be finite and nonnegative")
-            delay = min(value, self.max_retry_delay)
-        return delay
 
     def _client(self) -> httpx2.AsyncClient:
         self._ensure_open()

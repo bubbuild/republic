@@ -18,7 +18,7 @@ These options apply to `get_provider()` and the model factories, including `get_
 | `max_retries` | Additional attempts after a retryable failure; default is 2, and 0 disables retries |
 | `retry_delay` | Initial exponential backoff in seconds; default is 0.5, with jitter |
 | `max_retry_delay` | Maximum wait between attempts, including `Retry-After`; default is 60 seconds |
-| `extensions` | Optional callback bundles from `republic.extensions`; empty by default |
+| `extensions` | Optional call observers from `republic.extensions`; empty by default |
 
 `api_key`, `api_base`, and `env_prefix` treat `None` and an empty string as absent. An empty string does not disable environment lookup.
 
@@ -118,53 +118,94 @@ A timeout can occur after the service accepted a request. Retrying can therefore
 
 ## Extensions
 
-An `Extension` groups optional synchronous callbacks. Pass it through
-`extensions=` on a Provider or any model factory; no registration or subclass
-is needed. HTTP hooks, transport settings and authentication stay on the HTTP
-client.
+Subclass `Extension` to configure call observation. Pass instances through
+`extensions=` on a Provider or any model factory. Return an `Observer` from
+`on_start` to receive that call's retries and outcome. Keep per-call state in
+that observer so one configured extension can serve concurrent calls.
 
 ```python
+import logging
+
 import republic
-from republic.extensions import Extension
+from republic.extensions import Extension, Observer
 
 
-def record_response(response):
-    # This is the public response, with the same text, usage and metadata
-    # returned to the caller. Model listing passes its list of ModelInfo.
-    print(response)
+class CallLog(Extension):
+    def __init__(self, logger):
+        self.logger = logger
+
+    def on_start(self, request):
+        return _CallLog(self.logger, request)
 
 
-def shorter_wait(error, attempt, delay):
-    return min(delay, 1.0)
+class _CallLog(Observer):
+    def __init__(self, logger, request):
+        self.logger = logger
+        self.request = request
+
+    def on_retry(self, error, attempt, delay):
+        self.logger.info("%s retry %s in %ss", self.request.model, attempt, delay)
+
+    def on_finish(self, response, error):
+        usage = getattr(response, "token_usage", None)
+        self.logger.info(
+            "%s finished: usage=%s error=%s",
+            self.request.model,
+            usage,
+            type(error).__name__ if error is not None else None,
+        )
 
 
 model = republic.get_model(
     "openai:gpt-6-sol",
-    extensions=[Extension(on_response=record_response, retry_delay=shorter_wait)],
+    extensions=[CallLog(logging.getLogger("myapp.calls"))],
 )
 ```
 
-| Callback | Arguments and timing |
+| Method | Observable behavior |
 | --- | --- |
-| `on_response(response)` | The completed public result, after parsing, output validation and history writing. Streaming notifies before yielding `Completed`, rather than waiting for context exit. |
-| `retry_delay(error, attempt, delay)` | Adjust an existing retry's proposed wait, after releasing the failed HTTP response. Return finite, nonnegative seconds, capped by `max_retry_delay`. |
-| `on_retry(error, attempt, delay)` | Observe the final retry wait, before sleeping. |
+| `Extension.on_start(request)` | Receives read-only `Request` metadata: `provider`, `operation`, and `model`. Return an observer, or `None` to skip the call. |
+| `Observer.on_retry(error, attempt, delay)` | Receives a scheduled retry's error, attempt number and selected wait in seconds, after releasing the failed response and before waiting. |
+| `Observer.on_finish(response, error)` | Receives exactly one terminal outcome. A successful response is the same object returned to the caller. |
 
-Callbacks run in extension order. Retry attempt numbers start at 1 and reset
-for each model-list page. The error is an `APIStatusError` with status and
-headers (an empty body), or a connection error retaining its original cause.
-The existing retryable failures and `max_retries` limit are unchanged.
+Operations are `chat`, `stream`, `embed`, `generate`, `edit`, `decide`, and
+`list_models`. Both `embed` and `embed_many` produce one `embed` observation.
+Model listing passes its completed list of `ModelInfo`, with `model=None`.
+Calls start when their async method executes; streams start on context entry.
+Constructing a stream without entering it produces no notifications.
 
-Observer return values are ignored. Observer failures, including an explicitly
-raised `CancelledError`, are logged and skipped. Observers do not await work,
-so task cancellation at network or backoff awaits propagates as before.
-`retry_delay` exceptions or invalid return values stop the call. Callbacks
-must return promptly; async callbacks are unsupported.
+Response and error are independent:
 
-Failed calls and streams closed before completion produce no response
-notification. Observe HTTP failures through the client's hooks or catch the
-existing exceptions. Extensions add no separate call state, lifecycle or timing
-API, and do not change client ownership or configure authentication requests.
+| Response | Error | Outcome |
+| --- | --- | --- |
+| Present | Absent | The call succeeded. |
+| Absent | Present | The call failed before a response was prepared. |
+| Present | Present | A response was prepared, then output validation or history writing failed. |
+| Absent | Absent | An entered stream closed without completing a response. |
+
+On validation failure, the prepared response retains text and usage, with
+`output=None`. On history failure it retains the validated output. Errors are
+the original exceptions, including cancellation during the call. Prepared
+responses expose their usual usage fields, including default values when a
+service omits usage. Unfinished streams may have no response to observe.
+
+Successful streams notify before yielding `Completed`. Leaving the stream
+context later does not produce another notification. Exceptions in consumer
+code do not change a completed response into a failure; closing an unfinished
+stream leaves its response absent. A stream error is observed when it occurs,
+even if the caller catches it inside the context.
+
+Methods run synchronously in extension order; inherited methods do nothing.
+Return values from observer methods are ignored. Observer failures are logged
+and the call continues, including when an observer explicitly raises
+`CancelledError`. Async observers are unsupported. Methods should return
+promptly and must not mutate borrowed responses. HTTP hooks, authentication,
+transport settings and timeouts remain on the HTTP client.
+
+Retry attempts start at 1 and reset for each model-list page. A retry's error
+is an `APIStatusError` with status and headers but an empty body, or a
+connection error retaining its original cause. Observers leave the configured
+retry policy unchanged.
 
 ## Response diagnostics
 

@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING, Any, Generic, Self, Unpack, overload
 import pydantic
 
 from republic._content import Image, Input, Message, ToolCall, to_messages
+from republic._extensions import _active, _bind, _Observation, _observe
 from republic._options import ChatOptions, ImageOptions
 from republic._response import EmbeddingResponse, ImageResponse, OutputT, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
 from republic.errors import APIResponseError, StreamNotFinishedError, request_id
 from republic.events import Completed, Event
+from republic.extensions import Request
 from republic.formats._base import (
     ChatApiFormat,
     ChatRequest,
@@ -75,15 +77,18 @@ class ChatModel:
         the parsed result is ``response.output``. See :class:`ChatOptions` for
         the other options.
         """
-        new_messages = to_messages(prompt)
-        adapter = _adapter(output_schema)
-        request = await self._request(new_messages, ChatOptions(**options), adapter)
-        response = await self.provider._post(self.api_format, self.api_format.chat_request(request, stream=False))
-        with _response_errors(response.headers):
-            builder = ResponseBuilder()
-            for delta in self.api_format.parse_chat(response.json()):
-                builder.add(delta)
-            return await self._finish(new_messages, builder, adapter, headers=response.headers)
+        with _observe(self.provider, "chat", self.name) as observation:
+            new_messages = to_messages(prompt)
+            adapter = _adapter(output_schema)
+            request = await self._request(new_messages, ChatOptions(**options), adapter)
+            response = await self.provider._post(self.api_format, self.api_format.chat_request(request, stream=False))
+            with _response_errors(response.headers):
+                builder = ResponseBuilder()
+                for delta in self.api_format.parse_chat(response.json()):
+                    builder.add(delta)
+                result = await self._finish(new_messages, builder, adapter, headers=response.headers)
+            observation.response = result
+            return result
 
     @overload
     def stream(self, prompt: Input, *, output_schema: None = None, **options: Unpack[ChatOptions]) -> Stream[None]: ...
@@ -122,11 +127,15 @@ class ChatModel:
         headers: Mapping[str, str],
     ) -> Response[Any]:
         response = replace(builder.response(), headers=dict(headers), request_id=request_id(headers))
+        observation = _active(self.provider)
+        if observation is not None:
+            observation.response = response
         if adapter is not None and response.refusal is None:
             response = replace(response, output=adapter.validate_json(response.text))
+            if observation is not None:
+                observation.response = response
         if self.history is not None:
             await self.history.write([*new_messages, response.message])
-        self.provider._notify_extensions("on_response", response)
         return response
 
 
@@ -151,43 +160,71 @@ class Stream(Generic[OutputT]):
         self._exit_stack = AsyncExitStack()
         self._events: AsyncIterator[ServerSentEvent] | None = None
         self._iterated = False
+        self._observation: _Observation | None = None
         self._response: Response[OutputT] | None = None
         self.headers: Mapping[str, str] = {}
         self.request_id: str | None = None
 
     async def __aenter__(self) -> Self:
-        request = await self._model._request(self._new_messages, self._options, self._adapter)
-        api_format = self._model.api_format
-        response = await self._exit_stack.enter_async_context(
-            self._model.provider._stream(api_format, api_format.chat_request(request, stream=True))
-        )
-        self._events = response.events
-        self.headers = response.headers
-        self.request_id = request_id(self.headers)
+        provider = self._model.provider
+        self._observation = _Observation(provider.extensions, Request(provider.name, "stream", self._model.name))
+        with _bind(provider, self._observation):
+            try:
+                request = await self._model._request(self._new_messages, self._options, self._adapter)
+                api_format = self._model.api_format
+                response = await self._exit_stack.enter_async_context(
+                    provider._stream(api_format, api_format.chat_request(request, stream=True))
+                )
+                self._events = response.events
+                self.headers = response.headers
+                self.request_id = request_id(self.headers)
+            except BaseException as error:
+                self._observation.finish(error)
+                await self._exit_stack.aclose()
+                raise
         return self
 
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
-        await self._exit_stack.aclose()
+        try:
+            await self._exit_stack.aclose()
+        except BaseException as error:
+            if self._observation is not None:
+                self._observation.finish(error)
+            raise
+        else:
+            if self._observation is not None:
+                self._observation.finish()
 
     async def __aiter__(self) -> AsyncIterator[Event]:
-        if self._events is None:
+        if self._events is None or self._observation is None:
             raise RuntimeError("Enter the stream with 'async with' before iterating it")
         if self._iterated:
             raise RuntimeError("A stream can only be iterated once; read stream.response instead")
         self._iterated = True
-        parser = self._model.api_format.stream_parser()
-        builder = ResponseBuilder()
-        with _response_errors(self.headers):
-            async for event in self._events:
-                for delta in parser.feed(event.event, event.data):
-                    for public_event in builder.add(delta):
-                        yield public_event
-            parser.finish()
-            for public_event in builder.release_tool_calls():
-                yield public_event
-            self._response = await self._model._finish(self._new_messages, builder, self._adapter, headers=self.headers)
+        try:
+            parser = self._model.api_format.stream_parser()
+            builder = ResponseBuilder()
+            with _response_errors(self.headers):
+                async for event in self._events:
+                    for delta in parser.feed(event.event, event.data):
+                        for public_event in builder.add(delta):
+                            yield public_event
+                parser.finish()
+                for public_event in builder.release_tool_calls():
+                    yield public_event
+                with _bind(self._model.provider, self._observation):
+                    self._response = await self._model._finish(
+                        self._new_messages, builder, self._adapter, headers=self.headers
+                    )
+        except GeneratorExit:
+            raise
+        except BaseException as error:
+            self._observation.finish(error)
+            raise
+        self._observation.response = self._response
+        self._observation.finish()
         yield Completed(self._response)
 
     @property
@@ -241,16 +278,17 @@ class EmbeddingModel:
 
         ``dimensions`` shortens vectors on models that support it.
         """
-        request = self.api_format.embedding_request(self.name, texts, dimensions=dimensions)
-        response = await self.provider._post(self.api_format, request)
-        with _response_errors(response.headers):
-            result = replace(
-                self.api_format.parse_embedding(response.json()),
-                headers=dict(response.headers),
-                request_id=request_id(response.headers),
-            )
-        self.provider._notify_extensions("on_response", result)
-        return result
+        with _observe(self.provider, "embed", self.name) as observation:
+            request = self.api_format.embedding_request(self.name, texts, dimensions=dimensions)
+            response = await self.provider._post(self.api_format, request)
+            with _response_errors(response.headers):
+                result = replace(
+                    self.api_format.parse_embedding(response.json()),
+                    headers=dict(response.headers),
+                    request_id=request_id(response.headers),
+                )
+            observation.response = result
+            return result
 
 
 class ImageModel:
@@ -272,7 +310,8 @@ class ImageModel:
 
     async def generate(self, prompt: str, **options: Unpack[ImageOptions]) -> ImageResponse:
         """Generate images from ``prompt``. See :class:`ImageOptions` for the options."""
-        return await self._send(self.api_format.generation_request(self.name, prompt, ImageOptions(**options)))
+        with _observe(self.provider, "generate", self.name):
+            return await self._send(self.api_format.generation_request(self.name, prompt, ImageOptions(**options)))
 
     async def edit(
         self,
@@ -287,11 +326,14 @@ class ImageModel:
         Build images with :func:`republic.image`. Transparent areas of ``mask``
         mark where the first image is edited, on formats that support masks.
         """
-        images = [images] if isinstance(images, Image) else list(images)
-        if not images:
-            raise ValueError("Pass at least one image to edit")
-        request = self.api_format.edit_request(self.name, prompt, images, mask=mask, options=ImageOptions(**options))
-        return await self._send(request)
+        with _observe(self.provider, "edit", self.name):
+            images = [images] if isinstance(images, Image) else list(images)
+            if not images:
+                raise ValueError("Pass at least one image to edit")
+            request = self.api_format.edit_request(
+                self.name, prompt, images, mask=mask, options=ImageOptions(**options)
+            )
+            return await self._send(request)
 
     async def _send(self, request: HttpRequest) -> ImageResponse:
         response = await self.provider._post(self.api_format, request)
@@ -301,7 +343,9 @@ class ImageModel:
                 headers=dict(response.headers),
                 request_id=request_id(response.headers),
             )
-        self.provider._notify_extensions("on_response", result)
+        observation = _active(self.provider)
+        if observation is not None:
+            observation.response = result
         return result
 
 
@@ -324,16 +368,17 @@ class DecisionModel:
 
     async def decide(self, state: JSONValue, *, questions: Mapping[str, Question]) -> DecisionResponse:
         """Answer every question about ``state``. Answers come back under the same ids."""
-        request = self.api_format.decision_request(self.name, state, questions)
-        response = await self.provider._post(self.api_format, request)
-        with _response_errors(response.headers):
-            result = replace(
-                self.api_format.parse_decision(response.json()),
-                headers=dict(response.headers),
-                request_id=request_id(response.headers),
-            )
-        self.provider._notify_extensions("on_response", result)
-        return result
+        with _observe(self.provider, "decide", self.name) as observation:
+            request = self.api_format.decision_request(self.name, state, questions)
+            response = await self.provider._post(self.api_format, request)
+            with _response_errors(response.headers):
+                result = replace(
+                    self.api_format.parse_decision(response.json()),
+                    headers=dict(response.headers),
+                    request_id=request_id(response.headers),
+                )
+            observation.response = result
+            return result
 
 
 @contextmanager
