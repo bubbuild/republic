@@ -132,12 +132,15 @@ class CallLog(Extension):
     def __init__(self, logger):
         self.logger = logger
 
-    def on_retry(self, request, error, attempt, delay):
-        self.logger.info("%s retry %s in %ss", request.model, attempt, delay)
+    def on_start(self, provider, operation, model):
+        return f"{provider}:{model or operation}"
 
-    def on_finish(self, request, response, error):
+    def on_retry(self, context, error, attempt, delay):
+        self.logger.info("%s retry %s in %ss", context, attempt, delay)
+
+    def on_finish(self, context, response, error):
         error_type = type(error).__name__ if error is not None else None
-        self.logger.info("%s finished: error=%s", request.model, error_type)
+        self.logger.info("%s finished: error=%s", context, error_type)
 
 
 model = republic.get_model(
@@ -148,15 +151,16 @@ model = republic.get_model(
 
 | Method | Notification |
 | --- | --- |
-| `on_start(request)` | A call starts; streams start on context entry. |
-| `on_retry(request, error, attempt, delay)` | A retry is scheduled, after releasing the failed response and before waiting. Attempt numbers start at 1 for each HTTP retry loop, including each model-list page. |
-| `on_finish(request, response, error)` | Exactly one terminal outcome, carrying the returned response or the original error when available. |
+| `on_start(provider, operation, model)` | A call starts; streams start on context entry. Return any per-call state needed by this extension. |
+| `on_retry(context, error, attempt, delay)` | A retry is scheduled, after releasing the failed response and before waiting. Attempt numbers start at 1 for each HTTP retry loop, including each model-list page. |
+| `on_finish(context, response, error)` | Exactly one terminal outcome, carrying the returned response or the original error when available. |
 
-Every method receives the same read-only `Request`, with `provider`, `operation`
-and `model` metadata. Each call has its own hashable request object, even when
-metadata matches another call. Use it as a dictionary key for per-call state.
-Operations are `chat`, `stream`, `embed` (including batches), `generate`, `edit`,
-`decide`, and `list_models`; listing has `model=None` and returns a list.
+`provider` is the provider name. Operations are `chat`, `stream`, `embed`
+(including batches), `generate`, `edit`, `decide`, and `list_models`; listing has
+`model=None` and returns a list. Each extension receives its own `on_start`
+return value unchanged as `context` in subsequent methods for that call.
+The default is `None`, also used if `on_start` fails. Return a fresh value when
+keeping mutable per-call state, so overlapping calls can be observed independently.
 
 Response and error may both be present when output validation or history writing
 fails. The response retains text and usage; `output` is `None` on validation
@@ -168,7 +172,7 @@ succeed. Later context exit or consumer exceptions do not change that result.
 Constructing a stream without entering it produces no notifications. Cancellation
 during the call reaches both the extension and caller as the original exception.
 
-Methods run synchronously in registration order. Return values are ignored;
+Methods run synchronously in registration order. Retry and finish return values are ignored;
 extension failures are logged and isolated, including explicitly raised
 `CancelledError`. Async methods are unsupported. Return promptly and do not
 mutate borrowed responses. HTTP hooks, authentication and timeouts remain on the

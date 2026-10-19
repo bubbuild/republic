@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
-from republic.extensions import Extension, Request, ResponseValue
+from republic.extensions import Extension, ResponseValue
 
 if TYPE_CHECKING:
     from republic.providers import Provider
@@ -19,36 +19,38 @@ logger = logging.getLogger(__name__)
 _current: ContextVar[tuple[Provider, _Observation] | None] = ContextVar("republic_observation", default=None)
 
 
-def _invoke(extension: Extension, method: str, *args: Any) -> None:
+def _invoke(extension: Extension, method: str, *args: Any) -> Any:
     try:
         result = getattr(extension, method)(*args)
         if inspect.isawaitable(result):
             if inspect.iscoroutine(result):
                 result.close()
             logger.warning("Extension callback %s must be synchronous", method)
+            return None
     except (Exception, asyncio.CancelledError):
         logger.warning("Extension callback %s failed", method, exc_info=True)
+        return None
+    return result
 
 
 class _Observation:
-    def __init__(self, extensions: Sequence[Extension], request: Request) -> None:
+    def __init__(self, extensions: Sequence[Extension], provider: str, operation: str, model: str | None) -> None:
         self.response: ResponseValue | None = None
         self._done = False
-        self._extensions = extensions
-        self._request = request
-        for extension in extensions:
-            _invoke(extension, "on_start", request)
+        self._contexts = [
+            (extension, _invoke(extension, "on_start", provider, operation, model)) for extension in extensions
+        ]
 
     def retry(self, error: Exception, attempt: int, delay: float) -> None:
-        for extension in self._extensions:
-            _invoke(extension, "on_retry", self._request, error, attempt, delay)
+        for extension, context in self._contexts:
+            _invoke(extension, "on_retry", context, error, attempt, delay)
 
     def finish(self, error: BaseException | None = None) -> None:
         if self._done:
             return
         self._done = True
-        for extension in self._extensions:
-            _invoke(extension, "on_finish", self._request, self.response, error)
+        for extension, context in self._contexts:
+            _invoke(extension, "on_finish", context, self.response, error)
 
 
 def _active(provider: Provider) -> _Observation | None:
@@ -67,7 +69,7 @@ def _bind(provider: Provider, observation: _Observation) -> Iterator[None]:
 
 @contextmanager
 def _observe(provider: Provider, operation: str, model: str | None = None) -> Iterator[_Observation]:
-    observation = _Observation(provider.extensions, Request(provider.name, operation, model))
+    observation = _Observation(provider.extensions, provider.name, operation, model)
     with _bind(provider, observation):
         try:
             yield observation

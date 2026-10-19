@@ -10,27 +10,29 @@ import httpx2
 import pytest
 
 import republic
-from republic.extensions import Extension, Request, ResponseValue
+from republic.extensions import Extension, ResponseValue
 from tests.conftest import FakeService
 from tests.test_http_reliability import sse
 
 
 class Recording(Extension):
     def __init__(self) -> None:
-        self.requests: list[Request] = []
-        self.retries: list[tuple[Request, Exception, int, float]] = []
-        self.finishes: list[tuple[Request, ResponseValue | None, BaseException | None]] = []
+        self.contexts: list[dict[str, Any]] = []
+        self.retries: list[tuple[dict[str, Any], Exception, int, float]] = []
+        self.finishes: list[tuple[dict[str, Any], ResponseValue | None, BaseException | None]] = []
         self.retry_started = asyncio.Event()
 
-    def on_start(self, request: Request) -> None:
-        self.requests.append(request)
+    def on_start(self, provider: str, operation: str, model: str | None) -> dict[str, Any]:
+        context = {"provider": provider, "operation": operation, "model": model}
+        self.contexts.append(context)
+        return context
 
-    def on_retry(self, request: Request, error: Exception, attempt: int, delay: float) -> None:
-        self.retries.append((request, error, attempt, delay))
+    def on_retry(self, context: dict[str, Any], error: Exception, attempt: int, delay: float) -> None:
+        self.retries.append((context, error, attempt, delay))
         self.retry_started.set()
 
-    def on_finish(self, request: Request, response: ResponseValue | None, error: BaseException | None) -> None:
-        self.finishes.append((request, response, error))
+    def on_finish(self, context: dict[str, Any], response: ResponseValue | None, error: BaseException | None) -> None:
+        self.finishes.append((context, response, error))
 
 
 def reply(text: str = "ok", *, streaming: bool = False, complete: bool = True) -> httpx2.Response:
@@ -67,9 +69,10 @@ async def test_one_extension_observes_public_operations(operation: str, service:
         else:
             service.reply_json({"data": []})
             result = await republic.get_provider("openai", **options).list_models()
-    [(request, observed, error)] = recording.finishes
-    assert recording.requests == [request]
-    assert (request.provider, request.operation, request.model) == (
+    [(context, observed, error)] = recording.finishes
+    assert len(recording.contexts) == 1
+    assert context is recording.contexts[0]
+    assert (context["provider"], context["operation"], context["model"]) == (
         "typesafe" if operation == "decide" else "openai",
         "embed" if operation == "embed_many" else operation,
         None if operation == "list_models" else "test",
@@ -99,8 +102,9 @@ async def test_postprocessing_failure_keeps_available_usage(streaming: bool, fai
                     [event async for event in stream]
             else:
                 await model.chat("Hi", output_schema=str if failure == "history" else int)
-    [(request, prepared, error)] = recording.finishes
-    assert recording.requests == [request] and error is caught.value
+    [(context, prepared, error)] = recording.finishes
+    assert len(recording.contexts) == 1
+    assert context is recording.contexts[0] and error is caught.value
     assert isinstance(prepared, republic.Response)
     assert prepared.token_usage.total_tokens == 5
     assert prepared.output == ("ok" if failure == "history" else None)
@@ -110,7 +114,7 @@ async def test_postprocessing_failure_keeps_available_usage(streaming: bool, fai
 
 
 @pytest.mark.parametrize("recover", [False, True])
-async def test_retries_and_outcomes_share_the_same_request(recover: bool) -> None:
+async def test_retries_and_outcomes_share_the_same_context(recover: bool) -> None:
     recording = Recording()
     responses = [httpx2.Response(503), reply() if recover else httpx2.Response(401)]
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda request: responses.pop(0))) as client:
@@ -119,15 +123,46 @@ async def test_retries_and_outcomes_share_the_same_request(recover: bool) -> Non
         )
         if recover:
             result = await model.chat("Hi")
-            assert recording.finishes == [(recording.requests[0], result, None)]
+            assert recording.finishes == [(recording.contexts[0], result, None)]
         else:
             with pytest.raises(republic.errors.APIStatusError) as caught:
                 await model.chat("Hi")
-            assert recording.finishes == [(recording.requests[0], None, caught.value)]
-    [(request, error, attempt, delay)] = recording.retries
-    assert request is recording.requests[0]
+            assert recording.finishes == [(recording.contexts[0], None, caught.value)]
+    [(context, error, attempt, delay)] = recording.retries
+    assert context is recording.contexts[0]
     assert isinstance(error, republic.errors.APIStatusError)
     assert (error.status_code, attempt, delay) == (503, 1, 0)
+
+
+async def test_extensions_receive_their_own_returned_state(service: FakeService) -> None:
+    class Stateful(Extension):
+        def __init__(self, state):
+            self.state = state
+            self.retries = []
+            self.finishes = []
+
+        def on_start(self, provider, operation, model):
+            return self.state
+
+        def on_retry(self, context, error, attempt, delay):
+            self.retries.append(context)
+
+        def on_finish(self, context, response, error):
+            self.finishes.append((context, response, error))
+
+    extensions = [Stateful(state) for state in (None, False, {}, object())]
+    service.reply_json({}, status_code=503)
+    service.reply_json({"choices": [{"message": {"content": "ok"}}]})
+    async with service.client() as client:
+        model = republic.get_model(
+            "openai:test", api_format="chat", http_client=client, max_retry_delay=0, extensions=extensions
+        )
+        result = await model.chat("Hi")
+    for extension in extensions:
+        [retried] = extension.retries
+        [(finished, response, error)] = extension.finishes
+        assert retried is finished is extension.state
+        assert response is result and error is None
 
 
 @pytest.mark.parametrize("mode", ["complete", "unread", "early", "consumer_error", "truncated"])
@@ -137,7 +172,7 @@ async def test_stream_outcomes_are_reported_once(mode: str) -> None:
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda request: response)) as client:
         model = republic.get_model("openai:test", api_format="chat", http_client=client, extensions=[recording])
         stream = model.stream("Hi")
-        assert recording.requests == []
+        assert recording.contexts == []
         expected = (
             pytest.raises(RuntimeError, match="consumer failed")
             if mode in {"complete", "consumer_error"}
@@ -150,17 +185,18 @@ async def test_stream_outcomes_are_reported_once(mode: str) -> None:
                 if mode == "truncated":
                     with pytest.raises(republic.errors.StreamIncompleteError) as caught:
                         [event async for event in stream]
-                    assert recording.finishes == [(recording.requests[0], None, caught.value)]
+                    assert recording.finishes == [(recording.contexts[0], None, caught.value)]
                 elif mode != "unread":
                     async for event in stream:
                         if mode == "early":
                             break
                         if isinstance(event, republic.events.Completed):
-                            assert recording.finishes == [(recording.requests[0], event.response, None)]
+                            assert recording.finishes == [(recording.contexts[0], event.response, None)]
                     if mode == "complete":
                         raise RuntimeError("consumer failed")
-    [(request, observed, error)] = recording.finishes
-    assert recording.requests == [request]
+    [(context, observed, error)] = recording.finishes
+    assert len(recording.contexts) == 1
+    assert context is recording.contexts[0]
     if mode == "complete":
         assert observed is stream.response and error is None
     elif mode != "truncated":
@@ -202,11 +238,11 @@ async def test_cancellation_reaches_the_extension_and_caller(phase: str) -> None
         task.cancel()
         with pytest.raises(asyncio.CancelledError) as caught:
             await task
-    assert recording.finishes == [(recording.requests[0], None, caught.value)]
+    assert recording.finishes == [(recording.contexts[0], None, caught.value)]
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-async def test_identical_overlapping_calls_have_distinct_request_keys(streaming: bool) -> None:
+async def test_overlapping_calls_keep_their_own_context(streaming: bool) -> None:
     recording = Recording()
     entered, release = asyncio.Event(), asyncio.Event()
 
@@ -234,25 +270,27 @@ async def test_identical_overlapping_calls_have_distinct_request_keys(streaming:
         finally:
             release.set()
         first = await task
-    results = {request: response for request, response, _ in recording.finishes}
-    assert len(results) == 2
-    assert results[recording.requests[0]] is first
-    assert results[recording.requests[1]] is second
+    assert len(recording.finishes) == 2
+    for context, expected in zip(recording.contexts, (first, second), strict=True):
+        [(observed, error)] = [
+            (response, error) for received, response, error in recording.finishes if received is context
+        ]
+        assert observed is expected and error is None
 
 
 @pytest.mark.parametrize("method", ["on_start", "on_retry", "on_finish"])
 @pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
 async def test_extension_failure_does_not_change_public_outcome(method: str, failure: type[BaseException]) -> None:
     class Broken(Extension):
-        def on_start(self, request):
+        def on_start(self, provider, operation, model):
             if method == "on_start":
                 raise failure("extension failed")
 
-        def on_retry(self, request, error, attempt, delay):
+        def on_retry(self, context, error, attempt, delay):
             if method == "on_retry":
                 raise failure("extension failed")
 
-        def on_finish(self, request, response, error):
+        def on_finish(self, context, response, error):
             if method == "on_finish":
                 raise failure("extension failed")
 
@@ -264,7 +302,7 @@ async def test_extension_failure_does_not_change_public_outcome(method: str, fai
         )
         with pytest.raises(republic.errors.APIStatusError) as caught:
             await model.chat("Hi")
-    assert recording.finishes == [(recording.requests[0], None, caught.value)]
+    assert recording.finishes == [(recording.contexts[0], None, caught.value)]
 
 
 async def test_stream_can_be_used_across_tasks(service: FakeService) -> None:
@@ -280,4 +318,4 @@ async def test_stream_can_be_used_across_tasks(service: FakeService) -> None:
 
         await asyncio.create_task(consume())
         await asyncio.create_task(stack.aclose())
-    assert recording.finishes == [(recording.requests[0], stream.response, None)]
+    assert recording.finishes == [(recording.contexts[0], stream.response, None)]

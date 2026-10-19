@@ -15,7 +15,6 @@ from republic._response import EmbeddingResponse, ImageResponse, OutputT, Respon
 from republic.decisions import DecisionResponse, JSONValue, Question
 from republic.errors import APIResponseError, StreamNotFinishedError, request_id
 from republic.events import Completed, Event
-from republic.extensions import Request
 from republic.formats._base import (
     ChatApiFormat,
     ChatRequest,
@@ -167,7 +166,7 @@ class Stream(Generic[OutputT]):
 
     async def __aenter__(self) -> Self:
         provider = self._model.provider
-        self._observation = _Observation(provider.extensions, Request(provider.name, "stream", self._model.name))
+        self._observation = _Observation(provider.extensions, provider.name, "stream", self._model.name)
         with _bind(provider, self._observation):
             try:
                 request = await self._model._request(self._new_messages, self._options, self._adapter)
