@@ -55,19 +55,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
-      - uses: sersoft-gmbh/setup-gh-cli-action@v3
-        with:
-          version: 2.102.0
-          github-token: ${{ env.GH_TOKEN }}
-      - name: Prepare agent skills
-        run: |
-          scripts/prepare-skills.sh "$RUNNER_TEMP/landing-skills"
-          echo "LANDING_SKILL_DIRS=[\"$RUNNER_TEMP/landing-skills\"]" >> "$GITHUB_ENV"
       - name: Prepare Git authentication
-        run: |
-          git var GIT_AUTHOR_IDENT
-          git var GIT_COMMITTER_IDENT
-          gh auth setup-git
+        run: gh auth setup-git
       - name: Read dependency update publishing identity
         if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'deps/landing-')
         run: |
@@ -120,18 +109,11 @@ jobs:
             ${{ vars.LANDING_DEPENDENCY_UPDATE_ACTORS }}
           checked-revision: ${{ github.event_name != 'workflow_run' && github.sha || '' }}
           delivery-key: ${{ github.event_name != 'workflow_run' && format('duty:{0}', github.run_id) || '' }}
-          checks: |
-            uv run prek run --all-files
-            uv run ty check
-            uv run python -m pytest tests
           instruction: >-
-            Maintain Republic's dependencies, scoped to the supplied candidate or alert when present.
-            Use uv for Python runtime and development dependencies; follow project version policy and preserve pinning style.
-            You may publish new updates as draft PRs on fresh deps/landing-* branches and append repair commits to the supplied PR's existing branch.
-            Reuse matching candidates and repair only demonstrated current candidate CI failures.
-            You may start required independent CI following AGENTS.md using main.yml with number and the full candidate head SHA,
-            and maintain necessary tracking issues. Do not wait for Landing review or its enclosing workflow.
-            Maintainers decide merge and alert dismissal.
+            Maintain dependencies with uv under project version policy, scoped to the supplied candidate or alert.
+            Reuse matching candidates; publish new draft PRs on deps/landing-* branches or repair the supplied PR's existing branch after current CI failure.
+            Follow AGENTS.md for validation and dispatch main.yml with the PR number and full candidate head SHA; do not wait for Landing review.
+            You may maintain necessary tracking issues. Maintainers decide merge and alert dismissal.
       - uses: actions/upload-artifact@v7
         if: always()
         with:

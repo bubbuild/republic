@@ -133,25 +133,7 @@ Pull requests target `main`. Documentation deploys to https://getrepublic.org on
 
 ## Dependency maintenance with Landing
 
-`Landing duty` runs dependency maintenance on Mondays at 02:23 UTC and through manual dispatch of `landing-duty.yml`. It uses the public `bubbuild/landing@main` Action API, following the [Landing duty reference at 9014baa](https://github.com/bubbuild/landing/blob/9014baa64f82893dc194a3f1e31391737f68c426/.github/workflows/landing-duty.yml). This adds maintenance capability; enabling it does not itself change dependency constraints or the lockfile.
-
-Configure `LANDING_MODEL` and the `LANDING_API_KEY` secret, with optional `LANDING_API_BASE`, `LANDING_COMPLETION_ARGS` and `LANDING_TRUST` variables. The workflow prepares uv, project dependencies, gh 2.102.0, pinned documentation-writer, piglet, friendly-python and humanizer skills, and Git authentication. Landing provides its built-in dependency, repair and issue skills. No browser or MCP server is required for Republic's maintenance flow.
-
-`LANDING_GITHUB_TOKEN` selects the publishing credential; otherwise the workflow uses `github.token`. The identity needs contents, issues, pull requests and Actions write access plus Dependabot alerts read access. The workflow requests `vulnerability-alerts: read` for its workflow token; separately supplied credentials need their own alert access. Repository settings must allow that identity to create PRs. Set `LANDING_GIT_NAME` and `LANDING_GIT_EMAIL` to match a custom publisher. `LANDING_ADMISSION_TOKEN` optionally supplies a separate admission credential. These are runner credentials, independent of a maintainer's local gh login.
-
-Maintenance inspects open alerts and bounded Python runtime/development updates with uv, preserving version policy and pinning style. It reuses matching candidates, publishes new drafts on `deps/landing-*` branches, validates changes, and dispatches `main.yml` with `number` and the full candidate `head` SHA as described in `AGENTS.md`. It does not wait for Landing review. Maintainers retain merge and alert-dismissal authority.
-
-Failed `Main` PR runs and non-default-branch manual candidate runs can trigger compatibility repair. Landing admits only one current, open, same-repository PR matching the failed head and an allowed author: Dependabot, Renovate, configured `LANDING_DEPENDENCY_UPDATE_ACTORS` logins (one per line), or the prepared publisher on `deps/landing-*` branches. It rechecks current CI before editing the original branch and preserves draft status. Set `LANDING_BUMP_ON_FAILURE=false` to disable automatic repair while retaining scheduled, manual and explicit `/landing bump` work. Default-branch failures still use the existing triage path; review and release workflows retain their existing behavior.
-
-For real-time alerts, configure an external receiver to verify GitHub webhook signatures and forward the repository's alert number as a repository dispatch:
-
-```json
-{
-  "event_type": "dependabot_alert",
-  "client_payload": {"alert_number": 7}
-}
-```
-
-`dependabot_alert` is a webhook event, not a native Actions trigger. This workflow does not deploy a receiver or subscribe one. Landing fetches the current alert: open alerts select dependency work; fixed or dismissed alerts intentionally route to triage to reconcile tracked work, even though the workflow selects `command: bump`, without authorizing another upgrade. Unavailable alert access is unknown coverage, not evidence of no alerts. Scheduled and manual maintenance remain available without a receiver. Event listeners must be on the default branch before they receive these events.
-
-See the [Landing GitHub contract](https://github.com/bubbuild/landing/blob/9014baa64f82893dc194a3f1e31391737f68c426/docs/guides/github.md), [Action inputs](https://github.com/bubbuild/landing/blob/9014baa64f82893dc194a3f1e31391737f68c426/action.yml), and [GitHub dispatch documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#repository_dispatch) for admission and delivery requirements.
+Landing duty runs weekly on Monday at 02:23 UTC or manually, reusing existing `LANDING_*` model and authentication configuration.
+Failed `Main` dependency candidates can receive repairs; set `LANDING_BUMP_ON_FAILURE=false` to disable automatic repair.
+Real-time alerts require an external signature-verifying receiver forwarding `repository_dispatch` with `event_type: dependabot_alert` and `client_payload.alert_number`.
+No receiver is deployed here. Closed alerts route to triage for reconciliation; maintainers control merge and alert dismissal.
