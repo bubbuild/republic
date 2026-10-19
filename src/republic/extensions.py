@@ -1,74 +1,42 @@
-"""Optional callbacks for provider calls; HTTP hooks still belong to the HTTP client."""
+"""Optional provider callbacks, grouped into one extension object."""
 
 from __future__ import annotations
 
-import time
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from republic._response import EmbeddingResponse, ImageResponse, ModelInfo, Response
 from republic.decisions import DecisionResponse
-from republic.errors import request_id
 
-__all__ = ["Call", "Extension"]
+__all__ = ["Extension"]
 
-
-@dataclass(eq=False)
-class Call:
-    """One provider call, shared by its callbacks and never reused for another call.
-
-    Republic maintains the fields; extensions may keep their own per-call data
-    in ``state``. No prompt, credentials or HTTP request body is included.
-    """
-
-    provider: str
-    model: str | None
-    operation: str
-    api_format: str
-    streaming: bool = False
-    attempts: int = 0
-    elapsed: float = 0
-    """Seconds since the call started, updated before callbacks."""
-    status: Literal["pending", "success", "error", "cancelled", "closed"] = "pending"
-    response: Response[Any] | EmbeddingResponse | ImageResponse | DecisionResponse | list[ModelInfo] | None = None
-    error: BaseException | None = None
-    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
-    """Headers from the most recent HTTP response, when available."""
-    state: dict[Any, Any] = field(default_factory=dict, repr=False)
-    _started: float = field(default_factory=time.monotonic, init=False, repr=False)
-
-    @property
-    def request_id(self) -> str | None:
-        return request_id(self.headers)
+_Response = Response[Any] | EmbeddingResponse | ImageResponse | DecisionResponse | list[ModelInfo]
 
 
 @dataclass(frozen=True)
 class Extension:
-    """A bundle of optional callbacks, passed through ``extensions=``.
+    """Optional synchronous callbacks, called in extension order.
 
-    Callbacks may be regular or async functions and run in extension order.
-    Observer exceptions are logged and skipped; cancellation propagates.
-    A ``retry_delay`` error propagates, since it controls execution.
+    Pass instances through ``extensions=``. No registration or subclass is
+    needed. Observer failures are logged; retry-policy failures propagate.
     """
 
-    on_start: Callable[[Call], Awaitable[None] | None] | None = None
-    """Observe a call before request preparation."""
-    on_finish: Callable[[Call], Awaitable[None] | None] | None = None
-    """Observe its final outcome and public response, including parsing failures.
+    on_response: Callable[[_Response], None] | None = None
+    """Observe a completed public response, after parsing, validation and history.
 
-    A fully parsed chat response is available even if output validation fails.
-    Streams finish when their context exits. An unconsumed or partially
-    consumed stream has status ``closed`` unless it failed or was cancelled.
+    For streams this runs at completion, before the ``Completed`` event;
+    closing an unfinished stream produces no response notification.
     """
-    on_retry: Callable[[Call, Exception, float], Awaitable[None] | None] | None = None
-    """Observe a scheduled retry after closing the failed response."""
-    retry_delay: Callable[[Call, Exception, float | None], Awaitable[float | None] | float | None] | None = None
-    """Adjust the proposed wait in seconds, or return None to stop retrying.
+    on_retry: Callable[[Exception, int, float], None] | None = None
+    """Observe a retry's error, failed attempt number (starting at 1), and wait.
 
-    The proposed wait is None for a nonretryable failure. Each callback sees
-    the preceding callback's result. Retry count and maximum wait still apply.
-    Only HTTP status and transport failures reach this callback; opened streams,
-    payload errors and cancellation are never replayed. Errors and invalid
-    return values stop the call, closing any failed HTTP response first.
+    Called after releasing the failed HTTP response and before waiting.
+    """
+    retry_delay: Callable[[Exception, int, float], float] | None = None
+    """Adjust an already planned retry's wait in seconds.
+
+    Receives the error, failed attempt number, and proposed wait. The result
+    must be finite and nonnegative, and is capped by ``max_retry_delay``.
+    This does not change which failures are retried or ``max_retries``.
     """
