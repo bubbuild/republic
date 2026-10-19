@@ -131,9 +131,4 @@ Run `make docs-test` to check the site or `make docs` to preview it locally.
 
 Pull requests target `main`. Documentation deploys to https://getrepublic.org on pushes to `main`; the Docs workflow also supports manual dispatch. Publishing a GitHub release builds its tagged revision and uploads it to PyPI using the repository's `PYPI_TOKEN` secret. Package versions come from Git tags.
 
-## Dependency maintenance with Landing
-
-Landing duty runs weekly on Monday at 02:23 UTC or manually, reusing existing `LANDING_*` model and authentication configuration.
-Failed `Main` dependency candidates can receive repairs; set `LANDING_BUMP_ON_FAILURE=false` to disable automatic repair.
-Real-time alerts require an external signature-verifying receiver forwarding `repository_dispatch` with `event_type: dependabot_alert` and `client_payload.alert_number`.
-No receiver is deployed here. Closed alerts route to triage for reconciliation; maintainers control merge and alert dismissal.
+Dependency maintenance runs weekly or manually, opens draft update PRs, and can repair failing dependency PRs. Real-time security alert updates require an external webhook receiver.
