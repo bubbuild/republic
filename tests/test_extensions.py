@@ -12,6 +12,7 @@ import pytest
 import republic
 from republic.extensions import Extension, ResponseValue
 from tests.conftest import FakeService
+from tests.test_codex import reply as codex_reply
 from tests.test_http_reliability import sse
 
 
@@ -78,6 +79,46 @@ async def test_one_extension_observes_public_operations(operation: str, service:
         None if operation == "list_models" else "test",
     )
     assert observed is result and error is None
+
+
+@pytest.mark.parametrize("operation", ["chat", "stream"])
+@pytest.mark.parametrize("outcome", ["success", "retry", "http_error", "validation_error"])
+async def test_codex_observes_the_public_operation(operation: str, outcome: str, service: FakeService) -> None:
+    recording = Recording()
+    if outcome == "retry":
+        service.reply_json({}, status_code=503)
+    if outcome == "http_error":
+        service.reply_json({}, status_code=401)
+    else:
+        codex_reply(service, "ok")
+    expected = (
+        pytest.raises(republic.errors.APIStatusError)
+        if outcome == "http_error"
+        else pytest.raises(ValueError)
+        if outcome == "validation_error"
+        else nullcontext()
+    )
+    async with service.client() as client:
+        model = republic.get_model(
+            "codex:test", api_key="test-key", http_client=client, max_retry_delay=0, extensions=[recording]
+        )
+        with expected as caught:
+            schema = int if outcome == "validation_error" else None
+            if operation == "stream":
+                async with model.stream("Hi", output_schema=schema) as stream:
+                    [event async for event in stream]
+                result = stream.response
+            else:
+                result = await model.chat("Hi", output_schema=schema)
+    [(context, observed, error)] = recording.finishes
+    assert recording.contexts == [{"provider": "codex", "operation": operation, "model": "test"}]
+    assert context is recording.contexts[0]
+    assert [retry_context for retry_context, *_ in recording.retries] == ([context] if outcome == "retry" else [])
+    if caught is not None:
+        assert error is caught.value
+        assert (observed is not None) == (outcome == "validation_error")
+    else:
+        assert observed is result and error is None
 
 
 @pytest.mark.parametrize("streaming", [False, True])

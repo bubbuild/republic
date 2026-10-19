@@ -156,6 +156,7 @@ class Stream(Generic[OutputT]):
         self._new_messages = new_messages
         self._options = options
         self._adapter = adapter
+        self._operation = "stream"
         self._exit_stack = AsyncExitStack()
         self._events: AsyncIterator[ServerSentEvent] | None = None
         self._iterated = False
@@ -166,7 +167,7 @@ class Stream(Generic[OutputT]):
 
     async def __aenter__(self) -> Self:
         provider = self._model.provider
-        self._observation = _Observation(provider.extensions, provider.name, "stream", self._model.name)
+        self._observation = _Observation(provider.extensions, provider.name, self._operation, self._model.name)
         with _bind(provider, self._observation):
             try:
                 request = await self._model._request(self._new_messages, self._options, self._adapter)

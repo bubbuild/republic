@@ -180,7 +180,9 @@ class _CodexModel(ChatModel):
         self, prompt: Input, *, output_schema: type[Any] | None = None, **options: Unpack[ChatOptions]
     ) -> Response[Any]:
         # The endpoint always streams. Keep the normal parser, history and output validation.
-        async with self.stream(prompt, output_schema=output_schema, **options) as stream:
+        stream = self.stream(prompt, output_schema=output_schema, **options)
+        stream._operation = "chat"
+        async with stream:
             async for _ in stream:
                 pass
         return stream.response

@@ -118,8 +118,7 @@ A timeout can occur after the service accepted a request. Retrying can therefore
 
 ## Extensions
 
-Subclass `Extension` and pass configured instances through `extensions=` on a
-Provider or model factory. Override any of its three methods; defaults do nothing.
+Subclass `Extension` and pass configured instances through `extensions=` on a Provider or model factory. Override any of its three methods; defaults do nothing.
 
 ```python
 import logging
@@ -155,28 +154,13 @@ model = republic.get_model(
 | `on_retry(context, error, attempt, delay)` | A retry is scheduled, after releasing the failed response and before waiting. Attempt numbers start at 1 for each HTTP retry loop, including each model-list page. |
 | `on_finish(context, response, error)` | Exactly one terminal outcome, carrying the returned response or the original error when available. |
 
-`provider` is the provider name. Operations are `chat`, `stream`, `embed`
-(including batches), `generate`, `edit`, `decide`, and `list_models`; listing has
-`model=None` and returns a list. Each extension receives its own `on_start`
-return value unchanged as `context` in subsequent methods for that call.
-The default is `None`, also used if `on_start` fails. Return a fresh value when
-keeping mutable per-call state, so overlapping calls can be observed independently.
+`provider` is the provider name. Operations are `chat`, `stream`, `embed` (including batches), `generate`, `edit`, `decide`, and `list_models`; listing has `model=None` and returns a list. Each extension receives its own `on_start` return value unchanged as `context` in subsequent methods for that call. The default is `None`, also used if `on_start` fails. Return a fresh value when keeping mutable per-call state, so overlapping calls can be observed independently.
 
-Response and error may both be present when output validation or history writing
-fails. The response retains text and usage; `output` is `None` on validation
-failure and retains the validated value on history failure. Both arguments are
-absent when an entered stream closes without completing a response.
+Response and error may both be present when output validation or history writing fails. The response retains text and usage; `output` is `None` on validation failure and retains the validated value on history failure. Both arguments are absent when an entered stream closes without completing a response.
 
-Successful streams notify before `Completed`, once validation and history writing
-succeed. Later context exit or consumer exceptions do not change that result.
-Constructing a stream without entering it produces no notifications. Cancellation
-during the call reaches both the extension and caller as the original exception.
+Successful streams notify before `Completed`, once validation and history writing succeed. Later context exit or consumer exceptions do not change that result. Constructing a stream without entering it produces no notifications. Cancellation during the call reaches both the extension and caller as the original exception.
 
-Methods run synchronously in registration order. Retry and finish return values are ignored;
-extension failures are logged and isolated, including explicitly raised
-`CancelledError`. Async methods are unsupported. Return promptly and do not
-mutate borrowed responses. HTTP hooks, authentication and timeouts remain on the
-HTTP client; extensions do not change retry policy.
+Methods run synchronously in registration order. Retry and finish return values are ignored; extension failures are logged and isolated, including explicitly raised `CancelledError`. Async methods are unsupported. Return promptly and do not mutate borrowed responses. HTTP hooks, authentication and timeouts remain on the HTTP client; extensions do not change retry policy.
 
 ## Response diagnostics
 
