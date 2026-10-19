@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import logging
 import math
 import os
 import random
@@ -25,6 +27,7 @@ from republic.errors import (
     UnsupportedApiFormatError,
     UnsupportedFeatureError,
 )
+from republic.extensions import Call, Extension
 from republic.formats import _API_FORMATS, ApiFormatName
 from republic.formats._base import (
     ApiFormat,
@@ -41,6 +44,7 @@ if TYPE_CHECKING:
     from republic.history import HistoryProtocol
 
 DEFAULT_TIMEOUT = httpx2.Timeout(600, connect=10)
+logger = logging.getLogger(__name__)
 
 _FormatT = TypeVar("_FormatT", bound=ApiFormat)
 
@@ -82,6 +86,7 @@ class Provider:
         max_retries: int = 2,
         retry_delay: float = 0.5,
         max_retry_delay: float = 60,
+        extensions: Sequence[Extension] = (),
     ) -> None:
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be a nonnegative integer")
@@ -111,6 +116,7 @@ class Provider:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.max_retry_delay = max_retry_delay
+        self.extensions = tuple(extensions)
         self._http_client = http_client
         self._owns_http_client = http_client is None
         self._client_loop: asyncio.AbstractEventLoop | None = None
@@ -189,6 +195,13 @@ class Provider:
 
     async def list_models(self) -> list[ModelInfo]:
         """List the models the service offers to these credentials, following every page."""
+        api_format = _API_FORMATS[self.api_format or self.SUPPORTED_API_FORMATS[0]]
+        async with self._call("list_models", None, api_format.name) as call:
+            models = await self._list_models(call)
+            call.response = models
+            return models
+
+    async def _list_models(self, call: Call) -> list[ModelInfo]:
         if self.MODELS_PATH is None:
             raise UnsupportedFeatureError(f"Provider {self.name!r} cannot list models")
         api_format = _API_FORMATS[self.api_format or self.SUPPORTED_API_FORMATS[0]]
@@ -201,7 +214,8 @@ class Provider:
             response = await self._retry(
                 lambda params=params: client.get(
                     f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
-                )
+                ),
+                call=call,
             )
             if response.is_error:
                 raise APIStatusError(response.status_code, response.text, headers=response.headers)
@@ -245,17 +259,19 @@ class Provider:
                 return api_format
         raise UnsupportedApiFormatError(f"Provider {self.name!r} supports no {format_kind.kind} API format")
 
-    async def _post(self, api_format: ApiFormat, request: HttpRequest) -> httpx2.Response:
+    async def _post(self, api_format: ApiFormat, request: HttpRequest, *, call: Call | None = None) -> httpx2.Response:
         client = self._client()
-        response = await self._retry(lambda: self._send(client, api_format, request, stream=False))
+        response = await self._retry(lambda: self._send(client, api_format, request, stream=False), call=call)
         if response.is_error:
             raise APIStatusError(response.status_code, response.text, headers=response.headers)
         return response
 
     @asynccontextmanager
-    async def _stream(self, api_format: ApiFormat, request: HttpRequest) -> AsyncGenerator[HttpStream]:
+    async def _stream(
+        self, api_format: ApiFormat, request: HttpRequest, *, call: Call | None = None
+    ) -> AsyncGenerator[HttpStream]:
         client = self._client()
-        response = await self._retry(lambda: self._send(client, api_format, request, stream=True))
+        response = await self._retry(lambda: self._send(client, api_format, request, stream=True), call=call)
         try:
             if response.is_error:
                 await response.aread()
@@ -267,30 +283,124 @@ class Provider:
         finally:
             await response.aclose()
 
-    async def _retry(self, send: Callable[[], Awaitable[httpx2.Response]]) -> httpx2.Response:
+    async def _retry(
+        self, send: Callable[[], Awaitable[httpx2.Response]], *, call: Call | None = None
+    ) -> httpx2.Response:
         """Retry only the request, never replay a successful streaming response."""
         for attempt in range(self.max_retries + 1):
-            headers: Mapping[str, str] = {}
+            response = None
             try:
-                response = await send()
-            except httpx2.RequestError as exc:
-                retryable = isinstance(exc, (httpx2.TimeoutException, httpx2.NetworkError, httpx2.RemoteProtocolError))
-                if not retryable or attempt == self.max_retries:
-                    raise _connection_error(exc) from exc
+                response = await self._attempt(send, call)
+            except APIConnectionError as exc:
+                error = exc
             else:
-                if attempt == self.max_retries or not (
-                    response.status_code in {408, 409, 429} or response.status_code >= 500
-                ):
+                if not response.is_error:
                     return response
-                headers = dict(response.headers)
-                # Release the response before sleeping, including unread SSE error bodies.
-                await response.aclose()
-            delay = _retry_after(headers)
-            if delay is None:
-                delay = min(self.max_retry_delay, self.retry_delay * 2 ** min(attempt, 30))
-                delay *= random.uniform(0.75, 1)  # noqa: S311 - retry jitter, not cryptography
-            await asyncio.sleep(min(delay, self.max_retry_delay))
+                error = APIStatusError(
+                    response.status_code,
+                    "" if not response.is_stream_consumed else response.text,
+                    headers=response.headers,
+                )
+            if attempt == self.max_retries or await self._retry_wait(response, error, attempt, call) is None:
+                if response is not None:
+                    return response
+                raise error
         raise AssertionError("Unreachable retry state")
+
+    async def _attempt(self, send: Callable[[], Awaitable[httpx2.Response]], call: Call | None) -> httpx2.Response:
+        if call is not None:
+            call.attempts += 1
+            call.headers = {}
+        try:
+            response = await send()
+        except httpx2.RequestError as exc:
+            raise _connection_error(exc) from exc
+        if call is not None:
+            call.headers = dict(response.headers)
+        return response
+
+    def _retry_delay(self, error: Exception, attempt: int) -> float | None:
+        headers: Mapping[str, str] = {}
+        if isinstance(error, APIStatusError):
+            if error.status_code not in {408, 409, 429} and error.status_code < 500:
+                return None
+            headers = error.headers
+        elif not isinstance(
+            error.__cause__, (httpx2.TimeoutException, httpx2.NetworkError, httpx2.RemoteProtocolError)
+        ):
+            return None
+        delay = _retry_after(headers)
+        if delay is None:
+            delay = min(self.max_retry_delay, self.retry_delay * 2 ** min(attempt, 30))
+            delay *= random.uniform(0.75, 1)  # noqa: S311 - retry jitter, not cryptography
+        return min(delay, self.max_retry_delay)
+
+    async def _retry_wait(
+        self, response: httpx2.Response | None, error: Exception, attempt: int, call: Call | None
+    ) -> float | None:
+        try:
+            delay = self._retry_delay(error, attempt)
+            if call is not None:
+                delay = await self._extension_retry_delay(call, error, delay)
+        except BaseException:
+            if response is not None:
+                await response.aclose()
+            raise
+        if delay is not None:
+            if response is not None:
+                await response.aclose()
+            if call is not None:
+                await self._notify("on_retry", call, error, delay)
+            await asyncio.sleep(delay)
+        return delay
+
+    @asynccontextmanager
+    async def _call(
+        self, operation: str, model: str | None, api_format: str, *, streaming: bool = False
+    ) -> AsyncGenerator[Call]:
+        call = Call(self.name, model, operation, api_format, streaming)
+        try:
+            await self._notify("on_start", call)
+            yield call
+        except BaseException as exc:
+            if call.error is None:
+                call.error = exc
+            raise
+        finally:
+            call.elapsed = time.monotonic() - call._started
+            if isinstance(call.error, asyncio.CancelledError):
+                call.status = "cancelled"
+            elif call.error is not None:
+                call.status = "error"
+            else:
+                call.status = "success" if call.response is not None else "closed"
+            await self._notify("on_finish", call)
+
+    async def _notify(self, method: str, call: Call, *args: Any) -> None:
+        for extension in self.extensions:
+            callback = getattr(extension, method)
+            if callback is None:
+                continue
+            call.elapsed = time.monotonic() - call._started
+            try:
+                result = callback(call, *args)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.warning("Provider extension %s.%s failed", type(extension).__name__, method, exc_info=True)
+
+    async def _extension_retry_delay(self, call: Call, error: Exception, delay: float | None) -> float | None:
+        for extension in self.extensions:
+            if extension.retry_delay is None:
+                continue
+            call.elapsed = time.monotonic() - call._started
+            value = extension.retry_delay(call, error, delay)
+            if inspect.isawaitable(value):
+                value = await value
+            if value is not None and (isinstance(value, bool) or not math.isfinite(value) or value < 0):
+                raise ValueError("An extension retry delay must be finite and nonnegative, or None")
+            delay = None if value is None else min(value, self.max_retry_delay)
+        return delay
 
     def _client(self) -> httpx2.AsyncClient:
         self._ensure_open()

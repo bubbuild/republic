@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, HttpUrl, PositiveInt
 
 from republic.auth import Auth, OAuth2Auth, _run_login
 from republic.errors import AuthenticationError
+from republic.extensions import Call
 from republic.formats import ApiFormat, HttpRequest
 from republic.formats._sse import ServerSentEvent
 
@@ -197,8 +198,10 @@ class GitHubCopilot(Provider):
             self.auth = GitHubCLIAuth()
 
     @asynccontextmanager
-    async def _stream(self, api_format: ApiFormat, request: HttpRequest) -> AsyncGenerator[HttpStream]:
-        async with super()._stream(api_format, request) as response:
+    async def _stream(
+        self, api_format: ApiFormat, request: HttpRequest, *, call: Call | None = None
+    ) -> AsyncGenerator[HttpStream]:
+        async with super()._stream(api_format, request, call=call) as response:
             yield replace(response, events=_copilot_events(response.events, api_format))
 
     async def _send(

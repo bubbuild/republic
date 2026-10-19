@@ -18,6 +18,7 @@ These options apply to `get_provider()` and the model factories, including `get_
 | `max_retries` | Additional attempts after a retryable failure; default is 2, and 0 disables retries |
 | `retry_delay` | Initial exponential backoff in seconds; default is 0.5, with jitter |
 | `max_retry_delay` | Maximum wait between attempts, including `Retry-After`; default is 60 seconds |
+| `extensions` | Optional callback bundles from `republic.extensions`; empty by default |
 
 `api_key`, `api_base`, and `env_prefix` treat `None` and an empty string as absent. An empty string does not disable environment lookup.
 
@@ -114,6 +115,105 @@ Retries wait with exponential backoff and jitter. A valid `retry-after-ms` or `R
 For a stream, only the initial request can be retried. Once a successful HTTP response is opened, Republic never replays it, even if reading fails before the first event. Transport failures raise `errors.APIConnectionError` or its `errors.APITimeoutError` subclass, with the original exception as `__cause__`. Cancellation propagates without a retry.
 
 A timeout can occur after the service accepted a request. Retrying can therefore produce another generation or repeat a provider-run tool operation; set `max_retries=0` when your application requires a single attempt.
+
+## Extensions
+
+Pass an `Extension` when you need to observe Republic's calls or adjust retry
+waiting. It is a collection of optional callbacks; no registration or subclass
+is needed. For HTTP request headers, transport logging and authentication,
+continue using the supplied HTTP client's hooks, transport and `auth=`.
+
+```python
+import logging
+
+import republic
+from republic.extensions import Call, Extension
+
+logger = logging.getLogger(__name__)
+
+
+def log_call(call: Call) -> None:
+    logger.info(
+        "%s %s:%s status=%s attempts=%s seconds=%.3f request_id=%s",
+        call.operation, call.provider, call.model,
+        call.status, call.attempts, call.elapsed, call.request_id,
+    )
+
+
+model = republic.get_model(
+    "openai:gpt-6-sol",
+    extensions=[Extension(on_finish=log_call)],
+)
+```
+
+The same `extensions=` option applies to Providers and all model factories.
+Callbacks may be regular or async functions. A package can expose a function
+that builds an `Extension` with its own configuration and callbacks.
+
+| Callback | When it runs |
+| --- | --- |
+| `on_start(call)` | Before preparing the request |
+| `retry_delay(call, error, delay)` | After an HTTP status or transport failure, when additional attempts remain; returns a wait in seconds or `None` to stop retrying |
+| `on_retry(call, error, delay)` | Before waiting for the next attempt, after the failed HTTP response is closed |
+| `on_finish(call)` | Once the call finishes, including parsing or output-validation failures; for streams, after the stream context exits and releases the response |
+
+`Call` is unique to each call, including concurrent calls sharing an Extension.
+It carries `provider`, `model`, `operation`, `api_format`, `streaming`,
+`attempts`, elapsed seconds, response headers and `request_id`. At finish,
+`response` is the public chat, embedding, image or decision response, or the
+list returned by `list_models()`. `error` is the original exception when one
+occurred. A fully parsed chat response is retained when output validation or
+history writing fails, so its usage remains observable. Extensions may keep
+their own per-call data in `call.state`; Republic
+maintains the other fields. Response text and usage remain available through
+the public response; no prompt or credential fields are added to `Call`.
+
+The final `status` is `success`, `error`, `cancelled`, or `closed`. A stream
+closed before full consumption is `closed` and has no final response. A
+failure caught inside the stream context is still observed as `error`.
+Consumer code raising an unrelated exception closes an unfinished stream;
+it is not reported as a provider error. Cancellation of an unfinished call
+is reported as `cancelled` and propagates to the caller. Finish notification
+does not require consuming the stream, but it does require exiting its context.
+
+Observer return values are ignored. Observer exceptions are logged and skipped
+so later observers still run; cancellation propagates. Callbacks are awaited
+in extension order and should return promptly. An Extension shared between
+calls must keep per-call state on `Call`, rather than overwriting shared fields.
+
+To adjust the existing retry behavior:
+
+```python
+from republic import errors
+
+
+def retry_delay(call: Call, error: Exception, delay: float | None) -> float | None:
+    if isinstance(error, errors.APIStatusError) and error.status_code == 409:
+        return None
+    return delay
+
+
+model = republic.get_model(
+    "openai:gpt-6-sol",
+    extensions=[Extension(retry_delay=retry_delay, on_finish=log_call)],
+)
+```
+
+The proposed `delay` is the existing backoff, or `None` for a failure Republic
+would not retry by default. Returning a delay can opt such a failure into
+retries; returning `None` stops retries. Multiple callbacks transform the
+proposal in extension order. `max_retries` remains the limit per request
+(per page for model listing), and every wait is capped by `max_retry_delay`.
+`attempts` counts all attempts across a call, including all model-list pages.
+The `error` passed to retry callbacks is an `APIStatusError` or normalized
+connection error. An unread streaming error response has an empty `body` in
+this callback; its status and headers are available without reading it.
+
+Because `retry_delay` controls execution, its exceptions and invalid return
+values stop the call after closing the failed response. Values must be finite,
+nonnegative numbers or `None`. Cancellation, local authentication failures,
+payload errors, and successfully opened streams never enter retry callbacks.
+Extensions do not change HTTP client ownership or configure auth-client calls.
 
 ## Response diagnostics
 
