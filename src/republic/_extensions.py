@@ -1,16 +1,16 @@
-"""Private call ownership and dispatch for synchronous extension observers."""
+"""Private call ownership and synchronous extension dispatch."""
 
 from __future__ import annotations
 
 import asyncio
 import inspect
 import logging
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
-from republic.extensions import Extension, Observer, Request, ResponseValue
+from republic.extensions import Extension, Request, ResponseValue
 
 if TYPE_CHECKING:
     from republic.providers import Provider
@@ -19,41 +19,36 @@ logger = logging.getLogger(__name__)
 _current: ContextVar[tuple[Provider, _Observation] | None] = ContextVar("republic_observation", default=None)
 
 
-def _invoke(receiver: object, method: str, *args: Any) -> Any:
+def _invoke(extension: Extension, method: str, *args: Any) -> None:
     try:
-        callback: Callable[..., Any] = getattr(receiver, method)
-        result = callback(*args)
+        result = getattr(extension, method)(*args)
         if inspect.isawaitable(result):
             if inspect.iscoroutine(result):
                 result.close()
             logger.warning("Extension callback %s must be synchronous", method)
-            return None
     except (Exception, asyncio.CancelledError):
         logger.warning("Extension callback %s failed", method, exc_info=True)
-        return None
-    return result
 
 
 class _Observation:
     def __init__(self, extensions: Sequence[Extension], request: Request) -> None:
         self.response: ResponseValue | None = None
         self._done = False
-        self._observers: list[Observer] = []
+        self._extensions = extensions
+        self._request = request
         for extension in extensions:
-            observer = _invoke(extension, "on_start", request)
-            if observer is not None:
-                self._observers.append(observer)
+            _invoke(extension, "on_start", request)
 
     def retry(self, error: Exception, attempt: int, delay: float) -> None:
-        for observer in self._observers:
-            _invoke(observer, "on_retry", error, attempt, delay)
+        for extension in self._extensions:
+            _invoke(extension, "on_retry", self._request, error, attempt, delay)
 
     def finish(self, error: BaseException | None = None) -> None:
         if self._done:
             return
         self._done = True
-        for observer in self._observers:
-            _invoke(observer, "on_finish", self.response, error)
+        for extension in self._extensions:
+            _invoke(extension, "on_finish", self._request, self.response, error)
 
 
 def _active(provider: Provider) -> _Observation | None:
