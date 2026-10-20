@@ -89,4 +89,6 @@ async with republic.get_model("openrouter:openai/gpt-5.4") as model:
 
 Remove `format` for freeform input. The model and service must support custom tools. This example expects one call; handle refusals and validate input in your executor.
 
-Read custom calls from `response.message.parts`, not `response.tool_calls`. Return `custom_tool_call_output` through `ProviderData`; `republic.tool()` encodes a function result. When streaming, consume the stream before reading `stream.response.message.parts`. Custom input does not emit `ToolCallDelta` or `ToolCallReady`.
+For Responses custom tools, read the `ProviderData` items in `response.message.parts`. Execute the input in your application, then return `custom_tool_call_output` with the original `call_id`. Keep the full `response.message` in the conversation, as shown, to preserve provider state. Use `republic.tool()` for function-tool results.
+
+When streaming, consume the stream first, then handle custom calls from `stream.response.message.parts` in the same way.

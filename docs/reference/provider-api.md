@@ -132,7 +132,7 @@ Each call has an ID, name, raw JSON `arguments`, decoded `args`, and provider me
 - `tools.NativeTool(api_format, definition)` sends a native definition unchanged. The request must use the matching API format.
 - `ProviderData(api_format, payload)` stores native items in `response.message.parts`. The matching format replays them unchanged; other formats skip them.
 
-Native tools may run at the provider or request application execution. Republic does not execute tools locally. See [native tool round trips](../guides/tools.md#use-native-tools) for a custom tool example.
+`response.builtin_tool_calls` and `BuiltinToolCallReady` report native tool activity, including calls that still require application execution. Republic does not execute tools locally. For custom call input and result replay, use the `ProviderData` payloads shown in [native tool round trips](../guides/tools.md#use-native-tools).
 
 ### Structured input
 
