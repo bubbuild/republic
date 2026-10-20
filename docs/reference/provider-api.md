@@ -126,6 +126,14 @@ print(response.tool_calls)
 
 Each call has an ID, name, raw JSON `arguments`, decoded `args`, and provider metadata. Preserve the call when returning its result.
 
+### Native tools and provider data
+
+- `Tool` declares a JSON function schema. Calls appear in `response.tool_calls`.
+- `tools.NativeTool(api_format, definition)` sends a native definition unchanged. The request must use the matching API format.
+- `ProviderData(api_format, payload)` stores native items in `response.message.parts`. The matching format replays them unchanged; other formats skip them.
+
+Native tools may run at the provider or request application execution. Republic does not execute tools locally. See [native tool round trips](../guides/tools.md#use-native-tools) for a custom tool example.
+
 ### Structured input
 
 ```python

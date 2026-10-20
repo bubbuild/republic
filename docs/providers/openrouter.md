@@ -65,4 +65,6 @@ Choose a model available to your account. Model names use `openrouter:provider/m
 
 Use `chat()` or `stream()` for chat models. Select `api_format="chat"` or `api_format="messages"` when needed. Use `get_embedding_model()` or `get_decision_model()` for models of those kinds.
 
+Use [`NativeTool("responses", ...)`](../guides/tools.md#use-native-tools) for freeform or grammar-constrained custom tools on models that support them.
+
 See [configuration](../reference/configuration.md) for credential precedence, endpoint overrides, and request options.
