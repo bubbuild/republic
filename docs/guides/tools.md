@@ -1,6 +1,8 @@
 # Return tool results to a model
 
-A tool round trip has three parts: declare a schema, execute the calls in the response, then send the results with the original assistant message.
+Declare a tool, execute the returned calls, then send the results with the original assistant message.
+
+## Use function tools
 
 The [minimal agent tutorial](minimal-agent.md) defines a `read_file` tool and an `execute()` function in `agent.py`. Save that script first. This example imports them and performs one round, so you can see exactly which messages are sent:
 
@@ -39,3 +41,54 @@ The second request completes this round without offering more tools. To allow an
 During streaming, `ToolCallDelta` carries argument fragments. Use `ToolCallReady` or the completed response when you need a finished call. Preserve its metadata when returning the result.
 
 Provider-run tools, such as `republic.tools.WebSearch`, execute at the service and expose activity through `response.builtin_tool_calls`. They go in `tools=` too, but do not use the application's `execute()` function.
+
+## Use native tools
+
+`NativeTool` sends an API-specific definition unchanged. This OpenRouter example uses a custom tool with a Lark grammar. Set `REPUBLIC_OPENROUTER_API_KEY` and run inside an async function; `run_code(source)` is your application's executor.
+
+```python
+import republic
+from republic.tools import NativeTool
+
+code_exec = NativeTool(
+    "responses",
+    {
+        "type": "custom",
+        "name": "code_exec",
+        "description": "Run Python source and return stdout.",
+        "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": 'start: "print(1 + 1)"',
+        },
+    },
+)
+
+task = "Call code_exec with print(1 + 1), then reply with only its stdout."
+async with republic.get_model("openrouter:openai/gpt-5.4") as model:
+    response = await model.chat(task, tools=[code_exec], tool_choice="required", parallel_tool_calls=False)
+    call = next(
+        part.payload
+        for part in response.message.parts
+        if isinstance(part, republic.ProviderData)
+        and part.api_format == "responses"
+        and part.payload.get("type") == "custom_tool_call"
+    )
+    item = republic.ProviderData(
+        "responses",
+        {
+            "type": "custom_tool_call_output",
+            "call_id": call["call_id"],
+            "output": run_code(call["input"]),
+        },
+    )
+    output = republic.Message("assistant", parts=(item,))
+    answer = await model.chat([task, response.message, output], tools=[code_exec], tool_choice="none")
+    print(answer.text)
+```
+
+Remove `format` for freeform input. The model and service must support custom tools. This example expects one call; handle refusals and validate input in your executor.
+
+For Responses custom tools, read the `ProviderData` items in `response.message.parts`. Execute the input in your application, then return `custom_tool_call_output` with the original `call_id`. Keep the full `response.message` in the conversation, as shown, to preserve provider state. Use `republic.tool()` for function-tool results.
+
+When streaming, consume the stream first, then handle custom calls from `stream.response.message.parts` in the same way.
