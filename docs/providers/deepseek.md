@@ -31,4 +31,6 @@ Chat requests send `max_tokens`, and `reasoning_effort="none"` turns thinking of
 
 Select `api_format="responses"` or `api_format="messages"` to use another format. Messages requests go to DeepSeek's Anthropic-compatible endpoint, `https://api.deepseek.com/anthropic`, while `api_base` stays `https://api.deepseek.com`.
 
+DeepSeek's Responses API accepts `NativeTool("responses", {"type": "custom", "name": "apply_patch"})`. See [`examples/deepseek_apply_patch.py`](https://github.com/bubbuild/republic/blob/main/examples/deepseek_apply_patch.py) for application execution and result replay. Other custom tool names are unsupported.
+
 See [configuration](../reference/configuration.md) for endpoint overrides and request options.
