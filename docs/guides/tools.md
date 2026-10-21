@@ -76,11 +76,12 @@ Each API format maps a built-in tool to its own equivalent:
 
 An unsupported tool or setting raises `UnsupportedFeatureError` before the request is sent. The model must also support the tool; the service rejects it otherwise.
 
-`response.builtin_tool_calls` lists the `BuiltinToolCall` records the provider reports. Portable tools are named `web_search`, `web_fetch`, `code_execution`, or `image_generation`; `input` and `output` keep the provider's shapes. Sources cited by search and fetch tools appear in `response.citations`, and generated images in `response.image_parts`. When streaming, the same data arrives as `BuiltinToolCallReady`, `CitationAdded`, and `ImageReady` events.
+`response.builtin_tool_calls` lists the `BuiltinToolCall` records the provider reports. Portable tools are named `web_search`, `web_fetch`, `code_execution`, or `image_generation`; `input` and `output` keep the provider's shapes. Sources the provider reports as citations appear in `response.citations`; Gemini's URL context tool reports the retrieved URLs in `builtin_tool_calls` instead. Generated images appear in `response.image_parts`. When streaming, the same data arrives as `BuiltinToolCallReady`, `CitationAdded`, and `ImageReady` events.
 
-A long built-in tool turn may stop with `finish_reason == "pause"`. Send `response.message` back with the same tools to let the model continue:
+A long built-in tool turn may stop with `finish_reason == "pause"`. Send `response.message` back with the same tools to let the model continue. This continues the example above, inside `main()`, with its `model` and `search`:
 
 ```python
+task = "Which Python release is the newest?"
 messages = [task]
 response = await model.chat(messages, tools=[search])
 while response.finish_reason == "pause":
