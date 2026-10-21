@@ -40,7 +40,54 @@ The second request completes this round without offering more tools. To allow an
 
 During streaming, `ToolCallDelta` carries argument fragments. Use `ToolCallReady` or the completed response when you need a finished call. Preserve its metadata when returning the result.
 
-Provider-run tools, such as `republic.tools.WebSearch`, execute at the service and expose activity through `response.builtin_tool_calls`. They go in `tools=` too, but do not use the application's `execute()` function.
+## Use built-in tools
+
+Built-in tools in `republic.tools` run at the provider, so there is no call to execute and no result to send back. Pass them in `tools=`, alone or next to function tools:
+
+```python
+import asyncio
+
+import republic
+from republic.tools import UserLocation, WebSearch
+
+
+async def main():
+    model = republic.get_model("openai:gpt-6-sol")
+    search = WebSearch(allowed_domains=["python.org"], user_location=UserLocation(country="US"))
+    response = await model.chat("Which Python release is the newest?", tools=[search])
+    print(response.text)
+    for citation in response.citations:
+        print(citation.url, citation.title)
+    for call in response.builtin_tool_calls:
+        print(call.name, call.input)
+
+
+asyncio.run(main())
+```
+
+Each API format maps a built-in tool to its own equivalent:
+
+| Tool | `responses` | `messages` | `gemini` | `chat` |
+| --- | --- | --- | --- | --- |
+| `WebSearch` | Yes, without `max_uses` or `blocked_domains` | Yes | Yes, without settings | Yes, `user_location` only |
+| `WebFetch` | No | Yes | Yes, without settings | No |
+| `CodeExecution` | Yes | Yes | Yes | No |
+| `ImageGeneration` | Yes | No | No | No |
+
+An unsupported tool or setting raises `UnsupportedFeatureError` before the request is sent. The model must also support the tool; the service rejects it otherwise.
+
+`response.builtin_tool_calls` lists the `BuiltinToolCall` records the provider reports. Portable tools are named `web_search`, `web_fetch`, `code_execution`, or `image_generation`; `input` and `output` keep the provider's shapes. Sources the provider reports as citations appear in `response.citations`; Gemini's URL context tool reports the retrieved URLs in `builtin_tool_calls` instead. Generated images appear in `response.image_parts`. When streaming, the same data arrives as `BuiltinToolCallReady`, `CitationAdded`, and `ImageReady` events.
+
+A long built-in tool turn may stop with `finish_reason == "pause"`. Send `response.message` back with the same tools to let the model continue. This continues the example above, inside `main()`, with its `model` and `search`:
+
+```python
+task = "Which Python release is the newest?"
+messages = [task]
+response = await model.chat(messages, tools=[search])
+while response.finish_reason == "pause":
+    messages.append(response.message)
+    response = await model.chat(messages, tools=[search])
+```
 
 ## Use native tools
 
