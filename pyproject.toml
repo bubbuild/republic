@@ -11,7 +11,7 @@ keywords = ["ai", "ai-provider", "python"]
 requires-python = ">=3.11,<4.0"
 dependencies = [
     "authlib>=1.8",
-    "filelock>=4.2.1",
+    "filelock>=3.32",
     "httpx2>=2.13",
     "pydantic>=2.13.5",
 ]
@@ -34,7 +34,7 @@ Issues = "https://github.com/bubbuild/republic/issues"
 
 [project.optional-dependencies]
 image = [
-    "pillow>=13.0.0",
+    "pillow>=12.3.0",
 ]
 
 [dependency-groups]
@@ -49,7 +49,7 @@ dev = [
     "ruff>=0.14.10",
     "pytest-asyncio>=1.3.0",
     "prek>=0.3.2",
-    "pillow>=13.0.0",
+    "pillow>=12.3.0",
 ]
 
 [build-system]
