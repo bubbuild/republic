@@ -217,7 +217,10 @@ def _content(api_format: ChatFormat, message: Message) -> str | list[dict[str, A
             case Text(text=text):
                 content.append({"type": "text", "text": text})
             case Image():
-                content.append({"type": "image_url", "image_url": {"url": part.data_url}})
+                image_url = {"url": part.data_url}
+                if part.detail != "auto":
+                    image_url["detail"] = part.detail
+                content.append({"type": "image_url", "image_url": image_url})
             case Audio():
                 content.append(api_format.audio_content(part))
             case Video():

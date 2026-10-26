@@ -7,6 +7,7 @@ from republic import auth, decisions, errors, events, extensions, formats, histo
 from republic._content import (
     Audio,
     Image,
+    ImageDetail,
     Message,
     ProviderData,
     Reasoning,
@@ -55,6 +56,7 @@ __all__ = [
     "EmbeddingResponse",
     "FinishReason",
     "Image",
+    "ImageDetail",
     "ImageModel",
     "ImageOptions",
     "ImageResponse",
