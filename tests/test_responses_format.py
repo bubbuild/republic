@@ -74,7 +74,7 @@ async def test_tool_results_can_hold_multiple_parts(service: FakeService) -> Non
         "call_id": "call_1",
         "output": [
             {"type": "input_text", "text": "Captured"},
-            {"type": "input_image", "image_url": "data:image/png;base64,cG5n"},
+            {"type": "input_image", "image_url": "data:image/png;base64,cG5n", "detail": "auto"},
         ],
     }
 
@@ -264,3 +264,15 @@ async def test_structured_output_schema_meets_strict_mode(service: FakeService) 
     assert schema["properties"]["origin"]["description"] == "Where the trip starts"
     assert schema["$defs"]["Location"]["additionalProperties"] is False
     assert response.output == Trip(origin=Location(city="Paris"))
+
+
+async def test_image_detail_is_sent_when_set(service: FakeService) -> None:
+    service.reply_json({"output": []})
+
+    await make_model(service).chat(
+        republic.user(republic.Image("image/png", url="https://example.com/a.png", detail="high"))
+    )
+
+    assert service.body()["input"][0]["content"] == [
+        {"type": "input_image", "image_url": "https://example.com/a.png", "detail": "high"}
+    ]

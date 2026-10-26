@@ -6,7 +6,7 @@ import json
 import mimetypes
 import os
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar
 from urllib.parse import urlsplit
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
 
 Role = Literal["system", "user", "assistant", "tool"]
+ImageDetail = Literal["auto", "low", "high"]
 
 _REMOTE_PREFIXES = ("http://", "https://", "gs://")
 
@@ -61,6 +62,9 @@ class _Media:
 @dataclass(frozen=True)
 class Image(_Media):
     kind: ClassVar[str] = "image"
+
+    detail: ImageDetail = field(default="auto", kw_only=True)
+    """How closely OpenAI-style APIs should look at the image; other API formats ignore it."""
 
     def to_pil(self) -> PILImage:
         """Decode inline image data with Pillow (install ``republic[image]``)."""
@@ -203,6 +207,8 @@ def _part_to_dict(part: Part) -> dict[str, Any]:
                 data["url"] = part.url
             if part.data is not None:
                 data["data"] = part.base64_data
+            if isinstance(part, Image) and part.detail != "auto":
+                data["detail"] = part.detail
             return data
         case ProviderData(api_format, payload):
             return {"type": "provider_data", "api_format": api_format, "payload": dict(payload)}
@@ -217,11 +223,14 @@ def _part_from_dict(data: Mapping[str, Any]) -> Part:
         case "image" | "audio" | "video" as kind:
             media_class = {"image": Image, "audio": Audio, "video": Video}[kind]
             inline = data.get("data")
-            return media_class(
+            media = media_class(
                 data["media_type"],
                 data=None if inline is None else base64.b64decode(inline, validate=True),
                 url=data.get("url"),
             )
+            if isinstance(media, Image) and "detail" in data:
+                media = replace(media, detail=data["detail"])
+            return media
         case "provider_data":
             return ProviderData(data["api_format"], data["payload"])
         case other:
@@ -270,9 +279,11 @@ def tool(call: ToolCall, *content: UserContent, is_error: bool = False) -> Messa
     return Message("tool", tuple(_to_part(item) for item in content), tool_call=call, is_error=is_error)
 
 
-def image(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Image:
+def image(
+    source: str | os.PathLike[str] | bytes, *, media_type: str | None = None, detail: ImageDetail = "auto"
+) -> Image:
     """Load an image from a path, a URL, a data URL, or raw bytes."""
-    return _load_media(Image, source, media_type)
+    return replace(_load_media(Image, source, media_type), detail=detail)
 
 
 def audio(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Audio:

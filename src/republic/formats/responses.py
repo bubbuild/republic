@@ -186,7 +186,12 @@ def _user_part(part: object) -> dict[str, Any]:
         case Text(text=text):
             return {"type": "input_text", "text": text}
         case Image():
-            return {"type": "input_image", "image_url": part.data_url}
+            image = {"type": "input_image", "image_url": part.data_url}
+            # While this should be optional, many OpenAI-compatible servers validate the input against
+            # the OpenAI SDK, which *incorrectly* marks this as required. Hence we always include it.
+            # XXX: See republic#89
+            image["detail"] = part.detail
+            return image
         case Audio():
             raise unsupported_media(ResponsesFormat.name, "audio")
         case Video():

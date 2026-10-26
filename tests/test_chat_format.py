@@ -354,3 +354,13 @@ async def test_stream_can_only_be_iterated_once(service: FakeService) -> None:
             [event async for event in stream]
 
     assert stream.text == "Hi"
+
+
+async def test_image_detail_is_sent_when_set(service: FakeService) -> None:
+    service.reply_json({"choices": [{"message": {"content": "ok"}}]})
+
+    await make_model(service).chat(republic.user(republic.image(b"img", media_type="image/png", detail="low")))
+
+    assert service.body()["messages"][0]["content"] == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,aW1n", "detail": "low"}}
+    ]

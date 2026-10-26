@@ -102,3 +102,14 @@ def test_tool_message_with_multiple_parts() -> None:
 def test_from_dict_rejects_unknown_part_type() -> None:
     with pytest.raises(ValueError, match="Unknown message part type"):
         Message.from_dict({"role": "user", "content": [{"type": "hologram"}]})
+
+
+def test_image_detail_round_trips() -> None:
+    message = Message("user", (Image("image/png", url="https://example.com/a.png", detail="low"),))
+
+    data = message.to_dict()
+
+    assert data["content"] == [
+        {"type": "image", "media_type": "image/png", "url": "https://example.com/a.png", "detail": "low"}
+    ]
+    assert Message.from_dict(data) == message
