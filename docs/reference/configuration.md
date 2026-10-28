@@ -160,7 +160,7 @@ Every call produces these events, in order:
 
 Errors are raised from the iteration, including `CancelledError`. A middleware error fails the call.
 
-Middleware may rewrite, drop or add events. The call returns the response of the last `Completed` that leaves the outermost middleware; history keeps the original. A call without one raises `RuntimeError`. A middleware that yields its own `Completed` without iterating `call.events`, such as a cache, sends no request. Stream consumers never see `Retry` events.
+Middleware may rewrite, drop or add events. The call returns the response of the last `Completed` that leaves the outermost middleware; history keeps the original. A non-stream call without one raises `RuntimeError`; a stream that ends without one sets no response, so `stream.response` raises `StreamNotFinishedError`. A middleware that yields its own `Completed` without iterating `call.events`, such as a cache, sends no request. Stream consumers never see `Retry` events.
 
 The request is not sent until a middleware first iterates `call.events`. Entering a stream's context opens it: middleware runs until the HTTP response is open and the first event has arrived. A stream closed before it finishes closes every middleware at its current `yield`, raising `GeneratorExit` there. Constructing a stream without entering it runs no middleware.
 
