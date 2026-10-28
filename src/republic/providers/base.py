@@ -8,15 +8,14 @@ import os
 import random
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from contextlib import AsyncExitStack, aclosing, asynccontextmanager
+from dataclasses import dataclass, field, replace
 from email.utils import parsedate_to_datetime
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeAlias, TypeVar
 
 import httpx2
 
-from republic._extensions import _active, _observe
 from republic._response import ModelInfo
 from republic.auth import Auth, HeaderAuth
 from republic.errors import (
@@ -26,7 +25,7 @@ from republic.errors import (
     UnsupportedApiFormatError,
     UnsupportedFeatureError,
 )
-from republic.extensions import Extension
+from republic.events import CallEvent, Completed, Retry
 from republic.formats import _API_FORMATS, ApiFormatName
 from republic.formats._base import (
     ApiFormat,
@@ -45,12 +44,102 @@ if TYPE_CHECKING:
 DEFAULT_TIMEOUT = httpx2.Timeout(600, connect=10)
 
 _FormatT = TypeVar("_FormatT", bound=ApiFormat)
+_T = TypeVar("_T")
+
+
+@dataclass(frozen=True)
+class Call:
+    """The public call a middleware wraps."""
+
+    provider: str
+    operation: str
+    """``chat``, ``stream``, ``embed``, ``generate``, ``edit``, ``decide`` or ``list_models``."""
+    model: str | None
+    """``None`` for ``list_models``."""
+    events: AsyncGenerator[CallEvent, None] = field(compare=False, repr=False)
+    """The events of the next layer in: ``Retry`` events, stream events, and a final ``Completed``.
+
+    Errors are raised from the iteration.
+    """
+
+
+Middleware: TypeAlias = Callable[[Call], AsyncGenerator[CallEvent, None]]
+"""An async generator function that iterates ``call.events`` and yields the events passed on."""
 
 
 @dataclass(frozen=True)
 class HttpStream:
     events: AsyncIterator[ServerSentEvent]
     headers: Mapping[str, str]
+
+
+class MiddlewareStack:
+    """A provider's middlewares and retry policy, shared by all of its calls."""
+
+    def __init__(self, provider: Provider, middlewares: Sequence[Middleware]) -> None:
+        self.provider = provider
+        self.middlewares = tuple(middlewares)
+
+    async def wrap(self, call: Call) -> AsyncGenerator[CallEvent, None]:
+        """Pass the call's own events through every middleware; the first is outermost.
+
+        Each middleware gets a copy of ``call`` whose ``events`` are those of the next
+        layer in. Closing the returned generator closes every layer, outermost first,
+        so each sees an early exit at its ``yield``.
+        """
+        async with AsyncExitStack() as layers:
+            events = call.events
+            layers.push_async_callback(events.aclose)
+            for middleware in reversed(self.middlewares):
+                events = middleware(replace(call, events=events))
+                layers.push_async_callback(events.aclose)
+            async for event in events:
+                yield event
+
+    async def run(self, call: Call) -> Any:
+        """Run a call to the end and return the response of the last ``Completed`` event."""
+        completed: Completed[Any] | None = None
+        async with aclosing(self.wrap(call)) as events:
+            async for event in events:
+                if isinstance(event, Completed):
+                    completed = event
+        if completed is None:
+            raise RuntimeError("Middleware finished the call without a Completed event")
+        return completed.response
+
+    async def retry(self, send: Callable[[], Awaitable[_T]]) -> AsyncGenerator[Retry | _T, None]:
+        """Yield a ``Retry`` before each wait, then the result of the first successful attempt.
+
+        ``send`` makes one attempt and raises ``APIStatusError`` for an error status.
+        Retry only the request, never replay a successful streaming response.
+        """
+        provider = self.provider
+        for attempt in range(provider.max_retries + 1):
+            try:
+                result = await send()
+            except httpx2.RequestError as exc:
+                retryable = isinstance(exc, (httpx2.TimeoutException, httpx2.NetworkError, httpx2.RemoteProtocolError))
+                if not retryable or attempt == provider.max_retries:
+                    raise _connection_error(exc) from exc
+                error: Exception = _connection_error(exc)
+                error.__cause__ = exc
+                headers: Mapping[str, str] = {}
+            except APIStatusError as exc:
+                if attempt == provider.max_retries or not (
+                    exc.status_code in {408, 409, 429} or exc.status_code >= 500
+                ):
+                    raise
+                error, headers = exc, exc.headers
+            else:
+                yield result
+                return
+            delay = _retry_after(headers)
+            if delay is None:
+                delay = min(provider.max_retry_delay, provider.retry_delay * 2 ** min(attempt, 30))
+                delay *= random.uniform(0.75, 1)  # noqa: S311 - retry jitter, not cryptography
+            delay = min(delay, provider.max_retry_delay)
+            yield Retry(error, attempt + 1, delay)
+            await asyncio.sleep(delay)
 
 
 class Provider:
@@ -84,7 +173,7 @@ class Provider:
         max_retries: int = 2,
         retry_delay: float = 0.5,
         max_retry_delay: float = 60,
-        extensions: Sequence[Extension] = (),
+        middlewares: Sequence[Middleware] = (),
     ) -> None:
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be a nonnegative integer")
@@ -114,7 +203,7 @@ class Provider:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.max_retry_delay = max_retry_delay
-        self.extensions = tuple(extensions)
+        self._middleware_stack = MiddlewareStack(self, middlewares)
         self._http_client = http_client
         self._owns_http_client = http_client is None
         self._client_loop: asyncio.AbstractEventLoop | None = None
@@ -193,28 +282,33 @@ class Provider:
 
     async def list_models(self) -> list[ModelInfo]:
         """List the models the service offers to these credentials, following every page."""
-        with _observe(self, "list_models") as observation:
-            if self.MODELS_PATH is None:
-                raise UnsupportedFeatureError(f"Provider {self.name!r} cannot list models")
-            api_format = _API_FORMATS[self.api_format or self.SUPPORTED_API_FORMATS[0]]
-            headers = {**api_format.headers, **self.headers}
-            auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
-            models: list[ModelInfo] = []
-            params = self._models_params(None)
-            client = self._client()
-            while params is not None:
-                response = await self._retry(
-                    lambda params=params: client.get(
-                        f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth
-                    )
-                )
-                if response.is_error:
-                    raise APIStatusError(response.status_code, response.text, headers=response.headers)
+        return await self._middleware_stack.run(Call(self.name, "list_models", None, self._list_models()))
+
+    async def _list_models(self) -> AsyncGenerator[CallEvent, None]:
+        if self.MODELS_PATH is None:
+            raise UnsupportedFeatureError(f"Provider {self.name!r} cannot list models")
+        api_format = _API_FORMATS[self.api_format or self.SUPPORTED_API_FORMATS[0]]
+        headers = {**api_format.headers, **self.headers}
+        auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth
+        models: list[ModelInfo] = []
+        params = self._models_params(None)
+        client = self._client()
+
+        async def get(params: dict[str, str]) -> httpx2.Response:
+            response = await client.get(f"{self.api_base}{self.MODELS_PATH}", params=params, headers=headers, auth=auth)
+            if response.is_error:
+                raise APIStatusError(response.status_code, response.text, headers=response.headers)
+            return response
+
+        while params is not None:
+            async for response in self._middleware_stack.retry(lambda params=params: get(params)):
+                if isinstance(response, Retry):
+                    yield response
+                    continue
                 data = response.json()
                 models.extend(self._parse_models(data))
                 params = self._models_params(data)
-            observation.response = models
-            return models
+        yield Completed(models)
 
     def _models_params(self, previous: Any) -> dict[str, str] | None:
         """Query parameters for the next page of models, or ``None`` when ``previous`` was the last.
@@ -252,16 +346,16 @@ class Provider:
         raise UnsupportedApiFormatError(f"Provider {self.name!r} supports no {format_kind.kind} API format")
 
     async def _post(self, api_format: ApiFormat, request: HttpRequest) -> httpx2.Response:
-        client = self._client()
-        response = await self._retry(lambda: self._send(client, api_format, request, stream=False))
+        """Send one request; raise ``APIStatusError`` for an error status."""
+        response = await self._send(self._client(), api_format, request, stream=False)
         if response.is_error:
             raise APIStatusError(response.status_code, response.text, headers=response.headers)
         return response
 
     @asynccontextmanager
     async def _stream(self, api_format: ApiFormat, request: HttpRequest) -> AsyncGenerator[HttpStream]:
-        client = self._client()
-        response = await self._retry(lambda: self._send(client, api_format, request, stream=True))
+        """Open one streaming request; raise ``APIStatusError`` for an error status."""
+        response = await self._send(self._client(), api_format, request, stream=True)
         try:
             if response.is_error:
                 await response.aread()
@@ -272,38 +366,6 @@ class Provider:
             raise _connection_error(exc, headers=response.headers) from exc
         finally:
             await response.aclose()
-
-    async def _retry(self, send: Callable[[], Awaitable[httpx2.Response]]) -> httpx2.Response:
-        """Retry only the request, never replay a successful streaming response."""
-        observation = _active(self)
-        for attempt in range(self.max_retries + 1):
-            headers: Mapping[str, str] = {}
-            try:
-                response = await send()
-            except httpx2.RequestError as exc:
-                retryable = isinstance(exc, (httpx2.TimeoutException, httpx2.NetworkError, httpx2.RemoteProtocolError))
-                if not retryable or attempt == self.max_retries:
-                    raise _connection_error(exc) from exc
-                error = _connection_error(exc)
-                error.__cause__ = exc
-            else:
-                if attempt == self.max_retries or not (
-                    response.status_code in {408, 409, 429} or response.status_code >= 500
-                ):
-                    return response
-                headers = dict(response.headers)
-                # Release the response before sleeping, including unread SSE error bodies.
-                await response.aclose()
-                error = APIStatusError(response.status_code, "", headers=headers)
-            delay = _retry_after(headers)
-            if delay is None:
-                delay = min(self.max_retry_delay, self.retry_delay * 2 ** min(attempt, 30))
-                delay *= random.uniform(0.75, 1)  # noqa: S311 - retry jitter, not cryptography
-            delay = min(delay, self.max_retry_delay)
-            if observation is not None:
-                observation.retry(error, attempt + 1, delay)
-            await asyncio.sleep(delay)
-        raise AssertionError("Unreachable retry state")
 
     def _client(self) -> httpx2.AsyncClient:
         self._ensure_open()

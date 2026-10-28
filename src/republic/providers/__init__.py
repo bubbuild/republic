@@ -2,7 +2,7 @@
 
 from .anthropic import Anthropic
 from .azure import AzureOpenAI
-from .base import Provider
+from .base import Call, Middleware, Provider
 from .codex import Codex, CodexAuth
 from .deepseek import DeepSeek
 from .github import CopilotAuth, GitHubCLIAuth, GitHubCopilot
@@ -23,6 +23,7 @@ __all__ = [
     "ZAI",
     "Anthropic",
     "AzureOpenAI",
+    "Call",
     "Codex",
     "CodexAuth",
     "CopilotAuth",
@@ -33,6 +34,7 @@ __all__ = [
     "Grok",
     "GrokAuth",
     "Magpie",
+    "Middleware",
     "MiniMax",
     "Mistral",
     "Moonshot",

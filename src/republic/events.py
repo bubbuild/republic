@@ -1,21 +1,23 @@
-"""Events yielded while streaming a chat response."""
+"""Events yielded while streaming a chat response, and the events middleware sees for every call."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Generic, TypeVar, final
 
 from republic._content import Image, ToolCall
 from republic._response import BuiltinToolCall, Citation, Response, TokenUsage
 
 __all__ = [
     "BuiltinToolCallReady",
+    "CallEvent",
     "CitationAdded",
     "Completed",
     "Event",
     "ImageReady",
     "ReasoningDelta",
     "RefusalDelta",
+    "Retry",
     "TextDelta",
     "ToolCallDelta",
     "ToolCallReady",
@@ -23,11 +25,13 @@ __all__ = [
 ]
 
 
+@final
 @dataclass(frozen=True)
 class TextDelta:
     chunk: str
 
 
+@final
 @dataclass(frozen=True)
 class ReasoningDelta:
     """Reasoning text, or a summary of it, as the provider exposes it."""
@@ -35,6 +39,7 @@ class ReasoningDelta:
     chunk: str
 
 
+@final
 @dataclass(frozen=True)
 class RefusalDelta:
     """Text explaining why the model declines to answer."""
@@ -42,6 +47,7 @@ class RefusalDelta:
     chunk: str
 
 
+@final
 @dataclass(frozen=True)
 class ToolCallDelta:
     """A fragment of tool call arguments. ``ToolCallReady`` follows once the call is complete."""
@@ -51,6 +57,7 @@ class ToolCallDelta:
     chunk: str
 
 
+@final
 @dataclass(frozen=True)
 class UsageDelta:
     """Usage added since the previous usage event. The deltas sum to the final usage."""
@@ -58,11 +65,13 @@ class UsageDelta:
     usage: TokenUsage
 
 
+@final
 @dataclass(frozen=True)
 class ImageReady:
     image: Image
 
 
+@final
 @dataclass(frozen=True)
 class ToolCallReady:
     """A tool call whose arguments are complete."""
@@ -70,6 +79,7 @@ class ToolCallReady:
     call: ToolCall
 
 
+@final
 @dataclass(frozen=True)
 class BuiltinToolCallReady:
     """A built-in tool finished running on the provider's side."""
@@ -77,16 +87,36 @@ class BuiltinToolCallReady:
     call: BuiltinToolCall
 
 
+@final
 @dataclass(frozen=True)
 class CitationAdded:
     citation: Citation
 
 
-@dataclass(frozen=True)
-class Completed:
-    """The last event of a stream, carrying the full response."""
+ResponseT = TypeVar("ResponseT")
 
-    response: Response[Any]
+
+@final
+@dataclass(frozen=True)
+class Completed(Generic[ResponseT]):
+    """The last event of a call, carrying the full response.
+
+    Streams carry the chat ``Response``. Middleware also sees it for other calls,
+    carrying their result, such as an ``EmbeddingResponse`` or a list of models.
+    """
+
+    response: ResponseT
+
+
+@final
+@dataclass(frozen=True)
+class Retry:
+    """A failed attempt that will be retried after ``delay`` seconds. Only middleware sees it."""
+
+    error: Exception
+    attempt: int
+    """Starts at one for each HTTP retry loop, including each page of model listing."""
+    delay: float
 
 
 Event = (
@@ -99,5 +129,8 @@ Event = (
     | ToolCallDelta
     | ToolCallReady
     | BuiltinToolCallReady
-    | Completed
+    | Completed[Response[Any]]
 )
+
+CallEvent = Event | Retry
+"""What middleware receives and yields: ``Retry`` events, stream events, and the final ``Completed``."""
