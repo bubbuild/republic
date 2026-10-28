@@ -8,7 +8,6 @@ import httpx2
 from republic._models import ChatModel, DecisionModel, EmbeddingModel, ImageModel
 from republic.auth import Auth
 from republic.errors import ProviderNotFoundError
-from republic.extensions import Extension
 from republic.formats import ApiFormatName
 from republic.history import HistoryProtocol
 from republic.providers import (
@@ -21,6 +20,7 @@ from republic.providers import (
     Google,
     Grok,
     Magpie,
+    Middleware,
     MiniMax,
     Mistral,
     Moonshot,
@@ -69,7 +69,7 @@ class ProviderOptions(TypedDict, total=False):
     max_retries: int
     retry_delay: float
     max_retry_delay: float
-    extensions: Sequence[Extension]
+    middlewares: Sequence[Middleware]
 
 
 def register_provider(provider_class: type[P], name: str | None = None) -> type[P]:

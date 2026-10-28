@@ -18,7 +18,7 @@ These options apply to `get_provider()` and the model factories, including `get_
 | `max_retries` | Additional attempts after a retryable failure; default is 2, and 0 disables retries |
 | `retry_delay` | Initial exponential backoff in seconds; default is 0.5, with jitter |
 | `max_retry_delay` | Maximum wait between attempts, including `Retry-After`; default is 60 seconds |
-| `extensions` | Optional `Extension` instances; empty by default |
+| `middlewares` | Optional async generator functions wrapping every call; empty by default |
 
 `api_key`, `api_base`, and `env_prefix` treat `None` and an empty string as absent. An empty string does not disable environment lookup.
 
@@ -116,51 +116,53 @@ For a stream, only the initial request can be retried. Once a successful HTTP re
 
 A timeout can occur after the service accepted a request. Retrying can therefore produce another generation or repeat a provider-run tool operation; set `max_retries=0` when your application requires a single attempt.
 
-## Extensions
+## Middleware
 
-Subclass `Extension` and pass configured instances through `extensions=` on a Provider or model factory. Override any of its three methods; defaults do nothing.
+A middleware is an async generator function that receives a `Call`, iterates its `events`, and yields the events passed on. Pass them through `middlewares=` on a Provider or model factory. The first middleware is outermost.
 
 ```python
 import logging
+import time
 
 import republic
-from republic.extensions import Extension
+from republic.events import Completed, Retry
+from republic.providers import Call
+
+logger = logging.getLogger("myapp.calls")
 
 
-class CallLog(Extension):
-    def __init__(self, logger):
-        self.logger = logger
+async def log_calls(call: Call):
+    started = time.monotonic()
+    try:
+        async for event in call.events:
+            if isinstance(event, Retry):
+                logger.info("retry %s in %ss after %r", event.attempt, event.delay, event.error)
+            elif isinstance(event, Completed):
+                logger.info("%s %s took %.2fs", call.provider, call.operation, time.monotonic() - started)
+            yield event
+    except Exception as error:
+        logger.warning("%s %s failed: %r", call.provider, call.operation, error)
+        raise
 
-    def on_start(self, provider, operation, model):
-        return f"{provider}:{model or operation}"
 
-    def on_retry(self, context, error, attempt, delay):
-        self.logger.info("%s retry %s in %ss", context, attempt, delay)
-
-    def on_finish(self, context, response, error):
-        error_type = type(error).__name__ if error is not None else None
-        self.logger.info("%s finished: error=%s", context, error_type)
-
-
-model = republic.get_model(
-    "openai:gpt-6-sol",
-    extensions=[CallLog(logging.getLogger("myapp.calls"))],
-)
+model = republic.get_model("openai:gpt-6-sol", middlewares=[log_calls])
 ```
 
-| Method | Notification |
+`Call` carries the `provider` name, the `operation`, the `model` name and the `events` of the next middleware in, or of the call itself for the innermost one. Operations are `chat`, `stream`, `embed` (including batches), `generate`, `edit`, `decide` and `list_models`. Listing has `model=None`.
+
+Every call produces these events, in order:
+
+| Event | When |
 | --- | --- |
-| `on_start(provider, operation, model)` | A call starts; streams start on context entry. Return any per-call state needed by this extension. |
-| `on_retry(context, error, attempt, delay)` | A retry is scheduled, after releasing the failed response and before waiting. Attempt numbers start at 1 for each HTTP retry loop, including each model-list page. |
-| `on_finish(context, response, error)` | Exactly one terminal outcome, carrying the returned response or the original error when available. |
+| `Retry(error, attempt, delay)` | A retry is scheduled, after releasing the failed response and before waiting. Attempt numbers start at 1 for each HTTP retry loop, including each model-list page. |
+| Stream events | For `stream`, each `TextDelta`, `ToolCallReady` and so on, as they arrive. |
+| `Completed(response)` | The result: a chat `Response`, `EmbeddingResponse`, `ImageResponse`, `DecisionResponse`, or a list of `ModelInfo`. Output validation and history writing have already succeeded. |
 
-`provider` is the provider name. Operations are `chat`, `stream`, `embed` (including batches), `generate`, `edit`, `decide`, and `list_models`; listing has `model=None` and returns a list. Each extension receives its own `on_start` return value unchanged as `context` in subsequent methods for that call. The default is `None`, also used if `on_start` fails. Return a fresh value when keeping mutable per-call state, so overlapping calls can be observed independently.
+Errors are raised from the iteration, including `CancelledError`. A middleware error fails the call.
 
-Response and error may both be present when output validation or history writing fails. The response retains text and usage; `output` is `None` on validation failure and retains the validated value on history failure. Both arguments are absent when an entered stream closes without completing a response.
+Middleware may rewrite, drop or add events. The call returns the response of the last `Completed` that leaves the outermost middleware; history keeps the original. A non-stream call without one raises `RuntimeError`; a stream that ends without one sets no response, so `stream.response` raises `StreamNotFinishedError`. A middleware that yields its own `Completed` without iterating `call.events`, such as a cache, sends no request. Stream consumers never see `Retry` events.
 
-Successful streams notify before `Completed`, once validation and history writing succeed. Later context exit or consumer exceptions do not change that result. Constructing a stream without entering it produces no notifications. Cancellation during the call reaches both the extension and caller as the original exception.
-
-Methods run synchronously in registration order. Retry and finish return values are ignored; extension failures are logged and isolated, including explicitly raised `CancelledError`. Async methods are unsupported. Return promptly and do not mutate borrowed responses. HTTP hooks, authentication and timeouts remain on the HTTP client; extensions do not change retry policy.
+The request is not sent until a middleware first iterates `call.events`. Entering a stream's context opens it: middleware runs until the HTTP response is open and the first event has arrived. A stream closed before it finishes closes every middleware at its current `yield`, raising `GeneratorExit` there. Constructing a stream without entering it runs no middleware.
 
 ## Response diagnostics
 
