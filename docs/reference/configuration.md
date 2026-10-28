@@ -164,6 +164,8 @@ Middleware may rewrite, drop or add events. The call returns the response of the
 
 The request is not sent until a middleware first iterates `call.events`. Entering a stream's context opens it: middleware runs until the HTTP response is open and the first event has arrived. A stream closed before it finishes closes every middleware at its current `yield`, raising `GeneratorExit` there. Constructing a stream without entering it runs no middleware.
 
+For a complete middleware, see [Limit concurrent calls](../guides/concurrency-limit.md).
+
 ## Response diagnostics
 
 Chat, embedding and decision responses expose `request_id` and `headers`. Header names are lowercase. The request ID comes from `x-request-id`, `request-id` or `x-goog-request-id`, when present, and is separate from the generated response's `id`.
