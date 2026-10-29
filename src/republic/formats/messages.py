@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
-from republic._content import Audio, Image, Message, ProviderData, Text, Tool, ToolCall, Video
+from republic._content import Audio, Document, Image, Message, ProviderData, Text, Tool, ToolCall, Video
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.errors import APIResponseError
@@ -402,7 +402,22 @@ def _user_block(part: object) -> dict[str, Any]:
             raise unsupported_media(MessagesFormat.name, "audio")
         case Video():
             raise unsupported_media(MessagesFormat.name, "video")
+        case Document():
+            block: dict[str, Any] = {"type": "document", "source": _document_source(part)}
+            if part.filename is not None:
+                block["title"] = part.filename
+            return block
     raise TypeError(f"Unexpected user content: {part!r}")
+
+
+def _document_source(document: Document) -> dict[str, Any]:
+    if document.url is not None:
+        return {"type": "url", "url": document.url}
+    if document.media_type == "application/pdf":
+        return {"type": "base64", "media_type": document.media_type, "data": document.base64_data}
+    if document.media_type == "text/plain":
+        return {"type": "text", "media_type": document.media_type, "data": (document.data or b"").decode()}
+    raise unsupported_media(MessagesFormat.name, document.media_type)
 
 
 def _usage(usage: Mapping[str, Any]) -> UsageReport:

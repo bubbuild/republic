@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from republic._content import Audio, Image, Message, ProviderData, Text, Tool, Video, _Media
+from republic._content import Audio, Document, Image, Message, ProviderData, Text, Tool, Video, _Media
 from republic._options import ReasoningEffort, ToolChoice
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.errors import APIResponseError, UnsupportedFeatureError
@@ -259,7 +259,7 @@ def _content(message: Message) -> dict[str, Any]:
     if message.role == "tool":
         return {"role": "user", "parts": [_function_response(message)]}
     parts: list[Mapping[str, Any]] = provider_payloads(message, GeminiFormat.name)
-    parts.extend(_part(part) for part in message.parts if isinstance(part, Text | Image | Audio | Video))
+    parts.extend(_part(part) for part in message.parts if isinstance(part, Text | Image | Audio | Video | Document))
     for call in message.tool_calls:
         function_call: dict[str, Any] = {"name": call.name, "args": call.args}
         if call_id := call.metadata.get(_CALL_ID):
@@ -280,7 +280,7 @@ def _function_response(message: Message) -> dict[str, Any]:
     }
     if call_id := call.metadata.get(_CALL_ID):
         response["id"] = call_id
-    media = [part for part in message.parts if isinstance(part, Image | Audio | Video)]
+    media = [part for part in message.parts if isinstance(part, Image | Audio | Video | Document)]
     if any(part.url is not None for part in media):
         # FunctionResponsePart accepts inlineData only, not fileData.
         raise UnsupportedFeatureError(

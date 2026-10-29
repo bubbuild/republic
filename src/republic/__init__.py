@@ -6,6 +6,7 @@ Gateways, agent loops, and tool execution stay outside the package.
 from republic import auth, decisions, errors, events, formats, history, providers, tools
 from republic._content import (
     Audio,
+    Document,
     Image,
     ImageDetail,
     Message,
@@ -17,6 +18,7 @@ from republic._content import (
     Video,
     assistant,
     audio,
+    document,
     image,
     system,
     tool,
@@ -52,6 +54,7 @@ __all__ = [
     "ChatOptions",
     "Citation",
     "DecisionModel",
+    "Document",
     "EmbeddingModel",
     "EmbeddingResponse",
     "FinishReason",
@@ -78,6 +81,7 @@ __all__ = [
     "audio",
     "auth",
     "decisions",
+    "document",
     "errors",
     "events",
     "formats",

@@ -7,7 +7,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from republic._content import Audio, Image, Message, ProviderData, Text, Tool, Video
+from republic._content import Audio, Document, Image, Message, ProviderData, Text, Tool, Video
 from republic._options import ReasoningEffort
 from republic._response import BuiltinToolCall, Citation, FinishReason
 from republic.errors import APIResponseError
@@ -26,6 +26,7 @@ from ._base import (
     answered_call,
     approximate_location,
     deep_merge,
+    document_filename,
     provider_payloads,
     strict_schema,
     unsupported_media,
@@ -196,6 +197,10 @@ def _user_part(part: object) -> dict[str, Any]:
             raise unsupported_media(ResponsesFormat.name, "audio")
         case Video():
             raise unsupported_media(ResponsesFormat.name, "video")
+        case Document(url=str() as url):
+            return {"type": "input_file", "file_url": url}
+        case Document():
+            return {"type": "input_file", "filename": document_filename(part), "file_data": part.data_url}
     raise TypeError(f"Unexpected user content: {part!r}")
 
 

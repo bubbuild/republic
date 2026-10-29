@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
-from republic._content import Audio, Image, Message, Text, Tool, Video, media_from_data_url
+from republic._content import Audio, Document, Image, Message, Text, Tool, Video, media_from_data_url
 from republic._options import ReasoningEffort
 from republic._response import Citation, FinishReason
 from republic.errors import APIResponseError
@@ -25,6 +25,7 @@ from ._base import (
     answered_call,
     approximate_location,
     deep_merge,
+    document_filename,
     strict_schema,
     unsupported_media,
     unsupported_tool,
@@ -225,6 +226,11 @@ def _content(api_format: ChatFormat, message: Message) -> str | list[dict[str, A
                 content.append(api_format.audio_content(part))
             case Video():
                 content.append({"type": "video_url", "video_url": {"url": part.data_url}})
+            case Document():
+                content.append({
+                    "type": "file",
+                    "file": {"filename": document_filename(part), "file_data": part.data_url},
+                })
     return content
 
 
