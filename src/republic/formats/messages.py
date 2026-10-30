@@ -416,7 +416,13 @@ def _document_source(document: Document) -> dict[str, Any]:
     if document.media_type == "application/pdf":
         return {"type": "base64", "media_type": document.media_type, "data": document.base64_data}
     if document.media_type == "text/plain":
-        return {"type": "text", "media_type": document.media_type, "data": (document.data or b"").decode()}
+        if document.data is None:
+            raise ValueError(f"This {document.kind} has no inline data")
+        try:
+            text = document.data.decode()
+        except UnicodeDecodeError:
+            raise unsupported_media(MessagesFormat.name, "non-UTF-8 text/plain") from None
+        return {"type": "text", "media_type": document.media_type, "data": text}
     raise unsupported_media(MessagesFormat.name, document.media_type)
 
 

@@ -124,11 +124,26 @@ async def test_messages_accepts_documents_in_tool_results(service: FakeService) 
     ]
 
 
-async def test_messages_rejects_unsupported_inline_documents() -> None:
+@pytest.mark.parametrize(
+    "document,error",
+    [
+        (Document("text/csv", data=b"a,b"), "text/csv"),
+        (Document("text/plain", data="café".encode("latin-1")), "non-UTF-8 text/plain"),
+    ],
+)
+async def test_messages_rejects_unsupported_inline_documents(document: Document, error: str) -> None:
     model = republic.get_model("anthropic:test", api_key="key")
 
-    with pytest.raises(UnsupportedFeatureError, match="text/csv"):
-        await model.chat(republic.user(Document("text/csv", data=b"a,b")))
+    with pytest.raises(UnsupportedFeatureError, match=error):
+        await model.chat(republic.user(document))
+
+
+@pytest.mark.parametrize("media_type", ["application/pdf", "text/plain"])
+async def test_messages_rejects_documents_without_a_source(media_type: str) -> None:
+    model = republic.get_model("anthropic:test", api_key="key")
+
+    with pytest.raises(ValueError, match="no inline data"):
+        await model.chat(republic.user(Document(media_type)))
 
 
 @pytest.mark.parametrize("source", [PDF, "gs://bucket/report.pdf"])
