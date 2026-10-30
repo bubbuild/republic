@@ -7,7 +7,7 @@ import mimetypes
 import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar
 from urllib.parse import urlsplit
 
@@ -90,6 +90,16 @@ class Video(_Media):
 
 
 @dataclass(frozen=True)
+class Document(_Media):
+    """A file such as a PDF or plain text, represented by MIME type and inline bytes or a remote URL."""
+
+    kind: ClassVar[str] = "document"
+
+    filename: str | None = field(default=None, kw_only=True)
+    """The name shown to the model; some API formats require one and derive it from the MIME type when unset."""
+
+
+@dataclass(frozen=True)
 class ProviderData:
     """An opaque item that must be sent back verbatim to the API format that produced it.
 
@@ -101,7 +111,7 @@ class ProviderData:
     payload: Mapping[str, Any]
 
 
-Part = Text | Reasoning | Image | Audio | Video | ProviderData
+Part = Text | Reasoning | Image | Audio | Video | Document | ProviderData
 
 _MediaT = TypeVar("_MediaT", bound=_Media)
 
@@ -201,7 +211,7 @@ def _part_to_dict(part: Part) -> dict[str, Any]:
             return {"type": "text", "text": text}
         case Reasoning(text):
             return {"type": "reasoning", "text": text}
-        case Image() | Audio() | Video():
+        case Image() | Audio() | Video() | Document():
             data: dict[str, Any] = {"type": part.kind, "media_type": part.media_type}
             if part.url is not None:
                 data["url"] = part.url
@@ -209,6 +219,8 @@ def _part_to_dict(part: Part) -> dict[str, Any]:
                 data["data"] = part.base64_data
             if isinstance(part, Image) and part.detail != "auto":
                 data["detail"] = part.detail
+            if isinstance(part, Document) and part.filename is not None:
+                data["filename"] = part.filename
             return data
         case ProviderData(api_format, payload):
             return {"type": "provider_data", "api_format": api_format, "payload": dict(payload)}
@@ -220,8 +232,8 @@ def _part_from_dict(data: Mapping[str, Any]) -> Part:
             return Text(data["text"])
         case "reasoning":
             return Reasoning(data["text"])
-        case "image" | "audio" | "video" as kind:
-            media_class = {"image": Image, "audio": Audio, "video": Video}[kind]
+        case "image" | "audio" | "video" | "document" as kind:
+            media_class = {"image": Image, "audio": Audio, "video": Video, "document": Document}[kind]
             inline = data.get("data")
             media = media_class(
                 data["media_type"],
@@ -230,6 +242,8 @@ def _part_from_dict(data: Mapping[str, Any]) -> Part:
             )
             if isinstance(media, Image) and "detail" in data:
                 media = replace(media, detail=data["detail"])
+            if isinstance(media, Document) and "filename" in data:
+                media = replace(media, filename=data["filename"])
             return media
         case "provider_data":
             return ProviderData(data["api_format"], data["payload"])
@@ -248,7 +262,7 @@ def _tool_call_from_dict(data: Mapping[str, Any]) -> ToolCall:
     return ToolCall(data["id"], data["name"], data["arguments"], metadata=dict(data.get("metadata", {})))
 
 
-UserContent = str | Image | Audio | Video
+UserContent = str | Image | Audio | Video | Document
 
 
 def _to_part(content: UserContent) -> Part:
@@ -261,7 +275,7 @@ def system(text: str) -> Message:
 
 
 def user(*content: UserContent) -> Message:
-    """Build a user message from text, images, audio, and videos."""
+    """Build a user message from text, images, audio, videos, and documents."""
     return Message("user", tuple(_to_part(item) for item in content))
 
 
@@ -273,7 +287,7 @@ def assistant(*content: UserContent, tool_calls: Iterable[ToolCall] = ()) -> Mes
 def tool(call: ToolCall, *content: UserContent, is_error: bool = False) -> Message:
     """Build a tool message holding the output of executing ``call``.
 
-    The output may mix text, images, audio, and videos. A call that does not appear
+    The output may mix text, images, audio, videos, and documents. A call that does not appear
     earlier in the conversation is announced automatically before its result.
     """
     return Message("tool", tuple(_to_part(item) for item in content), tool_call=call, is_error=is_error)
@@ -294,6 +308,27 @@ def audio(source: str | os.PathLike[str] | bytes, *, media_type: str | None = No
 def video(source: str | os.PathLike[str] | bytes, *, media_type: str | None = None) -> Video:
     """Load a video from a path, a URL, a data URL, or raw bytes."""
     return _load_media(Video, source, media_type)
+
+
+def document(
+    source: str | os.PathLike[str] | bytes, *, media_type: str | None = None, filename: str | None = None
+) -> Document:
+    """Load a document such as a PDF from a path, a URL, a data URL, or raw bytes.
+
+    The filename defaults to the last component of a path or URL.
+    """
+    loaded = _load_media(Document, source, media_type)
+    if filename is None:
+        filename = _source_filename(source)
+    return replace(loaded, filename=filename)
+
+
+def _source_filename(source: str | os.PathLike[str] | bytes) -> str | None:
+    if isinstance(source, bytes) or (isinstance(source, str) and source.startswith("data:")):
+        return None
+    if isinstance(source, str) and source.startswith(_REMOTE_PREFIXES):
+        return PurePosixPath(urlsplit(source).path).name or None
+    return Path(source).name
 
 
 def _load_media(media_class: type[_MediaT], source: str | os.PathLike[str] | bytes, media_type: str | None) -> _MediaT:

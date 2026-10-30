@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import mimetypes
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
 
-from republic._content import Image, Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
+from republic._content import Document, Image, Message, Part, ProviderData, Reasoning, Text, Tool, ToolCall
 from republic._options import ChatOptions, ImageOptions, ReasoningEffort
 from republic._response import EmbeddingResponse, FinishReason, ImageResponse, Response, TokenUsage
 from republic.decisions import DecisionResponse, JSONValue, Question
@@ -444,3 +445,10 @@ def unsupported_tool(api_format: str, tool: object, setting: str | None = None) 
 
 def unsupported_media(api_format: str, kind: str) -> UnsupportedFeatureError:
     return UnsupportedFeatureError(f"The {api_format!r} API format does not accept {kind} input")
+
+
+def document_filename(document: Document) -> str:
+    """The document's filename, or a name derived from its MIME type for formats that require one."""
+    if document.filename is not None:
+        return document.filename
+    return "document" + (mimetypes.guess_extension(document.media_type) or "")

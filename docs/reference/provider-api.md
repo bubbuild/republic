@@ -146,13 +146,14 @@ print(response.text)
 
 ### Multimodal content
 
-User messages accept text and `Image`, `Audio`, and `Video` parts. The public content shape is independent of the selected provider:
+User messages accept text and `Image`, `Audio`, `Video`, and `Document` parts. The public content shape is independent of the selected provider:
 
 | Part | Constructor | Source fields |
 | --- | --- | --- |
 | `Image` | `republic.image(source, media_type=...)` | `media_type`, `data` or `url` |
 | `Audio` | `republic.audio(source, media_type=...)` | `media_type`, `data` or `url` |
 | `Video` | `republic.video(source, media_type=...)` | `media_type`, `data` or `url` |
+| `Document` | `republic.document(source, media_type=..., filename=...)` | `media_type`, `data` or `url`, `filename` |
 
 `media_type` is a MIME type such as `audio/mpeg`, rather than a protocol's format label such as `mp3`. `data` holds raw bytes; `url` holds a remote reference. The loader helpers handle sources consistently:
 
@@ -160,6 +161,7 @@ User messages accept text and `Image`, `Audio`, and `Video` parts. The public co
 - An HTTP(S) or `gs://` URL keeps a reference without downloading it. MIME inference uses the URL path; query strings do not change its type. Supply `media_type=` for URLs without a recognizable filename.
 - A base64 data URL decodes bytes and uses the MIME type declared in that URL.
 - Raw bytes require an explicit `media_type=`.
+- `republic.document()` also keeps the last component of a path or URL as `filename` unless `filename=` is supplied. Formats that require a filename derive one such as `document.pdf` from the MIME type when it is unset.
 
 Use the parts directly in a user message. Each API format owns its wire encoding:
 
@@ -171,6 +173,7 @@ response = await model.chat(
         republic.image("path/to/image.png"),
         republic.audio("path/to/audio.wav"),
         republic.video("path/to/video.mp4"),
+        republic.document("path/to/report.pdf"),
     )
 )
 print(response.text)
@@ -178,16 +181,16 @@ print(response.text)
 
 The same message works with `model.stream()`. The following table describes Republic's input encoders; the chosen service and model must also support that input.
 
-| API format | Images | Audio | Video |
-| --- | --- | --- | --- |
-| Chat Completions | Data or URL | Inline WAV or MP3 | Data or URL, when the service supports `video_url` |
-| Responses | Data or URL | Rejected | Rejected |
-| Messages | Data or URL | Rejected | Rejected |
-| Gemini | Inline data or file reference | Inline data or file reference | Inline data or file reference |
+| API format | Images | Audio | Video | Documents |
+| --- | --- | --- | --- | --- |
+| Chat Completions | Data or URL | Inline WAV or MP3 | Data or URL, when the service supports `video_url` | `file` part with data, or a URL when the service accepts one |
+| Responses | Data or URL | Rejected | Rejected | `input_file` with data or URL |
+| Messages | Data or URL | Rejected | Rejected | Inline PDF or plain text, or URL |
+| Gemini | Inline data or file reference | Inline data or file reference | Inline data or file reference | Inline data or file reference |
 
 Provider dialects may extend a format. For example, OpenRouter's Chat Completions encoder also maps OGG, FLAC, and its other supported MIME types to their protocol format labels. Custom Chat Completions dialects can override `audio_content()` or extend `AUDIO_FORMATS`. Application code still passes the same `Audio` part.
 
-Unsupported audio combinations raise `errors.UnsupportedFeatureError` before sending a request. Republic does not transcode audio or fetch remote references to make them inline.
+Unsupported audio and document combinations raise `errors.UnsupportedFeatureError` before sending a request. Republic does not transcode media or fetch remote references to make them inline.
 
 After executing tool calls from a response, return the results with the full assistant message. Here, `results` contains `republic.tool(call, output)` messages created by the application:
 
