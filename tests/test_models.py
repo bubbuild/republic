@@ -6,13 +6,14 @@ from pathlib import Path
 import pytest
 
 import republic
+from republic.formats import ApiFormatName
 from republic.history import InMemoryHistory
 from tests.conftest import FakeService
 
 
 @pytest.mark.parametrize("provider", ["openai", "openrouter"])
 @pytest.mark.parametrize("api_format", ["chat", "responses"])
-async def test_openai_stream_stops_at_done(service: FakeService, provider: str, api_format: str) -> None:
+async def test_openai_stream_stops_at_done(service: FakeService, provider: str, api_format: ApiFormatName) -> None:
     text_event = (
         {"choices": [{"delta": {"content": "Hello"}}]}
         if api_format == "chat"
@@ -38,7 +39,9 @@ async def test_openai_stream_stops_at_done(service: FakeService, provider: str, 
         ("google", "gemini", "[DONE]"),
     ],
 )
-async def test_invalid_stream_json_raises(service: FakeService, provider: str, api_format: str, payload: str) -> None:
+async def test_invalid_stream_json_raises(
+    service: FakeService, provider: str, api_format: ApiFormatName, payload: str
+) -> None:
     service.reply_events([payload, "[DONE]"])
     model = republic.get_model(f"{provider}:test-model", api_format=api_format, http_client=service.client())
 

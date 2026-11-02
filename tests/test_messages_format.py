@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pydantic
 import pytest
 
@@ -305,7 +307,9 @@ async def test_interleaved_blocks_keep_their_order(service: FakeService) -> None
 
 
 async def test_streamed_interleaved_blocks_keep_their_order(service: FakeService) -> None:
-    def block(index: int, content_block: dict[str, object], *deltas: dict[str, object]) -> list[dict[str, object]]:
+    def block(
+        index: int, content_block: Mapping[str, object], *deltas: Mapping[str, object]
+    ) -> list[Mapping[str, object]]:
         return [
             {"type": "content_block_start", "index": index, "content_block": content_block},
             *({"type": "content_block_delta", "index": index, "delta": delta} for delta in deltas),

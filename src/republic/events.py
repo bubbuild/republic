@@ -132,5 +132,8 @@ Event = (
     | Completed[Response[Any]]
 )
 
-CallEvent = Event | Retry
-"""What middleware receives and yields: ``Retry`` events, stream events, and the final ``Completed``."""
+CallEvent = Event | Retry | Completed[Any]
+"""What middleware receives and yields: retries, stream events, and a completion with any operation's result.
+
+Unlike chat stream ``Event`` completions, these can carry embedding, image, decision, or model-list results.
+"""

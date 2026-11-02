@@ -16,6 +16,7 @@ import pytest
 from authlib.integrations.httpx_client import OAuth2Client
 
 import republic
+from republic.formats import ApiFormatName
 from republic.providers import GrokAuth, grok
 from tests.conftest import FakeService
 
@@ -63,7 +64,7 @@ def refresh_service(monkeypatch: pytest.MonkeyPatch) -> FakeService:
 
 @pytest.mark.parametrize("api_format", ["chat", "responses"])
 async def test_local_login_is_reread_for_chat_and_stream(
-    auth_file: Path, service: FakeService, api_format: str
+    auth_file: Path, service: FakeService, api_format: ApiFormatName
 ) -> None:
     original = auth_file.read_bytes()
     if api_format == "chat":

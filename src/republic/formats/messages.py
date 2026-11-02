@@ -371,11 +371,12 @@ def _stop_deltas(message: Mapping[str, Any]) -> Iterable[Delta]:
 
 
 def _tool_choice(tool_choice: ToolChoice | None, parallel_tool_calls: bool | None) -> dict[str, Any] | None:
+    choice: dict[str, Any]
     match tool_choice:
         case None if parallel_tool_calls is None:
             return None
         case None | "auto":
-            choice: dict[str, Any] = {"type": "auto"}
+            choice = {"type": "auto"}
         case "none":
             return {"type": "none"}
         case "required":
