@@ -59,9 +59,9 @@ _PROVIDERS: dict[str, type[Provider]] = {
 class ProviderOptions(TypedDict, total=False):
     api_key: str
     api_base: str
-    auth: Auth
-    api_format: ApiFormatName
-    headers: Mapping[str, str]
+    auth: Auth | None
+    api_format: ApiFormatName | None
+    headers: Mapping[str, str] | None
     extra_body: Mapping[str, Any]
     env_prefix: str
     http_client: httpx2.AsyncClient

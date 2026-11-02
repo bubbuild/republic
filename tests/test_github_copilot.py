@@ -9,6 +9,7 @@ import httpx2
 import pytest
 
 import republic
+from republic.formats import ApiFormatName
 from republic.providers import CopilotAuth, GitHubCLIAuth
 from tests.conftest import FakeService
 
@@ -29,7 +30,7 @@ async def test_messages_stops_at_copilot_terminal_marker(service: FakeService) -
 
 
 @pytest.mark.parametrize("api_format", ["responses", "messages"])
-async def test_malformed_copilot_events_still_raise(service: FakeService, api_format: str) -> None:
+async def test_malformed_copilot_events_still_raise(service: FakeService, api_format: ApiFormatName) -> None:
     service.reply_events(["not-json", "[DONE]"])
     model = republic.get_model(
         "github-copilot:test", api_format=api_format, api_key="test-key", http_client=service.client()
@@ -383,7 +384,7 @@ async def test_github_failure_does_not_fall_back_or_expose_stderr(monkeypatch: p
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("exchange", [False, True])
 async def test_copilot_uses_each_native_endpoint(
-    service: FakeService, api_format: str, streaming: bool, exchange: bool
+    service: FakeService, api_format: ApiFormatName, streaming: bool, exchange: bool
 ) -> None:
     if exchange:
         service.reply_json({

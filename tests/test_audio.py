@@ -6,6 +6,7 @@ import pytest
 
 import republic
 from republic.errors import UnsupportedFeatureError
+from republic.formats import ApiFormatName
 from tests.conftest import FakeService
 
 
@@ -98,7 +99,9 @@ async def test_chat_encodes_audio(service: FakeService, mime: str, wire_format: 
 @pytest.mark.parametrize(
     "provider,api_format", [("openai", "responses"), ("anthropic", "messages"), ("openai", "chat")]
 )
-async def test_unsupported_audio_fails_before_request(service: FakeService, provider: str, api_format: str) -> None:
+async def test_unsupported_audio_fails_before_request(
+    service: FakeService, provider: str, api_format: ApiFormatName
+) -> None:
     model = republic.get_model(f"{provider}:test", api_format=api_format, http_client=service.client())
     with pytest.raises(UnsupportedFeatureError):
         await model.chat(republic.user(republic.audio("https://example.test/voice.ogg", media_type="audio/ogg")))
@@ -149,7 +152,7 @@ async def test_signed_media_urls_reach_the_provider(service: FakeService, loader
 async def test_unsupported_inline_audio_is_a_format_error(
     service: FakeService,
     provider: str,
-    api_format: str,
+    api_format: ApiFormatName,
 ) -> None:
     model = republic.get_model(f"{provider}:test", api_format=api_format, api_key="test", http_client=service.client())
     with pytest.raises(UnsupportedFeatureError, match="audio"):

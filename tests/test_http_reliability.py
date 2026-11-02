@@ -11,6 +11,7 @@ import httpx2
 import pytest
 
 import republic
+from republic.formats import ApiFormatName
 from republic.history import InMemoryHistory
 from republic.providers import base
 
@@ -240,7 +241,7 @@ STREAM_CASES = [
 @pytest.mark.parametrize(("provider", "api_format", "chunk", "terminal"), STREAM_CASES)
 @pytest.mark.parametrize("complete", [False, True])
 async def test_stream_completion_and_history(
-    provider: str, api_format: str, chunk: Any, terminal: Any, complete: bool
+    provider: str, api_format: ApiFormatName, chunk: Any, terminal: Any, complete: bool
 ) -> None:
     response = sse([chunk, terminal] if complete else [chunk])
     history = InMemoryHistory()

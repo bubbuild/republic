@@ -11,6 +11,7 @@ import pytest
 
 import republic
 from republic.events import Completed, Event, ReasoningDelta, TextDelta, ToolCallReady, UsageDelta
+from republic.formats import ApiFormatName
 from tests.conftest import FakeService
 
 CASES = Path(__file__).with_suffix("") / "cases"
@@ -44,7 +45,7 @@ ARITHMETIC = [
 
 
 @pytest.fixture(params=MODELS)
-def api_format(request: pytest.FixtureRequest) -> str:
+def api_format(request: pytest.FixtureRequest) -> ApiFormatName:
     return request.param
 
 
@@ -61,7 +62,7 @@ def load_case(service: FakeService, name: str) -> None:
         service.reply_bytes(path.read_bytes(), content_type=content_type)
 
 
-def make_model(service: FakeService, api_format: str) -> republic.ChatModel:
+def make_model(service: FakeService, api_format: ApiFormatName) -> republic.ChatModel:
     return republic.get_model(
         MODELS[api_format], api_format=api_format, api_key="test-key", http_client=service.client()
     )
@@ -98,7 +99,7 @@ async def respond(
 
 def assert_fantasy_requests(
     service: FakeService,
-    api_format: str,
+    api_format: ApiFormatName,
     streaming: bool,
     prompt: list[republic.Message],
     tools: Sequence[republic.Tool] = (),
@@ -191,7 +192,7 @@ def assert_gemini_recorded_signatures(case_name: str, calls: list[republic.ToolC
 
 
 def assert_tool_exchange(
-    service: FakeService, api_format: str, calls: list[republic.ToolCall], outputs: dict[str, str]
+    service: FakeService, api_format: ApiFormatName, calls: list[republic.ToolCall], outputs: dict[str, str]
 ) -> None:
     body = service.body()
     if api_format == "chat":
@@ -239,7 +240,7 @@ def assert_tool_exchange(
         ]
 
 
-async def test_fantasy_text(service: FakeService, api_format: str, streaming: bool) -> None:
+async def test_fantasy_text(service: FakeService, api_format: ApiFormatName, streaming: bool) -> None:
     suffix = "_streaming" if streaming else ""
     load_case(service, f"fantasy_{api_format}_simple{suffix}")
     model = make_model(service, api_format)
@@ -261,7 +262,7 @@ async def test_fantasy_text(service: FakeService, api_format: str, streaming: bo
     assert_fantasy_requests(service, api_format, streaming, prompt)
 
 
-async def test_fantasy_weather_tool(service: FakeService, api_format: str, streaming: bool) -> None:
+async def test_fantasy_weather_tool(service: FakeService, api_format: ApiFormatName, streaming: bool) -> None:
     suffix = "_streaming" if streaming else ""
     case_name = f"fantasy_{api_format}_tool{suffix}"
     load_case(service, case_name)
@@ -298,7 +299,7 @@ async def test_fantasy_weather_tool(service: FakeService, api_format: str, strea
     assert_tool_exchange(service, api_format, [call], {"weather": "40 C"})
 
 
-async def test_fantasy_parallel_tools(service: FakeService, api_format: str, streaming: bool) -> None:
+async def test_fantasy_parallel_tools(service: FakeService, api_format: ApiFormatName, streaming: bool) -> None:
     suffix = "_streaming" if streaming else ""
     case_name = f"fantasy_{api_format}_multi_tool{suffix}"
     load_case(service, case_name)
