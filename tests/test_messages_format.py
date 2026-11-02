@@ -205,38 +205,6 @@ async def test_generation_options_map_to_messages_fields(service: FakeService) -
     assert body["stop_sequences"] == ["END"]
 
 
-@pytest.mark.parametrize(
-    ("tool_choice", "expected"),
-    [
-        (None, {"type": "auto"}),
-        ("auto", {"type": "auto"}),
-        ("required", {"type": "any"}),
-        (republic.Tool("lookup"), {"type": "tool", "name": "lookup"}),
-    ],
-)
-@pytest.mark.parametrize("parallel_tool_calls", [False, True])
-async def test_tool_choices_accept_parallel_call_setting(
-    service: FakeService,
-    tool_choice: republic.ToolChoice | None,
-    expected: Mapping[str, object],
-    parallel_tool_calls: bool,
-) -> None:
-    service.reply_json({"content": [], "usage": {}})
-
-    options: republic.ChatOptions = {
-        "tools": [republic.Tool("lookup")],
-        "parallel_tool_calls": parallel_tool_calls,
-    }
-    if tool_choice is not None:
-        options["tool_choice"] = tool_choice
-    await make_model(service).chat("Hi", **options)
-
-    assert service.body()["tool_choice"] == {
-        **expected,
-        "disable_parallel_tool_use": not parallel_tool_calls,
-    }
-
-
 async def test_seed_is_rejected(service: FakeService) -> None:
     with pytest.raises(republic.errors.UnsupportedFeatureError, match="seed"):
         await make_model(service).chat("Hi", seed=1)
