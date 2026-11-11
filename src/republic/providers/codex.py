@@ -23,7 +23,7 @@ from authlib.oauth2.rfc6749 import OAuth2Token
 from republic._content import Input
 from republic._models import ChatModel
 from republic._options import ChatOptions
-from republic._response import Response
+from republic._response import ModelInfo, Response
 from republic.auth import Auth, OAuth2Auth, _run_login
 from republic.errors import AuthenticationError, UnsupportedFeatureError
 from republic.formats import ApiFormat, ChatApiFormat, HttpRequest
@@ -33,6 +33,10 @@ from .base import Provider
 
 if TYPE_CHECKING:
     from republic._registry import ProviderOptions
+
+# Catalog protocol compatibility, not the installed CLI or Republic version.
+# https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/codex-api/src/endpoint/models.rs
+_MODELS_CLIENT_VERSION = "0.167.0"
 
 
 class CodexAuth(Auth):
@@ -151,7 +155,6 @@ class Codex(Provider):
     name = "codex"
     DEFAULT_API_BASE = "https://chatgpt.com/backend-api/codex"
     SUPPORTED_API_FORMATS = ("responses",)
-    MODELS_PATH = None
 
     def __init__(self, **options: Unpack[ProviderOptions]) -> None:
         super().__init__(**options)
@@ -159,6 +162,12 @@ class Codex(Provider):
             self.auth = CodexAuth.from_file()
         self.headers.setdefault("OpenAI-Beta", "responses=experimental")
         self.headers.setdefault("originator", "republic")
+
+    def _models_params(self, previous: Any) -> dict[str, str] | None:
+        return {"client_version": _MODELS_CLIENT_VERSION} if previous is None else None
+
+    def _parse_models(self, data: Any) -> list[ModelInfo]:
+        return [ModelInfo(item["slug"], item.get("display_name"), item) for item in data.get("models") or []]
 
     def get_model(self, name: str, *, history: HistoryProtocol | None = None) -> ChatModel:
         return _CodexModel(self, name, self.select_api_format(ChatApiFormat, name), history=history)

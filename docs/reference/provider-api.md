@@ -259,7 +259,7 @@ for model in await provider.list_models():
     print(model.id, model.display_name)
 ```
 
-`list_models()` returns `republic.ModelInfo` values for every page of the service's model list. Pass `model.id` to `get_model()` or another model getter; `model.raw` keeps the service's entry, such as context length or pricing. Codex has no model list and raises `errors.UnsupportedFeatureError`.
+`list_models()` returns `republic.ModelInfo` values for every page of the service's model list. Pass `model.id` to `get_model()` or another model getter; `model.raw` keeps the service's entry, such as context length or pricing. Codex reads its backend catalog using the existing Codex authentication, preserving server order and all entries; `model.raw["visibility"]` indicates whether an entry is intended for display.
 
 A custom provider sets `MODELS_PATH` relative to `api_base`, or `None` when the service has no list. Override `_parse_models()` for another response shape and `_models_params()` for pagination.
 

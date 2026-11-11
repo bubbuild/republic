@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 
 import republic
-from republic import ModelInfo, errors
+from republic import ModelInfo
+from republic.providers import CodexAuth
 from tests.conftest import FakeService
 
 
@@ -80,9 +81,10 @@ async def test_google_strips_the_resource_prefix_and_follows_pages(service: Fake
     assert service.requests[0].headers["x-goog-api-key"] == "key"
 
 
-async def test_error_status_raises(service: FakeService) -> None:
+@pytest.mark.parametrize("name", ["openai", "codex"])
+async def test_error_status_raises(service: FakeService, name: str) -> None:
     service.reply_json({"error": "nope"}, status_code=401)
-    provider = republic.get_provider("openai", api_key="key", http_client=service.client())
+    provider = republic.get_provider(name, api_key="key", http_client=service.client())
 
     with pytest.raises(republic.errors.APIStatusError) as error:
         await provider.list_models()
@@ -90,8 +92,43 @@ async def test_error_status_raises(service: FakeService) -> None:
     assert error.value.status_code == 401
 
 
-async def test_codex_cannot_list_models(service: FakeService) -> None:
-    provider = republic.get_provider("codex", auth=republic.auth.HeaderAuth("Authorization", "Bearer t"))
+async def test_codex_lists_catalog_with_auth_and_preserves_metadata_and_order(service: FakeService) -> None:
+    catalog = [
+        {
+            "slug": "model-b",
+            "display_name": "Model B",
+            "visibility": "list",
+            "priority": 20,
+            "supported_in_api": False,
+            "context_window": 272000,
+            "supported_reasoning_levels": [{"effort": "high", "description": "High reasoning"}],
+        },
+        {"slug": "internal-review", "display_name": "Internal Review", "visibility": "hide", "priority": 0},
+        {"slug": "model-a", "display_name": "Model A", "visibility": "list", "priority": 10},
+    ]
+    service.reply_json({"models": catalog})
+    provider = republic.get_provider(
+        "codex",
+        auth=CodexAuth({"access_token": "provided-token"}, account_id="provided-account"),
+        http_client=service.client(),
+    )
 
-    with pytest.raises(errors.UnsupportedFeatureError):
-        await provider.list_models()
+    models = await provider.list_models()
+
+    assert models == [
+        ModelInfo("model-b", "Model B", raw=catalog[0]),
+        ModelInfo("internal-review", "Internal Review", raw=catalog[1]),
+        ModelInfo("model-a", "Model A", raw=catalog[2]),
+    ]
+    request = service.requests[0]
+    assert request.method == "GET"
+    assert request.url == "https://chatgpt.com/backend-api/codex/models?client_version=0.167.0"
+    assert request.headers["authorization"] == "Bearer provided-token"
+    assert request.headers["chatgpt-account-id"] == "provided-account"
+
+
+async def test_codex_lists_an_empty_catalog(service: FakeService) -> None:
+    service.reply_json({"models": []})
+    provider = republic.get_provider("codex", api_key="key", http_client=service.client())
+
+    assert await provider.list_models() == []
