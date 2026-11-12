@@ -32,13 +32,23 @@ from ._base import (
 from .chat import ChatFormat
 from .embeddings import EmbedContentFormat, EmbeddingsFormat
 from .gemini import GeminiFormat
+from .gemini_decision import GeminiDecisionFormat
 from .images import GeminiImageFormat, ImagesFormat, MultipartImagesFormat
 from .messages import MessagesFormat
 from .responses import ResponsesFormat
 from .system_one import SystemOneFormat
 
 ApiFormatName = Literal[
-    "responses", "messages", "gemini", "chat", "embeddings", "embed_content", "images", "gemini_image", "system_one"
+    "responses",
+    "messages",
+    "gemini",
+    "chat",
+    "embeddings",
+    "embed_content",
+    "images",
+    "gemini_image",
+    "system_one",
+    "gemini_decision",
 ]
 
 _API_FORMATS: dict[str, ApiFormat] = {
@@ -53,6 +63,7 @@ _API_FORMATS: dict[str, ApiFormat] = {
         ImagesFormat(),
         GeminiImageFormat(),
         SystemOneFormat(),
+        GeminiDecisionFormat(),
     )
 }
 """The built-in format instances, looked up by name."""
@@ -68,6 +79,7 @@ __all__ = [
     "EmbedContentFormat",
     "EmbeddingApiFormat",
     "EmbeddingsFormat",
+    "GeminiDecisionFormat",
     "GeminiFormat",
     "GeminiImageFormat",
     "HttpRequest",
