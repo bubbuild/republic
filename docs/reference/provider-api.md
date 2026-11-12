@@ -412,4 +412,9 @@ print(response.answers["decision"])
 
 Replace `decision-model` with an available decision model. `Choice`, `Noul`, and `Score` describe the questions; answers use the same IDs. Each provider exposes only the model kinds it supports.
 
+| Format | Providers | Endpoint |
+| --- | --- | --- |
+| `system_one` | TypeSafe, OpenRouter, Magpie | `/systemone` |
+| `gemini_decision` | Google | `/decisions` |
+
 Source: [Frost Ming's Republic specification](https://gist.github.com/frostming/1a454601e435016d8f89a17bd68ad1a4).

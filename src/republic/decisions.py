@@ -1,4 +1,4 @@
-"""Typed questions and answers for decision models such as TypeSafe's System One models."""
+"""Typed questions and answers for decision models such as TypeSafe's System One and Gemini Decision models."""
 
 from __future__ import annotations
 
@@ -62,6 +62,8 @@ Question = Noul | Choice | Score
 class NoulAnswer:
     noul: float
     """Probability that the answer is yes, from 0 to 1."""
+    confidence: float | None = None
+    """Confidence in the answer, when the service reports it."""
     type: Literal["noul"] = "noul"
 
 

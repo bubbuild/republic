@@ -20,7 +20,7 @@ The first chat format in each row is the default. Formats describe the available
 | --- | --- | --- | --- | --- |
 | [OpenAI](openai.md) | `openai` | Chat, embeddings, images | `responses`, `chat` | `REPUBLIC_OPENAI_API_KEY` |
 | [Anthropic](anthropic.md) | `anthropic` | Chat | `messages` | `REPUBLIC_ANTHROPIC_API_KEY` |
-| [Google Gemini](google.md) | `google` | Chat, embeddings, images | `gemini` | `REPUBLIC_GOOGLE_API_KEY` |
+| [Google Gemini](google.md) | `google` | Chat, embeddings, images, decisions | `gemini` | `REPUBLIC_GOOGLE_API_KEY` |
 | [OpenRouter](openrouter.md) | `openrouter` | Chat, embeddings, decisions | `responses`, `messages`, `chat` | `REPUBLIC_OPENROUTER_API_KEY` |
 | [TypeSafe](typesafe.md) | `typesafe` | Decisions | — | `REPUBLIC_TYPESAFE_API_KEY` |
 | [Codex](codex.md) | `codex` | Chat | `responses` | Codex file login |
@@ -46,7 +46,7 @@ from republic import get_model
 model = get_model("openai:MODEL_ID", api_format="chat")
 ```
 
-Chat models use `get_model()` with `chat()` or `stream()`. Embedding models use `get_embedding_model()` with `embed()` or `embed_many()`. Image models use `get_image_model()` with `generate()` or `edit()`. Decision models use `get_decision_model()` with `decide()`; TypeSafe supports this model kind only.
+Chat models use `get_model()` with `chat()` or `stream()`. Embedding models use `get_embedding_model()` with `embed()` or `embed_many()`. Image models use `get_image_model()` with `generate()` or `edit()`. Decision models use `get_decision_model()` with `decide()`; TypeSafe supports this model kind only, and Google serves it through the Gemini Decisions API.
 
 Explicit `auth=` and API keys take precedence over default CLI credentials. See [configuration](../reference/configuration.md) for the complete lookup order, custom endpoints, and HTTP client options.
 
