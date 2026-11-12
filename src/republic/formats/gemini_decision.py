@@ -54,7 +54,7 @@ def _question(question: Question) -> dict[str, Any]:
     match question:
         case Noul(criteria=None):
             pass
-        case Noul(criteria=criteria):
+        case Noul(criteria=Mapping() as criteria):
             body["criteria"] = {
                 f"{outcome}_description": _text(criteria[outcome])
                 for outcome in ("true", "false")
