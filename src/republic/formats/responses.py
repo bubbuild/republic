@@ -142,6 +142,11 @@ class _ResponsesStreamParser(StreamParser):
         payload = json.loads(data)
         if payload.get("type") in {"response.completed", "response.incomplete"}:
             self.completed = True
+        if (
+            payload.get("type") in {"response.output_item.added", "response.output_item.done"}
+            and payload.get("item") is None
+        ):
+            return
         yield from self._feed_payload(payload)
 
     def _feed_payload(self, payload: Mapping[str, Any]) -> Iterable[Delta]:

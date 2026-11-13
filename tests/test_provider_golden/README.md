@@ -155,3 +155,15 @@ OpenRouter tool identity and streaming reasoning, and Azure authentication/routi
 same golden runner and numbered response format. `PROVIDER-SAMPLES.md` pins their Fantasy cassette
 sources, transformations and response hashes. Recorded provenance describes the inputs; it does not
 make Republic's own request conventions evidence of the recorded service's requirements.
+
+
+## Responses null-item regression
+
+`cases/responses_null_output_items_streaming/0.sse` adapts the synthetic input in
+[openai-python@59738a2](https://github.com/openai/openai-python/blob/59738a289ee82c7b86bf1e10230cceb6daa9716d/tests/lib/responses/test_null_output_items.py)
+(Apache-2.0; `LICENSE.openai`). Its SHA-256 is
+`609c654ee2aa50d590995e15d2515009e868651c02e65c7321d177834ffb8302`.
+The upstream construction is serialized as SSE, retaining event order and sequence numbers.
+It is not a production recording and does not establish that null items mean keepalives.
+The input is replayed through the OpenAI Responses provider. Valid text and calls following
+empty output-item events survive. This case does not establish non-streaming or Copilot behavior.

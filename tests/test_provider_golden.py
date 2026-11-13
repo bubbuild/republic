@@ -738,3 +738,13 @@ async def test_azure_uses_api_key_header_and_deployment_name(service: FakeServic
     assert "40" in second.text
     assert service.requests[1].headers["api-key"] == "test-key"
     assert_tool_exchange(service, "chat", [call], {"weather": "40 C"})
+
+
+async def test_responses_null_items_preserve_text_and_tools(service: FakeService) -> None:
+    load_case(service, "responses_null_output_items_streaming")
+
+    response, _ = await respond(make_model(service, "responses"), [republic.user("Hi")], streaming=True)
+
+    assert response.text == '{"answer":4}'
+    assert response.tool_calls == [republic.ToolCall("call_test", "lookup", '{"answer":4}')]
+    assert response.finish_reason == "tool_calls"
