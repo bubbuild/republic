@@ -434,9 +434,12 @@ def _usage(usage: Mapping[str, Any]) -> UsageReport:
     if input_tokens is not None:
         # Anthropic reports cache reads and writes apart from the uncached input.
         input_tokens += (cached_tokens or 0) + (cache_write_tokens or 0)
+    output_details = usage.get("output_tokens_details") or {}
     return UsageReport(
         input_tokens=input_tokens,
         output_tokens=usage.get("output_tokens"),
+        # Thinking tokens are already part of ``output_tokens``, so this only labels them.
+        reasoning_tokens=output_details.get("thinking_tokens"),
         cached_tokens=cached_tokens,
         cache_write_tokens=cache_write_tokens,
     )

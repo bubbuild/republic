@@ -548,3 +548,14 @@ async def test_goose_function_call_uses_call_id(service: FakeService) -> None:
     assert call.id == "call_abc"
     assert call.name == "test__get_person_zip_code"
     assert call.args == {"name": "Alice Burns"}
+
+
+async def test_anthropic_cumulative_usage_includes_thinking(service: FakeService) -> None:
+    load_case(service, "anthropic_message_delta_fields_streaming")
+
+    response, _ = await respond(make_model(service, "messages"), [republic.user("hi")], streaming=True)
+
+    assert response.text == "Hello there!"
+    assert response.token_usage == republic.TokenUsage(
+        input_tokens=59, output_tokens=8, reasoning_tokens=3, cached_tokens=7, cache_write_tokens=12
+    )

@@ -122,3 +122,16 @@ to preserve their event separators.
 
 Both sources use Apache-2.0. Original licenses and applicable notices are retained
 as `LICENSE.fantasy`, `NOTICE.fantasy`, and `LICENSE.goose`.
+
+
+## Anthropic cumulative usage regression
+
+`cases/anthropic_message_delta_fields_streaming/0.sse` preserves the bytes of
+`tests/lib/streaming/fixtures/message_delta_fields_response.txt` from
+[anthropic-sdk-python@5139cf2](https://github.com/anthropics/anthropic-sdk-python/blob/5139cf2e7d07aa618a6c30b7e0c712f10ccb5ad9/tests/lib/streaming/test_messages.py),
+`TestAsyncMessages::test_message_delta_fields_propagated` (Apache-2.0; `LICENSE.anthropic`).
+SHA-256: `194442cb0bb34fa71ebfe7779221ed0761f6ca1714e626c01178e81dd3b79600`.
+This SDK input is not claimed as a production recording. Cumulative usage includes thinking tokens;
+Republic counts cached reads/writes in input tokens and thinking in output tokens. Public usage
+event accounting uses the common golden stream check. The existing
+`goose_messages_cache_streaming` case covers preservation of omitted counts.
