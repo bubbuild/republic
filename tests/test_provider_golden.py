@@ -571,3 +571,170 @@ async def test_chat_stream_selects_choice_zero(service: FakeService) -> None:
     assert response.tool_calls == []
     assert response.finish_reason == "stop"
     assert response.token_usage == republic.TokenUsage(input_tokens=79, output_tokens=42)
+
+
+async def test_zai_reports_split_reasoning_and_usage(service: FakeService) -> None:
+    load_case(service, "provider_sample_zai_glm_reasoning")
+    model = republic.get_model("zai:glm-4.7-flash", api_key="test-key", http_client=service.client())
+
+    response, _ = await respond(
+        model, [republic.system("You are a helpful assistant"), republic.user("Say hi")], max_tokens=4000
+    )
+
+    assert service.requests[0].url == "https://api.z.ai/api/paas/v4/chat/completions"
+    assert service.requests[0].headers["authorization"] == "Bearer test-key"
+    body = service.body()
+    assert body["model"] == "glm-4.7-flash"
+    # Z.ai's GLM chat limits output with `max_tokens`; `max_completion_tokens` is not part of its API.
+    assert body["max_tokens"] == 4000
+    assert "max_completion_tokens" not in body
+    # `reasoning_content` is the model's thinking, kept out of the answer text.
+    assert response.reasoning.startswith("1.  **Analyze the Request:**")
+    assert response.text == "Olá! (Oh-lah)"
+    assert response.finish_reason == "stop"
+    assert response.token_usage == republic.TokenUsage(
+        input_tokens=15, output_tokens=249, reasoning_tokens=239, cached_tokens=3
+    )
+
+
+async def test_zai_reasoning_content_returns_in_the_next_turn(service: FakeService) -> None:
+    load_case(service, "provider_sample_zai_glm_tool")
+    model = republic.get_model("zai:glm-4.7-flash", api_key="test-key", http_client=service.client())
+    prompt = [republic.system("You are a helpful assistant"), republic.user("What's the weather in Florence?")]
+
+    first, _ = await respond(model, prompt, max_tokens=4000, tools=[WEATHER], tool_choice="auto")
+
+    assert first.finish_reason == "tool_calls"
+    assert len(first.tool_calls) == 1
+    call = first.tool_calls[0]
+    assert call.name == "weather"
+    assert call.id == "call_-7807249954186984837"
+    assert call.args == {"location": "Florence,Italy"}
+    assert first.reasoning
+
+    second, _ = await respond(
+        model, [*prompt, first.message, republic.tool(call, "40 C")], max_tokens=4000, tools=[WEATHER]
+    )
+
+    assert second.finish_reason == "stop"
+    assert "40" in second.text
+    assert_tool_exchange(service, "chat", [call], {"weather": "40 C"})
+    assert service.body()["messages"][2]["reasoning_content"] == first.reasoning
+
+
+async def test_grok_reports_reasoning_tokens_without_replaying_them(service: FakeService) -> None:
+    load_case(service, "provider_sample_grok_tool")
+    model = republic.get_model("grok:grok-4-fast", api_key="test-key", api_format="chat", http_client=service.client())
+    prompt = [republic.system("You are a helpful assistant"), republic.user("What's the weather in Florence?")]
+
+    first, _ = await respond(model, prompt, max_tokens=4000, tools=[WEATHER], tool_choice="auto")
+
+    assert service.requests[0].url == "https://api.x.ai/v1/chat/completions"
+    assert first.finish_reason == "tool_calls"
+    assert len(first.tool_calls) == 1
+    call = first.tool_calls[0]
+    assert call.name == "weather"
+    assert call.id == "call_98286056"
+    assert call.args == {"location": "Florence, Italy"}
+    assert first.token_usage == republic.TokenUsage(
+        input_tokens=361, output_tokens=26, reasoning_tokens=93, cached_tokens=153
+    )
+
+    second, _ = await respond(
+        model, [*prompt, first.message, republic.tool(call, "40 C")], max_tokens=4000, tools=[WEATHER]
+    )
+
+    assert second.finish_reason == "stop"
+    assert "40" in second.text
+    assert_tool_exchange(service, "chat", [call], {"weather": "40 C"})
+    assert "reasoning_content" not in service.body()["messages"][2]
+
+
+async def test_openrouter_kimi_returns_recorded_call_identity(service: FakeService) -> None:
+    load_case(service, "provider_sample_openrouter_kimi_tool")
+    model = republic.get_model(
+        "openrouter:moonshotai/kimi-k2.5", api_key="test-key", api_format="chat", http_client=service.client()
+    )
+    prompt = [republic.system("You are a helpful assistant"), republic.user("What's the weather in Florence?")]
+
+    first, _ = await respond(model, prompt, max_tokens=4000, tools=[WEATHER], tool_choice="auto")
+
+    assert service.requests[0].url == "https://openrouter.ai/api/v1/chat/completions"
+    assert first.finish_reason == "tool_calls"
+    assert len(first.tool_calls) == 1
+    call = first.tool_calls[0]
+    assert call.name == "weather"
+    # The gateway keeps the upstream call id, which is not shaped like OpenAI's.
+    assert call.id == "functions.weather:0"
+    assert call.args == {"location": "Florence"}
+    assert first.reasoning.startswith(" The user is asking for the weather in Florence")
+    assert first.text == ""
+
+    second, _ = await respond(
+        model, [*prompt, first.message, republic.tool(call, "40 C")], max_tokens=4000, tools=[WEATHER]
+    )
+
+    assert second.finish_reason == "stop"
+    assert "40" in second.text
+    assert_tool_exchange(service, "chat", [call], {"weather": "40 C"})
+
+
+async def test_openrouter_streams_reasoning_and_final_usage(service: FakeService) -> None:
+    load_case(service, "provider_sample_openrouter_grok_streaming")
+    model = republic.get_model(
+        "openrouter:x-ai/grok-4.1-fast", api_key="test-key", api_format="chat", http_client=service.client()
+    )
+
+    response, _ = await respond(
+        model,
+        [republic.system("You are a helpful assistant"), republic.user("Say hi")],
+        streaming=True,
+        max_tokens=4000,
+    )
+
+    assert response.finish_reason == "stop"
+    assert response.text == "Oi!"
+    # The recording carries OpenRouter's `: OPENROUTER PROCESSING` heartbeats and a null reasoning
+    # field on the closing chunks; only the `reasoning` text becomes reasoning.
+    assert response.reasoning.startswith("First, the core policies")
+    assert response.token_usage == republic.TokenUsage(
+        input_tokens=165, output_tokens=167, reasoning_tokens=165, cached_tokens=164
+    )
+
+
+async def test_azure_uses_api_key_header_and_deployment_name(service: FakeService) -> None:
+    azure_api_base = "https://fantasy-playground-resource.openai.azure.com/openai/v1"
+    load_case(service, "provider_sample_azure_tool")
+    model = republic.get_model(
+        "azure-openai:gpt-5-mini",
+        api_key="test-key",
+        api_base=azure_api_base,
+        api_format="chat",
+        http_client=service.client(),
+    )
+    prompt = [republic.system("You are a helpful assistant"), republic.user("What's the weather in Florence?")]
+
+    first, _ = await respond(model, prompt, max_tokens=4000, tools=[WEATHER], tool_choice="auto")
+
+    assert service.requests[0].url == f"{azure_api_base}/chat/completions"
+    # This API-key case uses `api-key`; Azure AD bearer auth is a separate supported auth mode.
+    assert service.requests[0].headers["api-key"] == "test-key"
+    assert "authorization" not in service.requests[0].headers
+    body = service.body()
+    assert body["model"] == "gpt-5-mini"
+    assert body["max_completion_tokens"] == 4000
+    assert first.finish_reason == "tool_calls"
+    assert len(first.tool_calls) == 1
+    call = first.tool_calls[0]
+    assert call.name == "weather"
+    assert call.id == "call_mbWCiHb6eF0qjzWrYgK52fWS"
+    assert call.args == {"location": "Florence, Italy"}
+
+    second, _ = await respond(
+        model, [*prompt, first.message, republic.tool(call, "40 C")], max_tokens=4000, tools=[WEATHER]
+    )
+
+    assert second.finish_reason == "stop"
+    assert "40" in second.text
+    assert service.requests[1].headers["api-key"] == "test-key"
+    assert_tool_exchange(service, "chat", [call], {"weather": "40 C"})

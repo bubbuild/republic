@@ -146,3 +146,12 @@ event accounting uses the common golden stream check. The existing
 The input carries three interleaved choices; only choice 0 reaches the single-response API.
 The case uses the common golden runner and streaming consistency assertions; there is no
 second copy of the input in the format tests.
+
+
+## Additional provider recordings
+
+The `provider_sample_*` cases exercise Z.ai reasoning/usage and reasoning replay, xAI usage,
+OpenRouter tool identity and streaming reasoning, and Azure authentication/routing through the
+same golden runner and numbered response format. `PROVIDER-SAMPLES.md` pins their Fantasy cassette
+sources, transformations and response hashes. Recorded provenance describes the inputs; it does not
+make Republic's own request conventions evidence of the recorded service's requirements.
