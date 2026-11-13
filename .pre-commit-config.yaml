@@ -9,11 +9,13 @@ repos:
       - id: check-json
         exclude: ^.devcontainer/devcontainer.json
       - id: pretty-format-json
-        exclude: ^.devcontainer/devcontainer.json
+        exclude: ^.devcontainer/devcontainer.json|^tests/test_provider_golden/cases/provider_sample_.*\.json$
         args: [--autofix, --no-sort-keys]
       - id: end-of-file-fixer
-        exclude: ^tests/test_provider_golden/cases/.*\.sse$
+        # Recorded bodies keep their upstream bytes: no added newline, no re-encoding.
+        exclude: ^tests/test_provider_golden/cases/.*\.sse$|^tests/test_provider_golden/cases/provider_sample_.*\.json$
       - id: trailing-whitespace
+        exclude: ^tests/test_provider_golden/cases/provider_sample_.*\.json$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: "v0.14.10"

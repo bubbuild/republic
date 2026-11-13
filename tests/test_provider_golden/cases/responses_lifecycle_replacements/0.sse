@@ -1,0 +1,18 @@
+data: {"type": "response.created", "response": {"id": "resp_fixture", "output": []}, "sequence_number": 0}
+
+data: {"type": "response.output_item.added", "output_index": 3, "item": {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "Original result", "annotations": []}]}, "sequence_number": 1}
+
+data: {"type": "response.output_item.done", "output_index": 3, "item": {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "Original result", "annotations": []}]}, "sequence_number": 2}
+
+data: {"type": "response.output_item.added", "output_index": 7, "item": {"type": "function_call", "call_id": "call_fixture", "name": "lookup", "arguments": "{\"answer\":4}", "status": "completed", "id": null}, "sequence_number": 3}
+
+data: {"type": "response.output_item.done", "output_index": 7, "item": {"type": "function_call", "call_id": "call_fixture", "name": "lookup", "arguments": "{\"answer\":4}", "status": "completed", "id": null}, "sequence_number": 4}
+
+data: {"type": "response.in_progress", "response": {"id": "resp_fixture", "output": [{"type": "function_call", "call_id": "call_fixture", "name": "lookup", "arguments": "{\"answer\":5}", "status": "completed", "id": "fc_fixture"}, {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "Updated result", "annotations": []}]}]}, "sequence_number": 5}
+
+data: {"type": "response.queued", "response": {"id": "resp_fixture", "output": [{"type": "function_call", "call_id": "call_fixture", "name": "lookup", "arguments": "{\"answer\":6}", "status": "completed", "id": "fc_fixture"}]}, "sequence_number": 6}
+
+data: {"type": "response.in_progress", "response": {"id": "resp_fixture", "output": [{"type": "function_call", "call_id": "call_fixture", "name": "lookup", "arguments": "{\"answer\":5}", "status": "completed", "id": "fc_fixture"}]}, "sequence_number": 7}
+
+data: {"type": "response.completed", "response": {"id": "resp_fixture", "status": "completed", "output": null}, "sequence_number": 8}
+

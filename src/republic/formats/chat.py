@@ -164,7 +164,9 @@ class _ChatStreamParser(StreamParser):
             return
         chunk = json.loads(data)
         _raise_for_error(chunk)
-        for choice in chunk.get("choices") or ():
+        # The API exposes one response, so only the choice indexed 0 contributes; other
+        # choices' text, reasoning, calls and finish reason are dropped rather than merged.
+        if (choice := _indexed_choice(chunk)) is not None:
             delta = choice.get("delta") or {}
             if reasoning := self._api_format.reasoning_text(delta):
                 yield ReasoningDelta(reasoning)
@@ -184,6 +186,7 @@ class _ChatStreamParser(StreamParser):
                     arguments=function.get("arguments") or "",
                 )
             yield _info(chunk, choice)
+        # Usage is request-level, not per choice, so it survives whatever the choices say.
         if usage := chunk.get("usage"):
             yield _usage(usage)
 
@@ -258,6 +261,17 @@ def _citation_deltas(message: Mapping[str, Any]) -> Iterable[Delta]:
         if annotation.get("type") == "url_citation":
             citation = annotation["url_citation"]
             yield CitationAdded(Citation(citation["url"], title=citation.get("title")))
+
+
+def _indexed_choice(chunk: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The choice with index 0 in a stream chunk, whatever its position in the array.
+
+    Single-response dialects omit ``index``, so a missing index counts as 0.
+    """
+    for choice in chunk.get("choices") or ():
+        if choice.get("index", 0) == 0:
+            return choice
+    return None
 
 
 def _info(data: Mapping[str, Any], choice: Mapping[str, Any]) -> ResponseInfo:

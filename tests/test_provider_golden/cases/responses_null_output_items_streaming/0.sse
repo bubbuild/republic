@@ -1,0 +1,28 @@
+data: {"type": "response.created", "response": {"id": "resp_test", "output": []}, "sequence_number": 0}
+
+data: {"type": "response.output_item.added", "output_index": 0, "item": null, "sequence_number": 1}
+
+data: {"type": "response.output_item.added", "output_index": 0, "item": {"id": "msg_test", "type": "message", "role": "assistant", "status": "in_progress", "content": []}, "sequence_number": 2}
+
+data: {"type": "response.output_item.added", "output_index": 0, "item": null, "sequence_number": 3}
+
+data: {"type": "response.output_item.added", "output_index": 1, "item": {"id": "fc_test", "type": "function_call", "call_id": "call_test", "name": "lookup", "arguments": "", "status": "in_progress"}, "sequence_number": 4}
+
+data: {"type": "response.content_part.added", "output_index": 0, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": [], "logprobs": []}, "sequence_number": 5}
+
+data: {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "item_id": "msg_test", "delta": "{\"answer\":", "logprobs": [], "sequence_number": 6}
+
+data: {"type": "response.function_call_arguments.delta", "output_index": 1, "item_id": "fc_test", "delta": "{\"answer\":", "sequence_number": 7}
+
+data: {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "item_id": "msg_test", "delta": "4}", "logprobs": [], "sequence_number": 8}
+
+data: {"type": "response.function_call_arguments.delta", "output_index": 1, "item_id": "fc_test", "delta": "4}", "sequence_number": 9}
+
+data: {"type": "response.output_text.done", "output_index": 0, "content_index": 0, "item_id": "msg_test", "text": "{\"answer\":4}", "logprobs": [], "sequence_number": 10}
+
+data: {"type": "response.output_item.done", "output_index": 1, "item": {"id": "fc_test", "type": "function_call", "call_id": "call_test", "name": "lookup", "arguments": "{\"answer\":4}", "status": "completed"}, "sequence_number": 11}
+
+data: {"type": "response.output_item.done", "output_index": 0, "item": {"id": "msg_test", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "{\"answer\":4}", "annotations": [], "logprobs": []}]}, "sequence_number": 12}
+
+data: {"type": "response.completed", "response": {"id": "resp_test", "status": "completed", "output": null}, "sequence_number": 13}
+

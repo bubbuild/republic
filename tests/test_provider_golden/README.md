@@ -135,3 +135,50 @@ This SDK input is not claimed as a production recording. Cumulative usage includ
 Republic counts cached reads/writes in input tokens and thinking in output tokens. Public usage
 event accounting uses the common golden stream check. The existing
 `goose_messages_cache_streaming` case covers preservation of omitted counts.
+
+
+## Chat multi-choice regression
+
+`cases/openai_chat_multi_choice_streaming/0.sse` is the byte-identical SDK fixture used by
+[openai-python@59738a2](https://github.com/openai/openai-python/blob/59738a289ee82c7b86bf1e10230cceb6daa9716d/tests/lib/chat/test_completions_streaming.py),
+`test_parse_pydantic_model_multiple_choices` (Apache-2.0; `LICENSE.openai`). Its SHA-256 is
+`a491adda08c3d4fde95f5b2ee3f60f7f745f1a56d82e62f58031cc2add502380`.
+The input carries three interleaved choices; only choice 0 reaches the single-response API.
+The case uses the common golden runner and streaming consistency assertions; there is no
+second copy of the input in the format tests.
+
+
+## Additional provider recordings
+
+The `provider_sample_*` cases exercise Z.ai reasoning/usage and reasoning replay, xAI usage,
+OpenRouter tool identity and streaming reasoning, and Azure authentication/routing through the
+same golden runner and numbered response format. `PROVIDER-SAMPLES.md` pins their Fantasy cassette
+sources, transformations and response hashes. Recorded provenance describes the inputs; it does not
+make Republic's own request conventions evidence of the recorded service's requirements.
+
+
+## Responses null-item regression
+
+`cases/responses_null_output_items_streaming/0.sse` adapts the synthetic input in
+[openai-python@59738a2](https://github.com/openai/openai-python/blob/59738a289ee82c7b86bf1e10230cceb6daa9716d/tests/lib/responses/test_null_output_items.py)
+(Apache-2.0; `LICENSE.openai`). Its SHA-256 is
+`609c654ee2aa50d590995e15d2515009e868651c02e65c7321d177834ffb8302`.
+The upstream construction is serialized as SSE, retaining event order and sequence numbers.
+It is not a production recording and does not establish that null items mean keepalives.
+The input is replayed through the OpenAI Responses provider. Valid text and calls following
+empty output-item events survive. This case does not establish non-streaming or Copilot behavior.
+
+
+## Responses lifecycle replacements
+
+`cases/responses_lifecycle_replacements/0.sse` serializes the events constructed by
+[`openai-python@59738a289ee82c7b86bf1e10230cceb6daa9716d`](https://github.com/openai/openai-python/blob/59738a289ee82c7b86bf1e10230cceb6daa9716d/tests/lib/responses/test_lifecycle_replacements.py),
+`test_final_output_keeps_completed_lifecycle_replacements`, with `terminal="null"`,
+`duplicate=False` and `tool_id="null"` (Apache-2.0; `LICENSE.openai`). Its SHA-256 is
+`f782d678c56e05ae3026c835d2d3bde30e6a110d36aa465cf1512da2a88b1c48`. Serialization uses the upstream `json.dumps` expression, including sequence numbers.
+
+This is an upstream SDK synthetic robustness case, not a production recording. It covers stable
+message IDs, sparse item-event indices, reordered/partial lifecycle snapshots, replacement text
+and tool arguments, and null terminal output. The final answer and call must contain the latest
+replacement once. It does not establish support for changed/absent message IDs or Copilot-specific
+combinations. The existing golden runner checks public streamed/final consistency.
