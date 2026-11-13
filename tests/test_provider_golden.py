@@ -559,3 +559,15 @@ async def test_anthropic_cumulative_usage_includes_thinking(service: FakeService
     assert response.token_usage == republic.TokenUsage(
         input_tokens=59, output_tokens=8, reasoning_tokens=3, cached_tokens=7, cache_write_tokens=12
     )
+
+
+async def test_chat_stream_selects_choice_zero(service: FakeService) -> None:
+    load_case(service, "openai_chat_multi_choice_streaming")
+
+    response, _ = await respond(make_model(service, "chat"), [republic.user("Weather?")], streaming=True)
+
+    assert response.text == '{"city":"San Francisco","temperature":65,"units":"f"}'
+    assert response.reasoning == ""
+    assert response.tool_calls == []
+    assert response.finish_reason == "stop"
+    assert response.token_usage == republic.TokenUsage(input_tokens=79, output_tokens=42)

@@ -135,3 +135,14 @@ This SDK input is not claimed as a production recording. Cumulative usage includ
 Republic counts cached reads/writes in input tokens and thinking in output tokens. Public usage
 event accounting uses the common golden stream check. The existing
 `goose_messages_cache_streaming` case covers preservation of omitted counts.
+
+
+## Chat multi-choice regression
+
+`cases/openai_chat_multi_choice_streaming/0.sse` is the byte-identical SDK fixture used by
+[openai-python@59738a2](https://github.com/openai/openai-python/blob/59738a289ee82c7b86bf1e10230cceb6daa9716d/tests/lib/chat/test_completions_streaming.py),
+`test_parse_pydantic_model_multiple_choices` (Apache-2.0; `LICENSE.openai`). Its SHA-256 is
+`a491adda08c3d4fde95f5b2ee3f60f7f745f1a56d82e62f58031cc2add502380`.
+The input carries three interleaved choices; only choice 0 reaches the single-response API.
+The case uses the common golden runner and streaming consistency assertions; there is no
+second copy of the input in the format tests.
