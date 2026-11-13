@@ -167,3 +167,18 @@ The upstream construction is serialized as SSE, retaining event order and sequen
 It is not a production recording and does not establish that null items mean keepalives.
 The input is replayed through the OpenAI Responses provider. Valid text and calls following
 empty output-item events survive. This case does not establish non-streaming or Copilot behavior.
+
+
+## Responses lifecycle replacements
+
+`cases/responses_lifecycle_replacements/0.sse` serializes the events constructed by
+[`openai-python@59738a289ee82c7b86bf1e10230cceb6daa9716d`](https://github.com/openai/openai-python/blob/59738a289ee82c7b86bf1e10230cceb6daa9716d/tests/lib/responses/test_lifecycle_replacements.py),
+`test_final_output_keeps_completed_lifecycle_replacements`, with `terminal="null"`,
+`duplicate=False` and `tool_id="null"` (Apache-2.0; `LICENSE.openai`). Its SHA-256 is
+`f782d678c56e05ae3026c835d2d3bde30e6a110d36aa465cf1512da2a88b1c48`. Serialization uses the upstream `json.dumps` expression, including sequence numbers.
+
+This is an upstream SDK synthetic robustness case, not a production recording. It covers stable
+message IDs, sparse item-event indices, reordered/partial lifecycle snapshots, replacement text
+and tool arguments, and null terminal output. The final answer and call must contain the latest
+replacement once. It does not establish support for changed/absent message IDs or Copilot-specific
+combinations. The existing golden runner checks public streamed/final consistency.

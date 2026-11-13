@@ -748,3 +748,14 @@ async def test_responses_null_items_preserve_text_and_tools(service: FakeService
     assert response.text == '{"answer":4}'
     assert response.tool_calls == [republic.ToolCall("call_test", "lookup", '{"answer":4}')]
     assert response.finish_reason == "tool_calls"
+
+
+async def test_responses_lifecycle_replacements(service: FakeService) -> None:
+    load_case(service, "responses_lifecycle_replacements")
+
+    response, _ = await respond(make_model(service, "responses"), [republic.user("Read the stream.")], streaming=True)
+
+    assert response.text == "Updated result"
+    assert response.id == "resp_fixture"
+    assert response.finish_reason == "tool_calls"
+    assert response.tool_calls == [republic.ToolCall("call_fixture", "lookup", '{"answer":5}')]

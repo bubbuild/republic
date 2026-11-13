@@ -133,14 +133,30 @@ class ResponsesFormat(ChatApiFormat):
 
 class _ResponsesStreamParser(StreamParser):
     def __init__(self) -> None:
+        # Keep first-appearance order while replacing snapshots by their stable identity.
+        self._items: dict[tuple[str, str | None], Mapping[str, Any] | None] = {}
+        self._call_keys: dict[str, str] = {}
         self._streamed_calls: set[str] = set()
+        self._finished_calls: set[str] = set()
+        self._streamed_messages: set[str | None] = set()
 
     def feed(self, event: str, data: str) -> Iterable[Delta]:
         if data == "[DONE]":
+            yield from self._flush_items()
             self.completed = True
             return
         payload = json.loads(data)
+        if payload.get("type") in {
+            "response.created",
+            "response.in_progress",
+            "response.queued",
+            "response.completed",
+            "response.incomplete",
+        }:
+            for item in payload["response"].get("output") or ():
+                self._remember_item(item)
         if payload.get("type") in {"response.completed", "response.incomplete"}:
+            yield from self._flush_items()
             self.completed = True
         if (
             payload.get("type") in {"response.output_item.added", "response.output_item.done"}
@@ -152,27 +168,74 @@ class _ResponsesStreamParser(StreamParser):
     def _feed_payload(self, payload: Mapping[str, Any]) -> Iterable[Delta]:
         match payload.get("type"):
             case "response.output_text.delta":
+                self._streamed_messages.add(payload.get("item_id"))
                 yield TextDelta(payload["delta"])
             case "response.output_text.annotation.added":
                 yield from _citation_deltas([payload["annotation"]])
             case "response.refusal.delta":
+                self._streamed_messages.add(payload.get("item_id"))
                 yield RefusalDelta(payload["delta"])
             case "response.reasoning_summary_text.delta" | "response.reasoning_text.delta":
                 yield ReasoningDelta(payload["delta"])
             case "response.reasoning_summary_part.added" if payload.get("summary_index", 0) > 0:
                 yield ReasoningDelta("\n\n")
-            case "response.output_item.added" if payload["item"].get("type") == "function_call":
-                item = payload["item"]
-                self._streamed_calls.add(_call_key(item))
-                yield ToolCallFragment(_call_key(item), id=item["call_id"], name=item["name"])
+            case "response.output_item.added" | "response.output_item.done":
+                yield from self._item_event(payload)
             case "response.function_call_arguments.delta":
-                yield ToolCallFragment(payload["item_id"], arguments=payload["delta"])
-            case "response.output_item.done" if _call_key_or_none(payload["item"]) in self._streamed_calls:
-                yield ToolCallFragment(_call_key(payload["item"]), done=True)
-            case "response.output_item.done":
-                yield from _item_deltas(payload["item"], streamed=True)
+                key = self._call_keys.get(payload["item_id"], payload["item_id"])
+                self._streamed_calls.add(key)
+                yield ToolCallFragment(key, arguments=payload["delta"])
             case _:
                 yield from _lifecycle_deltas(payload)
+
+    def _item_event(self, payload: Mapping[str, Any]) -> Iterable[Delta]:
+        item = payload["item"]
+        added = payload["type"] == "response.output_item.added"
+        self._remember_item(item, snapshot=not added)
+        if item.get("type") == "function_call":
+            key = item["call_id"]
+            if added:
+                yield ToolCallFragment(key, id=key, name=item["name"])
+            elif key in self._streamed_calls:
+                yield from self._finish_call(item)
+        elif not added and item.get("type") != "message":
+            yield from _item_deltas(item, streamed=True)
+
+    def _remember_item(self, item: Mapping[str, Any], *, snapshot: bool = True) -> None:
+        match item.get("type"):
+            case "function_call":
+                identity = item["call_id"]
+                self._call_keys[_call_key(item)] = identity
+                key = ("function_call", identity)
+            case "message":
+                key = ("message", item.get("id"))
+            case _:
+                return
+        if snapshot:
+            self._items[key] = item
+        else:
+            # Added items reserve order, but their content may still be incomplete.
+            self._items.setdefault(key, None)
+
+    def _flush_items(self) -> Iterable[Delta]:
+        for item in self._items.values():
+            if item is None:
+                continue
+            if item["type"] == "function_call":
+                yield from self._finish_call(item)
+            elif None not in self._streamed_messages and item.get("id") not in self._streamed_messages:
+                yield from _item_deltas(item, streamed=False)
+        self._items.clear()
+
+    def _finish_call(self, item: Mapping[str, Any]) -> Iterable[Delta]:
+        key = item["call_id"]
+        if key in self._finished_calls:
+            return
+        # Ordinary argument deltas and their completion remain live. Snapshot-only calls
+        # wait for the terminal event so intermediate lifecycle replacements can settle.
+        arguments = "" if key in self._streamed_calls else item["arguments"]
+        yield ToolCallFragment(key, id=key, name=item["name"], arguments=arguments, done=True)
+        self._finished_calls.add(key)
 
 
 def _lifecycle_deltas(payload: Mapping[str, Any]) -> Iterable[Delta]:
@@ -293,10 +356,6 @@ def _citation_deltas(annotations: Iterable[Mapping[str, Any]]) -> Iterable[Delta
 def _call_key(item: Mapping[str, Any]) -> str:
     """Argument deltas refer to the output item id, not the call id."""
     return item.get("id") or item["call_id"]
-
-
-def _call_key_or_none(item: Mapping[str, Any]) -> str | None:
-    return _call_key(item) if item.get("type") == "function_call" else None
 
 
 def _response_deltas(response: Mapping[str, Any]) -> Iterable[Delta]:
