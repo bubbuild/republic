@@ -16,6 +16,7 @@ nav = [
     { "Tool use" = "guides/tools.md" },
     { "Minimal agent" = "guides/minimal-agent.md" },
     { "Structured output" = "guides/structured-output.md" },
+    { "Prompt caching" = "guides/prompt-caching.md" },
     { "Concurrency limit" = "guides/concurrency-limit.md" },
   ] },
   { "Providers" = [

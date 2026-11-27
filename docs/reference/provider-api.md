@@ -243,7 +243,7 @@ print(response.token_usage)
 print(response.token_usage.total_tokens)
 ```
 
-Total tokens are input plus output tokens. Reasoning tokens are included in output; cached and cache-write tokens are included in input when reported.
+Total tokens are input plus output tokens. Reasoning tokens are included in output; cached (`cached_tokens`) and cache-write (`cache_write_tokens`) tokens are included in input when reported. See [prompt caching and session affinity](../guides/prompt-caching.md) for passing `session_id` and `cache_retention`.
 
 ## Providers
 
@@ -303,7 +303,7 @@ class Acme(OpenAICompatible):
 republic.register_provider(Acme)
 ```
 
-Every chat format has `reasoning_fields()`. `ChatFormat` also has `max_tokens_fields()`, `reasoning_text()`, `content_text()` for answer text in content parts, and `assistant_fields()` for fields added to assistant messages sent back, such as `reasoning_content`.
+Every chat format has `reasoning_fields()` and `cache_fields()`. `ChatFormat` also has `max_tokens_fields()`, `reasoning_text()`, `content_text()` for answer text in content parts, and `assistant_fields()` for fields added to assistant messages sent back, such as `reasoning_content`. Providers can also override `_prepare_request()` to attach per-request headers or provider-specific body fields; see [custom providers and formats](../guides/prompt-caching.md#custom-providers-and-formats).
 
 ## API format support
 
