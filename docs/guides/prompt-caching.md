@@ -41,13 +41,13 @@ The same options work with `model.stream()`. Read `response.token_usage.cached_t
 | Value | Behavior |
 | --- | --- |
 | Omitted (`None`) | Sends routing affinity headers and cache keys where supported, without opting into explicit paid cache-write directives such as `cache_control`. |
-| `"short"` | Enables default ephemeral caching (`cache_control: {"type": "ephemeral"}` on Messages and OpenRouter) and provider cache keys. Recommended for multi-turn loops. |
-| `"long"` | Requests extended retention where supported: `cache_control: {"type": "ephemeral", "ttl": "1h"}` on Messages and OpenRouter, and `prompt_cache_retention: "24h"` on OpenAI and Azure OpenAI. |
+| `"short"` | Enables default ephemeral caching (`cache_control: {"type": "ephemeral"}` on any provider using the `messages` format and on `openrouter` `chat` / `responses`) and provider cache keys. Recommended for multi-turn loops. |
+| `"long"` | Requests extended retention where supported: `cache_control: {"type": "ephemeral", "ttl": "1h"}` on any provider using the `messages` format and on `openrouter` `chat` / `responses`, and `prompt_cache_retention: "24h"` on `openai` and `azure-openai`. |
 | `"none"` | Omits explicit cache directives and `prompt_cache_key`, while still sending pure routing affinity headers (such as `x-session-id` or `x-affinity`) when `session_id` is set. |
 
 ## Provider mapping
 
-Republic maps `session_id` and `cache_retention` by provider and API format rather than by model name:
+Republic maps `session_id` and `cache_retention` by provider and API format rather than by model name. Every provider speaking the `messages` format emits top-level `cache_control` through `MessagesFormat.cache_fields()` when `cache_retention` is `"short"` or `"long"`:
 
 | Provider | Formats | Affinity headers | Request body fields |
 | --- | --- | --- | --- |
@@ -59,8 +59,9 @@ Republic maps `session_id` and `cache_retention` by provider and API format rath
 | `grok` | `chat`, `responses` | `x-grok-conv-id` | `prompt_cache_key` (`responses`) |
 | `mistral` | `chat` | `x-affinity` | `prompt_cache_key` |
 | `moonshot` | `chat` | — | `prompt_cache_key` |
+| `deepseek`, `minimax`, `github-copilot` | `messages` | — | `cache_control` for `"short"` / `"long"` |
 
-Other built-in providers (such as `deepseek`, `google`, `minimax`, `ollama`, `together`, `zai`, `github-copilot`, and `OpenAICompatible`) rely on implicit prefix caching or ignore these options.
+Other built-in providers (`google`, `ollama`, `together`, `zai`, and `OpenAICompatible`), as well as `chat` and `responses` requests on `deepseek`, `minimax`, and `github-copilot`, rely on implicit prefix caching or ignore these options.
 
 ## Overriding generated fields
 
