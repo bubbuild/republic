@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Any
 
 from republic._content import Message
-from republic.formats import ChatRequest, EmbeddingsFormat, HttpRequest
+from republic.formats import ApiFormat, ChatRequest, EmbeddingsFormat, HttpRequest
 
 from ._chat import MaxTokensChat
 from .base import _FormatT
@@ -64,6 +64,22 @@ class Mistral(OpenAICompatible):
     DEFAULT_API_BASE = "https://api.mistral.ai/v1"
     SUPPORTED_API_FORMATS = ("chat", "embeddings")
     CHAT_FORMAT = MistralChatFormat()
+
+    def _prepare_request(
+        self, api_format: ApiFormat, chat_request: ChatRequest, http_request: HttpRequest
+    ) -> HttpRequest:
+        session_id = chat_request.options.get("session_id")
+        if not session_id:
+            return http_request
+        headers = {**http_request.headers, "x-affinity": session_id}
+        body = http_request.body
+        if (
+            api_format.name == "chat"
+            and chat_request.options.get("cache_retention") != "none"
+            and "prompt_cache_key" not in body
+        ):
+            body = {**body, "prompt_cache_key": session_id}
+        return replace(http_request, headers=headers, body=body)
 
     def select_api_format(self, format_kind: type[_FormatT], model: str) -> _FormatT:
         api_format = super().select_api_format(format_kind, model)

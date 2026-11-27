@@ -8,6 +8,7 @@ import os
 import tempfile
 import threading
 from collections.abc import AsyncGenerator, Generator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self, Unpack
@@ -20,6 +21,7 @@ from filelock import FileLock
 
 from republic.auth import Auth, OAuth2Auth, _run_login
 from republic.errors import AuthenticationError
+from republic.formats._base import ApiFormat, ChatRequest, HttpRequest
 
 from .base import Provider
 
@@ -141,6 +143,22 @@ class Grok(Provider):
         super().__init__(**options)
         if self.auth is None and (self._http_client is None or self._http_client.auth is None):
             self.auth = GrokAuth.from_file()
+
+    def _prepare_request(
+        self, api_format: ApiFormat, chat_request: ChatRequest, http_request: HttpRequest
+    ) -> HttpRequest:
+        session_id = chat_request.options.get("session_id")
+        if not session_id:
+            return http_request
+        headers = {**http_request.headers, "x-grok-conv-id": session_id}
+        body = http_request.body
+        if (
+            api_format.name == "responses"
+            and chat_request.options.get("cache_retention") != "none"
+            and "prompt_cache_key" not in body
+        ):
+            body = {**body, "prompt_cache_key": session_id}
+        return replace(http_request, headers=headers, body=body)
 
 
 def _oauth_token(value: Mapping[str, Any]) -> OAuth2Token:
