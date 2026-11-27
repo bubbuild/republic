@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import replace
 from typing import Any, ClassVar, Self
 
 import httpx2
@@ -10,6 +11,7 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from republic._options import ReasoningEffort
 from republic.auth import HeaderAuth
 from republic.errors import AuthenticationError
+from republic.formats._base import ApiFormat, ChatRequest, HttpRequest
 from republic.formats.chat import ChatFormat
 
 from .base import Provider, _FormatT
@@ -98,6 +100,14 @@ class OpenRouter(Provider):
     # OpenRouter routes every API format to any model it serves, and also hosts
     # System One decision models such as TypeSafe's Jev.
     SUPPORTED_API_FORMATS = ("responses", "messages", "chat", "embeddings", "system_one")
+
+    def _prepare_request(
+        self, api_format: ApiFormat, chat_request: ChatRequest, http_request: HttpRequest
+    ) -> HttpRequest:
+        session_id = chat_request.options.get("session_id")
+        if not session_id:
+            return http_request
+        return replace(http_request, headers={**http_request.headers, "x-session-id": session_id})
 
     def select_api_format(self, format_kind: type[_FormatT], model: str) -> _FormatT:
         api_format = super().select_api_format(format_kind, model)

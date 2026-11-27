@@ -141,6 +141,8 @@ class HttpRequest:
     params: Mapping[str, str] = field(default_factory=dict)
     files: Sequence[tuple[str, tuple[str, bytes, str]]] = ()
     """Multipart file parts as ``(field, (filename, data, media_type))``."""
+    headers: Mapping[str, str] = field(default_factory=dict)
+    """Request-specific HTTP headers, merged over format and provider headers."""
 
 
 @dataclass(frozen=True)
@@ -229,6 +231,10 @@ class ChatApiFormat(ApiFormat):
     @abstractmethod
     def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
         """The request body fragment for reasoning options, deep-merged into the body."""
+
+    def cache_fields(self, request: ChatRequest) -> dict[str, Any]:
+        """The request body fragment for prompt caching options, deep-merged into the body."""
+        return {}
 
     @abstractmethod
     def chat_request(self, request: ChatRequest, *, stream: bool) -> HttpRequest: ...

@@ -77,6 +77,7 @@ class GeminiFormat(ChatApiFormat):
         body = deep_merge(
             body, self.reasoning_fields(effort, include_reasoning=options.get("include_reasoning", False))
         )
+        body = deep_merge(body, self.cache_fields(request))
         if stream:
             return HttpRequest(
                 f"/models/{request.model}:streamGenerateContent", request.body(body), params={"alt": "sse"}

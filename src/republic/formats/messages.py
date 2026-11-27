@@ -75,6 +75,7 @@ class MessagesFormat(ChatApiFormat):
         body = deep_merge(
             body, self.reasoning_fields(effort, include_reasoning=options.get("include_reasoning", False))
         )
+        body = deep_merge(body, self.cache_fields(request))
         body.update(request.renamed({"temperature": "temperature", "top_p": "top_p", "top_k": "top_k"}))
         if (stop := options.get("stop")) is not None:
             body["stop_sequences"] = list(stop)
@@ -109,6 +110,14 @@ class MessagesFormat(ChatApiFormat):
 
     def stream_parser(self) -> StreamParser:
         return _MessagesStreamParser()
+
+    def cache_fields(self, request: ChatRequest) -> dict[str, Any]:
+        retention = request.options.get("cache_retention")
+        if retention == "short":
+            return {"cache_control": {"type": "ephemeral"}}
+        if retention == "long":
+            return {"cache_control": {"type": "ephemeral", "ttl": "1h"}}
+        return {}
 
     def reasoning_fields(self, effort: ReasoningEffort | None, *, include_reasoning: bool) -> dict[str, Any]:
         """Thinking must be enabled explicitly on some models; ``display`` makes it readable."""

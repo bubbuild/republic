@@ -30,6 +30,7 @@ from republic.formats import _API_FORMATS, ApiFormatName
 from republic.formats._base import (
     ApiFormat,
     ChatApiFormat,
+    ChatRequest,
     DecisionApiFormat,
     EmbeddingApiFormat,
     HttpRequest,
@@ -377,6 +378,12 @@ class Provider:
             self._client_loop = asyncio.get_running_loop()
         return self._http_client
 
+    def _prepare_request(
+        self, api_format: ApiFormat, chat_request: ChatRequest, http_request: HttpRequest
+    ) -> HttpRequest:
+        """Adapt one built chat HTTP request with provider-specific headers or transport rules."""
+        return http_request
+
     async def _send(
         self, client: httpx2.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool
     ) -> httpx2.Response:
@@ -387,7 +394,7 @@ class Provider:
             "POST",
             f"{self.api_base}{request.path}",
             params=request.params,
-            headers={**api_format.headers, **self.headers},
+            headers={**api_format.headers, **self.headers, **request.headers},
             **content,
         )
         auth = httpx2.USE_CLIENT_DEFAULT if self.auth is None else self.auth

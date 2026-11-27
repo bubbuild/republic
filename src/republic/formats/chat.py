@@ -93,6 +93,7 @@ class ChatFormat(ChatApiFormat):
         body = deep_merge(
             body, self.reasoning_fields(effort, include_reasoning=request.options.get("include_reasoning", False))
         )
+        body = deep_merge(body, self.cache_fields(request))
         if (stop := request.options.get("stop")) is not None:
             body["stop"] = list(stop)
         if stream:
@@ -299,6 +300,7 @@ def _usage(usage: Mapping[str, Any]) -> UsageReport:
         output_tokens=usage.get("completion_tokens"),
         reasoning_tokens=output_details.get("reasoning_tokens"),
         cached_tokens=input_details.get("cached_tokens"),
+        cache_write_tokens=input_details.get("cache_write_tokens"),
     )
 
 

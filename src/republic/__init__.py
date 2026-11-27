@@ -26,7 +26,7 @@ from republic._content import (
     video,
 )
 from republic._models import ChatModel, DecisionModel, EmbeddingModel, ImageModel, Stream
-from republic._options import ChatOptions, ImageOptions, ReasoningEffort, ToolChoice
+from republic._options import CacheRetention, ChatOptions, ImageOptions, ReasoningEffort, ToolChoice
 from republic._registry import (
     all_providers,
     get_decision_model,
@@ -50,6 +50,7 @@ from republic._response import (
 __all__ = [
     "Audio",
     "BuiltinToolCall",
+    "CacheRetention",
     "ChatModel",
     "ChatOptions",
     "Citation",
