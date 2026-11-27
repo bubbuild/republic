@@ -27,6 +27,7 @@ from republic._response import ModelInfo, Response
 from republic.auth import Auth, OAuth2Auth, _run_login
 from republic.errors import AuthenticationError, UnsupportedFeatureError
 from republic.formats import ApiFormat, ChatApiFormat, HttpRequest
+from republic.formats._base import ChatRequest
 from republic.history import HistoryProtocol
 
 from .base import Provider
@@ -172,16 +173,21 @@ class Codex(Provider):
     def get_model(self, name: str, *, history: HistoryProtocol | None = None) -> ChatModel:
         return _CodexModel(self, name, self.select_api_format(ChatApiFormat, name), history=history)
 
-    async def _send(
-        self, client: httpx2.AsyncClient, api_format: ApiFormat, request: HttpRequest, *, stream: bool
-    ) -> httpx2.Response:
-        body = dict(request.body)
+    def _prepare_request(
+        self, api_format: ApiFormat, chat_request: ChatRequest, http_request: HttpRequest
+    ) -> HttpRequest:
+        body = dict(http_request.body)
         if "max_output_tokens" in body:
             raise UnsupportedFeatureError("Codex does not support max_tokens")
         body.update(stream=True, store=False)
         body.setdefault("instructions", "You are Codex.")
         body["include"] = list(dict.fromkeys([*body.get("include", []), "reasoning.encrypted_content"]))
-        return await super()._send(client, api_format, replace(request, body=body), stream=stream)
+        headers = dict(http_request.headers)
+        if session_id := chat_request.options.get("session_id"):
+            headers.setdefault("session-id", session_id)
+            if chat_request.options.get("cache_retention") != "none":
+                body.setdefault("prompt_cache_key", session_id)
+        return replace(http_request, body=body, headers=headers)
 
 
 class _CodexModel(ChatModel):

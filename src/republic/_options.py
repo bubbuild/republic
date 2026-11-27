@@ -9,6 +9,9 @@ from republic.tools import BuiltinTool
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 """How much the model reasons before answering. Providers accept different subsets."""
 
+CacheRetention = Literal["none", "short", "long"]
+"""Prompt cache retention hint: disable explicit caching, keep short/default TTL, or request extended TTL."""
+
 ToolChoice = Literal["auto", "none", "required"] | Tool
 """Let the model decide, forbid tools, require some tool, or require the given tool."""
 
@@ -36,6 +39,10 @@ class ChatOptions(TypedDict, total=False):
     reasoning_effort: ReasoningEffort
     include_reasoning: bool
     """Ask for readable reasoning (or its summary) where the provider hides it by default."""
+    session_id: str
+    """Stable conversation identifier for prompt cache keys and gateway routing affinity."""
+    cache_retention: CacheRetention
+    """Prompt cache retention hint; advisory and ignored where the endpoint has no matching control."""
     extra_body: Mapping[str, Any]
 
 

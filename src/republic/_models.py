@@ -86,7 +86,10 @@ class ChatModel:
     ) -> AsyncGenerator[CallEvent, None]:
         new_messages = to_messages(prompt)
         adapter = _adapter(output_schema)
-        request = self.api_format.chat_request(await self._request(new_messages, options, adapter), stream=False)
+        chat_request = await self._request(new_messages, options, adapter)
+        request = self.provider._prepare_request(
+            self.api_format, chat_request, self.api_format.chat_request(chat_request, stream=False)
+        )
         async for response in self.provider._middleware_stack.retry(
             lambda: self.provider._post(self.api_format, request)
         ):
@@ -215,8 +218,9 @@ class Stream(Generic[OutputT]):
     async def _source(self) -> AsyncGenerator[CallEvent, None]:
         model = self._model
         api_format = model.api_format
-        request = api_format.chat_request(
-            await model._request(self._new_messages, self._options, self._adapter), stream=True
+        chat_request = await model._request(self._new_messages, self._options, self._adapter)
+        request = model.provider._prepare_request(
+            api_format, chat_request, api_format.chat_request(chat_request, stream=True)
         )
         async with AsyncExitStack() as http:
             async for item in model.provider._middleware_stack.retry(
