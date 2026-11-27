@@ -7,7 +7,18 @@ import pytest
 
 import republic
 from republic.formats import ApiFormat, ChatFormat, ChatRequest
-from republic.providers import Codex, CodexAuth, Magpie, OpenAI, OpenAICompatible, OpenRouter
+from republic.providers import (
+    Codex,
+    CodexAuth,
+    DeepSeek,
+    Grok,
+    Magpie,
+    Mistral,
+    Moonshot,
+    OpenAI,
+    OpenAICompatible,
+    OpenRouter,
+)
 from tests.conftest import FakeService
 
 FormatT = TypeVar("FormatT", bound=ApiFormat)
@@ -78,9 +89,61 @@ async def test_codex_sets_session_header_and_prompt_cache_key(service: FakeServi
     await model.chat("Hi", session_id="sess-codex", cache_retention="none")
 
     assert service.requests[0].headers["session-id"] == "sess-codex"
+    assert service.requests[0].headers["thread-id"] == "sess-codex"
     assert service.body(0)["prompt_cache_key"] == "sess-codex"
     assert service.requests[1].headers["session-id"] == "sess-codex"
+    assert service.requests[1].headers["thread-id"] == "sess-codex"
     assert "prompt_cache_key" not in service.body(1)
+
+
+async def test_grok_sets_conv_id_header_and_responses_prompt_cache_key(service: FakeService) -> None:
+    service.reply_json(CHAT_REPLY)
+    service.reply_json(RESPONSES_REPLY)
+    service.reply_json(RESPONSES_REPLY)
+    chat_model = Grok(api_key="key", api_format="chat", http_client=service.client()).get_model("grok-4")
+    resp_model = Grok(api_key="key", api_format="responses", http_client=service.client()).get_model("grok-4")
+
+    await chat_model.chat("Hi", session_id="sess-grok")
+    await resp_model.chat("Hi", session_id="sess-grok")
+    await resp_model.chat("Hi", session_id="sess-grok", cache_retention="none")
+
+    assert service.requests[0].headers["x-grok-conv-id"] == "sess-grok"
+    assert "prompt_cache_key" not in service.body(0)
+    assert service.requests[1].headers["x-grok-conv-id"] == "sess-grok"
+    assert service.body(1)["prompt_cache_key"] == "sess-grok"
+    assert service.requests[2].headers["x-grok-conv-id"] == "sess-grok"
+    assert "prompt_cache_key" not in service.body(2)
+
+
+async def test_mistral_sets_affinity_header_and_prompt_cache_key(service: FakeService) -> None:
+    service.reply_json(CHAT_REPLY)
+    service.reply_json(CHAT_REPLY)
+    model = Mistral(api_key="key", http_client=service.client()).get_model("mistral-large-latest")
+
+    await model.chat("Hi", session_id="sess-mistral")
+    await model.chat("Hi", session_id="sess-mistral", cache_retention="none")
+
+    assert service.requests[0].headers["x-affinity"] == "sess-mistral"
+    assert service.body(0)["prompt_cache_key"] == "sess-mistral"
+    assert service.requests[1].headers["x-affinity"] == "sess-mistral"
+    assert "prompt_cache_key" not in service.body(1)
+
+
+async def test_moonshot_sets_prompt_cache_key_while_deepseek_stays_untouched(service: FakeService) -> None:
+    service.reply_json(CHAT_REPLY)
+    service.reply_json(CHAT_REPLY)
+    service.reply_json(CHAT_REPLY)
+    moonshot = Moonshot(api_key="key", http_client=service.client()).get_model("kimi-k2")
+    deepseek = DeepSeek(api_key="key", http_client=service.client()).get_model("deepseek-chat")
+
+    await moonshot.chat("Hi", session_id="sess-kimi")
+    await moonshot.chat("Hi", session_id="sess-kimi", cache_retention="none")
+    await deepseek.chat("Hi", session_id="sess-ds")
+
+    assert service.body(0)["prompt_cache_key"] == "sess-kimi"
+    assert "prompt_cache_key" not in service.body(1)
+    assert "prompt_cache_key" not in service.body(2)
+    assert "x-session-id" not in service.requests[2].headers
 
 
 async def test_magpie_sets_session_header_across_formats_and_cache_key_for_openai_formats(

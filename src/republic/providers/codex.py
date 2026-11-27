@@ -185,6 +185,7 @@ class Codex(Provider):
         headers = dict(http_request.headers)
         if session_id := chat_request.options.get("session_id"):
             headers.setdefault("session-id", session_id)
+            headers.setdefault("thread-id", session_id)
             if chat_request.options.get("cache_retention") != "none":
                 body.setdefault("prompt_cache_key", session_id)
         return replace(http_request, body=body, headers=headers)
