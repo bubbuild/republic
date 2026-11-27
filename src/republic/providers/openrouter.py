@@ -104,10 +104,19 @@ class OpenRouter(Provider):
     def _prepare_request(
         self, api_format: ApiFormat, chat_request: ChatRequest, http_request: HttpRequest
     ) -> HttpRequest:
-        session_id = chat_request.options.get("session_id")
-        if not session_id:
+        headers = http_request.headers
+        if session_id := chat_request.options.get("session_id"):
+            headers = {**headers, "x-session-id": session_id}
+        body = http_request.body
+        if api_format.name in {"chat", "responses"} and "cache_control" not in body:
+            retention = chat_request.options.get("cache_retention")
+            if retention == "short":
+                body = {**body, "cache_control": {"type": "ephemeral"}}
+            elif retention == "long":
+                body = {**body, "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+        if headers is http_request.headers and body is http_request.body:
             return http_request
-        return replace(http_request, headers={**http_request.headers, "x-session-id": session_id})
+        return replace(http_request, headers=headers, body=body)
 
     def select_api_format(self, format_kind: type[_FormatT], model: str) -> _FormatT:
         api_format = super().select_api_format(format_kind, model)

@@ -185,6 +185,52 @@ async def test_openrouter_sets_session_header_without_mutating_provider(service:
     assert "x-session-id" not in provider.headers
 
 
+@pytest.mark.parametrize("api_format", ["chat", "responses", "messages"])
+@pytest.mark.parametrize(
+    ("retention", "expected"),
+    [
+        ("short", {"type": "ephemeral"}),
+        ("long", {"type": "ephemeral", "ttl": "1h"}),
+        ("none", None),
+        (None, None),
+    ],
+)
+async def test_openrouter_maps_cache_retention_across_formats(
+    service: FakeService,
+    api_format: Literal["chat", "responses", "messages"],
+    retention: republic.CacheRetention | None,
+    expected: dict[str, str] | None,
+) -> None:
+    reply = {"chat": CHAT_REPLY, "responses": RESPONSES_REPLY, "messages": MESSAGES_REPLY}[api_format]
+    service.reply_json(reply)
+    model = OpenRouter(api_key="key", api_format=api_format, http_client=service.client()).get_model("vendor/model")
+
+    options: dict[str, Any] = {"session_id": "sess-or"}
+    if retention is not None:
+        options["cache_retention"] = retention
+    await model.chat("Hi", **options)
+
+    assert service.requests[0].headers["x-session-id"] == "sess-or"
+    assert service.body().get("cache_control") == expected
+
+
+@pytest.mark.parametrize("api_format", ["chat", "responses"])
+async def test_openrouter_maps_cache_retention_without_session_id_and_respects_extra_body(
+    service: FakeService, api_format: Literal["chat", "responses"]
+) -> None:
+    reply = CHAT_REPLY if api_format == "chat" else RESPONSES_REPLY
+    service.reply_json(reply)
+    service.reply_json(reply)
+    model = OpenRouter(api_key="key", api_format=api_format, http_client=service.client()).get_model("vendor/model")
+
+    await model.chat("Hi", cache_retention="short")
+    await model.chat("Hi", cache_retention="short", extra_body={"cache_control": {"type": "ephemeral", "ttl": "1h"}})
+
+    assert "x-session-id" not in service.requests[0].headers
+    assert service.body(0)["cache_control"] == {"type": "ephemeral"}
+    assert service.body(1)["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+
 @pytest.mark.parametrize(
     ("retention", "expected"),
     [
